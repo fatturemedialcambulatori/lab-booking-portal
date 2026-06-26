@@ -45,6 +45,7 @@ type Visit = {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  codiceFiscale?: string | null;
   email: string;
   phone: string;
   notes?: string | null;
@@ -126,7 +127,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
   const visits = React.useMemo((): Visit[] => {
     return [...(dayBookings as Array<{
       id: number; date: string; time: string; firstName: string; lastName: string;
-      dateOfBirth: string; email: string; phone: string; notes?: string | null;
+      dateOfBirth: string; codiceFiscale?: string | null; email: string; phone: string; notes?: string | null;
       examIds: number[]; examNames: string[]; status: string;
     }>)]
       .sort((a, b) => a.time.localeCompare(b.time))
@@ -138,6 +139,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
         firstName: b.firstName,
         lastName: b.lastName,
         dateOfBirth: b.dateOfBirth,
+        codiceFiscale: b.codiceFiscale,
         email: b.email,
         phone: b.phone,
         notes: b.notes,
@@ -341,6 +343,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
             setTodoVisit(null);
             refetch();
           }}
+          role={role}
         />
       )}
     </div>

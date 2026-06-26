@@ -1,5 +1,5 @@
 import React from "react";
-import { useListExams, useUpdateBookingStatus } from "@workspace/api-client-react";
+import { useListExams, useUpdateBookingStatus, useListPatients } from "@workspace/api-client-react";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +19,7 @@ import {
   X,
   User2,
 } from "lucide-react";
-import { printSchedaLaboratorio } from "@/lib/printDocs";
+import { printSchedaLaboratorio, printPreventivo } from "@/lib/printDocs";
 
 export type TodoVisit = {
   id: number;
@@ -27,6 +27,7 @@ export type TodoVisit = {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  codiceFiscale?: string | null;
   time: string;
   date: string;
   email: string;
@@ -43,12 +44,16 @@ interface Props {
   onToggle: (examId: number) => void;
   onClose: () => void;
   onCompleted: () => void;
+  role?: string;
 }
 
-export function ExamTodoDialog({ visit, doneIds, onToggle, onClose, onCompleted }: Props) {
+export function ExamTodoDialog({ visit, doneIds, onToggle, onClose, onCompleted, role = "segreteria" }: Props) {
   const { data: allExams } = useListExams();
+  const { data: patients } = useListPatients({ search: visit.email });
   const updateStatus = useUpdateBookingStatus();
   const [completing, setCompleting] = React.useState(false);
+
+  const patient = patients?.[0];
 
   const exams = React.useMemo(
     () => (allExams ?? []).filter((e) => visit.examIds.includes(e.id)),
@@ -70,9 +75,27 @@ export function ExamTodoDialog({ visit, doneIds, onToggle, onClose, onCompleted 
     }
   };
 
-  const handlePrint = () => {
+  const handlePrintScheda = () => {
     printSchedaLaboratorio(
       { firstName: visit.firstName, lastName: visit.lastName, dateOfBirth: visit.dateOfBirth },
+      exams
+    );
+  };
+
+  const handlePrintPreventivo = () => {
+    printPreventivo(
+      {
+        firstName: visit.firstName,
+        lastName: visit.lastName,
+        dateOfBirth: visit.dateOfBirth,
+        codiceFiscale: visit.codiceFiscale ?? undefined,
+        email: visit.email,
+        phone: visit.phone,
+        billingAddress: patient?.billingAddress ?? undefined,
+        billingCap: patient?.billingCap ?? undefined,
+        billingCity: patient?.billingCity ?? undefined,
+        billingProvincia: patient?.billingProvincia ?? undefined,
+      },
       exams
     );
   };
@@ -196,10 +219,18 @@ export function ExamTodoDialog({ visit, doneIds, onToggle, onClose, onCompleted 
 
         {/* Footer actions */}
         <div className="px-5 py-4 border-t border-border shrink-0 flex items-center justify-between gap-3">
-          <Button variant="outline" size="sm" className="gap-2" onClick={handlePrint}>
-            <Printer className="h-3.5 w-3.5" />
-            Scheda Lab
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="gap-2" onClick={handlePrintScheda}>
+              <Printer className="h-3.5 w-3.5" />
+              Scheda Lab
+            </Button>
+            {role === "segreteria" && (
+              <Button variant="outline" size="sm" className="gap-2" onClick={handlePrintPreventivo}>
+                <Printer className="h-3.5 w-3.5" />
+                Preventivo
+              </Button>
+            )}
+          </div>
 
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={onClose}>
