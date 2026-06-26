@@ -76,3 +76,17 @@ date: string;
 examId?: number;
 };
 
+export type ListBookingsParams = {
+status?: ListBookingsStatus;
+date?: string;
+};
+
+export type ListBookingsStatus = typeof ListBookingsStatus[keyof typeof ListBookingsStatus];
+
+
+export const ListBookingsStatus = {
+  confirmed: 'confirmed',
+  cancelled: 'cancelled',
+  pending: 'pending',
+} as const;
+

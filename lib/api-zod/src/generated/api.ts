@@ -47,6 +47,32 @@ export const ListSlotsResponse = zod.array(ListSlotsResponseItem)
 
 
 /**
+ * @summary List all bookings (operator use)
+ */
+export const ListBookingsQueryParams = zod.object({
+  "status": zod.enum(['confirmed', 'cancelled', 'pending']).optional(),
+  "date": zod.date().optional()
+})
+
+export const ListBookingsResponseItem = zod.object({
+  "id": zod.number(),
+  "examId": zod.number(),
+  "examName": zod.string(),
+  "date": zod.coerce.date(),
+  "time": zod.string(),
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "dateOfBirth": zod.coerce.date(),
+  "email": zod.string(),
+  "phone": zod.string(),
+  "notes": zod.string().nullish(),
+  "status": zod.enum(['confirmed', 'cancelled', 'pending']),
+  "createdAt": zod.coerce.date()
+})
+export const ListBookingsResponse = zod.array(ListBookingsResponseItem)
+
+
+/**
  * @summary Create a new booking
  */
 export const CreateBookingBody = zod.object({

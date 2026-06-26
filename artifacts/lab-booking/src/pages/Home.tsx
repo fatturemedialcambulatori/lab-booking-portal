@@ -68,11 +68,19 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <header className="bg-white border-b border-border py-4 px-6 sticky top-0 z-10 shadow-sm">
-        <div className="max-w-4xl mx-auto flex items-center gap-3">
-          <div className="h-8 w-8 bg-primary rounded flex items-center justify-center">
-            <span className="text-white font-bold text-lg leading-none">+</span>
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 bg-primary rounded flex items-center justify-center">
+              <span className="text-white font-bold text-lg leading-none">+</span>
+            </div>
+            <span className="font-semibold text-lg text-primary">LabMedica</span>
           </div>
-          <span className="font-semibold text-lg text-primary">LabMedica</span>
+          <a
+            href="/admin"
+            className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 border border-border rounded-md px-3 py-1.5 hover:border-primary"
+          >
+            Accesso Operatori
+          </a>
         </div>
       </header>
 

@@ -12,5 +12,7 @@ export * from './bookingStatus';
 export * from './errorResponse';
 export * from './exam';
 export * from './healthStatus';
+export * from './listBookingsParams';
+export * from './listBookingsStatus';
 export * from './listSlotsParams';
 export * from './timeSlot';
