@@ -7,7 +7,13 @@ export type PrintExam = {
   metodo?: string | null;
   regola?: string | null;
   importo?: string | null;
+  valoreRiferimento?: string | null;
   preparationInstructions?: string;
+};
+
+export type PrintExamWithResult = PrintExam & {
+  valore?: string | null;
+  refertaNote?: string | null;
 };
 
 export type PrintPatient = {
@@ -167,6 +173,91 @@ export function printPreventivo(patient: PrintPatient, exams: PrintExam[]) {
     <div class="footer">
       ${LAB_INFO.name} &nbsp;|&nbsp; P.IVA ${LAB_INFO.piva} &nbsp;|&nbsp; ${LAB_INFO.address} &nbsp;|&nbsp; PEC: ${LAB_INFO.pec}<br>
       Documento generato il ${todayFormatted()} — Valido come preventivo, non come ricevuta fiscale.
+    </div>
+  </body></html>`;
+
+  printWindow(html);
+}
+
+export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]) {
+  const billingLines = [
+    patient.billingAddress,
+    [patient.billingCap, patient.billingCity, patient.billingProvincia ? `(${patient.billingProvincia})` : ""].filter(Boolean).join(" "),
+  ].filter(Boolean);
+
+  const rows = exams.map((e, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td style="font-weight:600">${e.codiceAnalisi}</td>
+      <td>${e.descrizione}</td>
+      <td>${provettaColor(e.colorProvetta)}</td>
+      <td>${e.um ?? "—"}</td>
+      <td>${e.metodo ?? "—"}</td>
+      <td>${e.regola ?? "—"}</td>
+      <td style="white-space:pre-wrap">${e.valoreRiferimento ?? "—"}</td>
+      <td style="font-weight:600;color:${e.valore ? "#1a1a1a" : "#999"}">${e.valore ?? "—"}</td>
+      <td style="font-style:italic;color:#555">${e.refertaNote ?? ""}</td>
+    </tr>
+  `).join("");
+
+  const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>Referto – ${patient.firstName} ${patient.lastName}</title><style>
+    ${BASE_CSS}
+    table { font-size: 9px; }
+    th { font-size: 7.5px; }
+    td { padding: 4px 5px; }
+    .result-col { font-weight: 700; }
+  </style></head><body>
+    <div class="header">
+      <img src="${logoUrl()}" alt="Logo" class="logo" />
+      <div class="lab-info">
+        <strong>${LAB_INFO.name}</strong>
+        P.IVA: ${LAB_INFO.piva} &nbsp;|&nbsp; C.F.: ${LAB_INFO.cf}<br>
+        VAT EU: ${LAB_INFO.vat}<br>
+        ${LAB_INFO.address}<br>
+        REA: ${LAB_INFO.rea}<br>
+        PEC: ${LAB_INFO.pec}
+      </div>
+    </div>
+
+    <div class="doc-title">Referto di Laboratorio</div>
+    <div class="meta">Data refertazione: ${todayFormatted()} &nbsp;|&nbsp; N° esami: ${exams.length}</div>
+
+    <div class="section-title">Paziente</div>
+    <div class="patient-box">
+      <div class="row">
+        <div><span>Nome: </span><strong>${patient.firstName} ${patient.lastName}</strong></div>
+        ${patient.dateOfBirth ? `<div><span>Nato il: </span><strong>${patient.dateOfBirth}</strong></div>` : ""}
+        ${patient.codiceFiscale ? `<div><span>C.F.: </span><strong>${patient.codiceFiscale}</strong></div>` : ""}
+        ${patient.gender ? `<div><span>Sesso: </span><strong>${patient.gender === "M" ? "Maschio" : "Femmina"}</strong></div>` : ""}
+      </div>
+      ${patient.email ? `<div style="margin-top:3px"><span>Email: </span><strong>${patient.email}</strong></div>` : ""}
+      ${patient.phone ? `<div style="margin-top:3px"><span>Telefono: </span><strong>${patient.phone}</strong></div>` : ""}
+      ${billingLines.length ? `<div style="margin-top:3px"><span>Indirizzo: </span><strong>${billingLines.join(", ")}</strong></div>` : ""}
+      ${patient.notes ? `<div style="margin-top:3px"><span>Note cliniche: </span><strong>${patient.notes}</strong></div>` : ""}
+    </div>
+
+    <div class="section-title">Risultati esami</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:20px">#</th>
+          <th style="width:72px">Codice</th>
+          <th style="min-width:120px">Descrizione</th>
+          <th style="width:64px">Provetta</th>
+          <th style="width:34px">UM</th>
+          <th style="width:72px">Metodo</th>
+          <th style="width:60px">Regola</th>
+          <th style="width:90px">Val. Riferimento</th>
+          <th style="width:80px">Risultato</th>
+          <th>Note</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <div class="footer">
+      ${LAB_INFO.name} &nbsp;|&nbsp; P.IVA ${LAB_INFO.piva} &nbsp;|&nbsp; ${LAB_INFO.address}<br>
+      Documento generato il ${todayFormatted()} — Uso interno / consegna al paziente.
     </div>
   </body></html>`;
 

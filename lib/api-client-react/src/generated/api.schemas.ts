@@ -26,6 +26,11 @@ export interface ExamInput {
      * @nullable
      */
   importo?: string | null;
+  /**
+     * Reference value range for the exam
+     * @nullable
+     */
+  valoreRiferimento?: string | null;
   preparationInstructions?: string;
 }
 
@@ -47,6 +52,11 @@ export interface Exam {
      * @nullable
      */
   importo?: string | null;
+  /**
+     * Reference value range for the exam
+     * @nullable
+     */
+  valoreRiferimento?: string | null;
   preparationInstructions?: string;
 }
 

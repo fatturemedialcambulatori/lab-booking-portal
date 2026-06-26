@@ -31,6 +31,7 @@ router.post("/exams", async (req, res) => {
       metodo: parsed.data.metodo ?? null,
       regola: parsed.data.regola ?? null,
       importo: parsed.data.importo ?? null,
+      valoreRiferimento: parsed.data.valoreRiferimento ?? null,
       preparationInstructions: parsed.data.preparationInstructions ?? "",
     }).returning();
     res.status(201).json(exam);
@@ -59,6 +60,7 @@ router.put("/exams/:id", async (req, res) => {
         metodo: parsed.data.metodo ?? null,
         regola: parsed.data.regola ?? null,
         importo: parsed.data.importo ?? null,
+        valoreRiferimento: parsed.data.valoreRiferimento ?? null,
         preparationInstructions: parsed.data.preparationInstructions ?? "",
       })
       .where(eq(examsTable.id, id))

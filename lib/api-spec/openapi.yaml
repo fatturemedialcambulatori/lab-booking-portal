@@ -441,6 +441,9 @@ components:
         importo:
           type: ["string", "null"]
           description: Price as decimal string
+        valoreRiferimento:
+          type: ["string", "null"]
+          description: Reference value range for the exam
         preparationInstructions:
           type: string
           default: ""
@@ -468,6 +471,9 @@ components:
         importo:
           type: ["string", "null"]
           description: Price as decimal string
+        valoreRiferimento:
+          type: ["string", "null"]
+          description: Reference value range for the exam
         preparationInstructions:
           type: string
 

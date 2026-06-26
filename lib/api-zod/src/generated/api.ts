@@ -30,6 +30,7 @@ export const ListExamsResponseItem = zod.object({
   "metodo": zod.string().nullish(),
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
+  "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
   "preparationInstructions": zod.string().optional()
 })
 export const ListExamsResponse = zod.array(ListExamsResponseItem)
@@ -50,6 +51,7 @@ export const CreateExamBody = zod.object({
   "metodo": zod.string().nullish(),
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
+  "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
   "preparationInstructions": zod.string().default(createExamBodyPreparationInstructionsDefault)
 })
 
@@ -63,6 +65,7 @@ export const CreateExamResponse = zod.object({
   "metodo": zod.string().nullish(),
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
+  "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
   "preparationInstructions": zod.string().optional()
 })
 
@@ -86,6 +89,7 @@ export const UpdateExamBody = zod.object({
   "metodo": zod.string().nullish(),
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
+  "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
   "preparationInstructions": zod.string().default(updateExamBodyPreparationInstructionsDefault)
 })
 
@@ -99,6 +103,7 @@ export const UpdateExamResponse = zod.object({
   "metodo": zod.string().nullish(),
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
+  "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
   "preparationInstructions": zod.string().optional()
 })
 

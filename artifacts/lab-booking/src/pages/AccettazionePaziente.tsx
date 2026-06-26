@@ -1,5 +1,5 @@
 import React from "react";
-import { useListBookings, useUpdateBookingStatus, useListPatients, useUpdatePatient } from "@workspace/api-client-react";
+import { useListBookings, useUpdateBookingStatus, useListPatients, useUpdatePatient, useListExams } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, parseISO, isToday, isTomorrow } from "date-fns";
 import { it } from "date-fns/locale";
@@ -30,11 +30,13 @@ import {
   AlertCircle,
   Plus,
   MapPin,
+  FileDown,
 } from "lucide-react";
 import { format as formatDate, addDays, subDays } from "date-fns";
 import { NuovaPrenotazioneDialog } from "@/components/NuovaPrenotazioneDialog";
 import { ExamTodoDialog, TodoVisit } from "@/components/ExamTodoDialog";
 import { RefertazioneDialog } from "@/components/RefertazioneDialog";
+import { printReferto, PrintPatient, PrintExamWithResult } from "@/lib/printDocs";
 
 type BookingStatus = "confirmed" | "pending" | "accepted" | "completed" | "cancelled";
 
@@ -96,6 +98,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
   const queryClient = useQueryClient();
   const { data: allBookings, isLoading, error, refetch } = useListBookings();
   const statusMutation = useUpdateBookingStatus();
+  const { data: allExams } = useListExams();
 
   const [selectedDate, setSelectedDate] = React.useState<string>(
     formatDate(new Date(), "yyyy-MM-dd")
@@ -108,6 +111,53 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
   const [todoVisit, setTodoVisit] = React.useState<Visit | null>(null);
   const [refertaVisit, setRefertaVisit] = React.useState<Visit | null>(null);
   const [doneMap, setDoneMap] = React.useState<Map<string, Set<number>>>(new Map());
+
+  const handlePrintReferto = async (visit: Visit) => {
+    try {
+      const [refertiRes, patientRes] = await Promise.all([
+        fetch(`/api/referti?bookingId=${visit.id}`),
+        fetch(`/api/patients?search=${encodeURIComponent(visit.email)}`),
+      ]);
+      const referti: Array<{ examId: number; valore: string; note?: string | null }> = await refertiRes.json();
+      const patientList = await patientRes.json();
+      const patientData = patientList?.[0];
+
+      const examsWithResults: PrintExamWithResult[] = visit.examIds.map((id) => {
+        const exam = allExams?.find((e) => e.id === id);
+        const referto = referti.find((r) => r.examId === id);
+        return {
+          codiceAnalisi: exam?.codiceAnalisi ?? String(id),
+          descrizione: exam?.descrizione ?? "—",
+          colorProvetta: exam?.colorProvetta,
+          um: exam?.um,
+          metodo: exam?.metodo,
+          regola: exam?.regola,
+          valoreRiferimento: exam?.valoreRiferimento,
+          preparationInstructions: exam?.preparationInstructions,
+          valore: referto?.valore ?? null,
+          refertaNote: referto?.note ?? null,
+        };
+      });
+
+      const patient: PrintPatient = {
+        firstName: visit.firstName,
+        lastName: visit.lastName,
+        dateOfBirth: visit.dateOfBirth,
+        codiceFiscale: visit.codiceFiscale ?? undefined,
+        email: visit.email,
+        phone: visit.phone,
+        notes: visit.notes,
+        billingAddress: patientData?.billingAddress,
+        billingCap: patientData?.billingCap,
+        billingCity: patientData?.billingCity,
+        billingProvincia: patientData?.billingProvincia,
+      };
+
+      printReferto(patient, examsWithResults);
+    } catch (err) {
+      console.error("Errore nella stampa del referto", err);
+    }
+  };
 
   const toggleExamDone = (visitKey: string, examId: number) => {
     setDoneMap((prev) => {
@@ -317,8 +367,9 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
               onEditBilling={() => setBillingVisit(visit)}
               showBilling={role === "segreteria"}
               onOpenTodo={() =>
-                role === "laboratorio" ? setRefertaVisit(visit) : setTodoVisit(visit)
+                role === "laboratorio" && visit.status === "accepted" ? setRefertaVisit(visit) : setTodoVisit(visit)
               }
+              onPrintReferto={role === "laboratorio" && visit.status === "completed" ? () => handlePrintReferto(visit) : undefined}
               canComplete={
                 role === "laboratorio"
                   ? visit.refertiCount >= visit.examIds.length && visit.examIds.length > 0
@@ -481,6 +532,7 @@ function VisitCard({
   showBilling = true,
   onOpenTodo,
   canComplete = true,
+  onPrintReferto,
 }: {
   visit: Visit;
   role?: string;
@@ -490,6 +542,7 @@ function VisitCard({
   showBilling?: boolean;
   onOpenTodo?: () => void;
   canComplete?: boolean;
+  onPrintReferto?: () => void;
 }) {
   const totalPrice = 0; // could sum from exam data if available
 
@@ -615,10 +668,23 @@ function VisitCard({
               </>
             )}
             {visit.status === "completed" && (
-              <span className="text-xs text-green-600 font-medium flex items-center gap-1">
-                <CheckCircle2 className="h-4 w-4" />
-                Esami eseguiti
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+                  <CheckCircle2 className="h-4 w-4" />
+                  Esami eseguiti
+                </span>
+                {role === "laboratorio" && onPrintReferto && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 h-7 text-xs"
+                    onClick={onPrintReferto}
+                  >
+                    <FileDown className="h-3.5 w-3.5" />
+                    Referto PDF
+                  </Button>
+                )}
+              </div>
             )}
             {visit.status === "confirmed" && (
               <Button

@@ -12,6 +12,7 @@ export const examsTable = pgTable("exams", {
   metodo: text("metodo"),
   regola: text("regola"),
   importo: numeric("importo", { precision: 10, scale: 2 }),
+  valoreRiferimento: text("valore_riferimento"),
   preparationInstructions: text("preparation_instructions").notNull().default(""),
 });
 
