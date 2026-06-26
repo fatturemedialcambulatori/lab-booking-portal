@@ -157,8 +157,11 @@ export const ListBookingsResponse = zod.array(ListBookingsResponseItem)
 /**
  * @summary Create a new booking
  */
+
+
+
 export const CreateBookingBody = zod.object({
-  "examId": zod.number(),
+  "examIds": zod.array(zod.number()).min(1),
   "date": zod.coerce.date(),
   "time": zod.string(),
   "firstName": zod.string(),

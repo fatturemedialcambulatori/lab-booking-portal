@@ -57,7 +57,8 @@ export interface TimeSlot {
 }
 
 export interface BookingInput {
-  examId: number;
+  /** @minItems 1 */
+  examIds: number[];
   date: string;
   time: string;
   firstName: string;

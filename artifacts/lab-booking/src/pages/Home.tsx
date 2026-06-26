@@ -12,7 +12,7 @@ import { Confirmation } from "@/components/booking-wizard/Confirmation";
 import { SuccessView } from "@/components/booking-wizard/SuccessView";
 
 const bookingSchema = z.object({
-  examId: z.number({ required_error: "Seleziona un esame" }),
+  examIds: z.array(z.number()).min(1, "Seleziona almeno un esame"),
   date: z.string({ required_error: "Seleziona una data" }),
   time: z.string({ required_error: "Seleziona un orario" }),
   firstName: z.string().min(1, "Il nome è obbligatorio"),
@@ -32,6 +32,7 @@ export default function Home() {
   const form = useForm<BookingFormValues>({
     resolver: zodResolver(bookingSchema),
     defaultValues: {
+      examIds: [],
       firstName: "",
       lastName: "",
       dateOfBirth: "",
@@ -45,13 +46,13 @@ export default function Home() {
   const nextStep = async () => {
     let isValid = false;
     if (step === 1) {
-      isValid = await form.trigger(["examId"]);
+      isValid = await form.trigger(["examIds"]);
     } else if (step === 2) {
       isValid = await form.trigger(["date", "time"]);
     } else if (step === 3) {
       isValid = await form.trigger(["firstName", "lastName", "dateOfBirth", "email", "phone"]);
     }
-    
+
     if (isValid) {
       setStep((s) => Math.min(s + 1, 4));
     }
@@ -95,7 +96,7 @@ export default function Home() {
             <div className="bg-muted/30 px-6 py-5 border-b border-border/40">
               <StepIndicator currentStep={step} />
             </div>
-            
+
             <div className="p-6 sm:p-8">
               <Form {...form}>
                 <div className={step === 1 ? "block" : "hidden"}>
@@ -108,9 +109,9 @@ export default function Home() {
                   <PersonalData onNext={nextStep} onPrev={prevStep} />
                 </div>
                 <div className={step === 4 ? "block" : "hidden"}>
-                  <Confirmation 
-                    onPrev={prevStep} 
-                    onSuccess={(id) => setConfirmedBookingId(id)} 
+                  <Confirmation
+                    onPrev={prevStep}
+                    onSuccess={(id) => setConfirmedBookingId(id)}
                   />
                 </div>
               </Form>

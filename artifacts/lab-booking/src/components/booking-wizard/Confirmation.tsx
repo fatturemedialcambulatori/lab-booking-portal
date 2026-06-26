@@ -29,7 +29,8 @@ export function Confirmation({
   const { data: exams } = useListExams();
   const mutation = useCreateBooking();
 
-  const exam = exams?.find((e) => e.id === values.examId);
+  const selectedExams = (exams ?? []).filter((e) => (values.examIds ?? []).includes(e.id));
+  const totalPrice = selectedExams.reduce((sum, e) => sum + (e.importo ? Number(e.importo) : 0), 0);
 
   const formattedDate = values.date
     ? format(parseISO(values.date), "d MMMM yyyy", { locale: it })
@@ -43,7 +44,7 @@ export function Confirmation({
     mutation.mutate(
       {
         data: {
-          examId: values.examId,
+          examIds: values.examIds,
           date: values.date,
           time: values.time,
           firstName: values.firstName,
@@ -70,13 +71,28 @@ export function Confirmation({
       </div>
 
       <div className="rounded-lg border border-border bg-muted/20 overflow-hidden">
-        <div className="bg-primary/8 px-4 py-3 border-b border-border">
-          <p className="text-xs font-semibold uppercase tracking-wider text-primary">Esame selezionato</p>
+        <div className="bg-primary/8 px-4 py-3 border-b border-border flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+            Esami selezionati ({selectedExams.length})
+          </p>
+          {totalPrice > 0 && (
+            <p className="text-xs font-semibold text-primary">Totale: € {totalPrice.toFixed(2)}</p>
+          )}
         </div>
         <div className="px-4 divide-y divide-border/60">
-          <Row label="Esame" value={exam?.name ?? ""} />
-          <Row label="Categoria" value={exam?.category ?? ""} />
-          <Row label="Durata" value={exam ? `${exam.durationMinutes} minuti` : ""} />
+          {selectedExams.map((exam) => (
+            <div key={exam.id} className="flex items-center justify-between py-2.5">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{exam.descrizione}</p>
+                <p className="text-xs text-muted-foreground">{exam.codiceAnalisi}</p>
+              </div>
+              {exam.importo && (
+                <span className="text-sm font-semibold text-primary ml-4 flex-shrink-0">
+                  € {Number(exam.importo).toFixed(2)}
+                </span>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -105,7 +121,7 @@ export function Confirmation({
 
       {mutation.error && (
         <div className="rounded-md bg-destructive/10 border border-destructive/30 px-4 py-3 text-sm text-destructive">
-          Si e' verificato un errore. Riprova o contatta il laboratorio.
+          Si è verificato un errore. Riprova o contatta il laboratorio.
         </div>
       )}
 

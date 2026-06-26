@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { bookingsTable, examsTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 import { CreateBookingBody, GetBookingParams } from "@workspace/api-zod";
 
 const router = Router();
+
+const toDateStr = (v: string | Date | null): string =>
+  !v ? "" : typeof v === "string" ? v.slice(0, 10) : v.toISOString().slice(0, 10);
 
 router.get("/bookings", async (req, res) => {
   try {
@@ -14,13 +17,10 @@ router.get("/bookings", async (req, res) => {
       .leftJoin(examsTable, eq(bookingsTable.examId, examsTable.id))
       .orderBy(desc(bookingsTable.date), bookingsTable.time);
 
-    const toDateStr = (v: string | Date | null): string =>
-      !v ? "" : typeof v === "string" ? v.slice(0, 10) : v.toISOString().slice(0, 10);
-
     const bookings = rows.map(({ bookings, exams }) => ({
       id: bookings.id,
       examId: bookings.examId,
-      examName: exams?.name ?? "Esame",
+      examName: exams?.descrizione ?? "Esame",
       date: toDateStr(bookings.date as string | Date),
       time: bookings.time,
       firstName: bookings.firstName,
@@ -49,44 +49,49 @@ router.post("/bookings", async (req, res) => {
   const data = parsed.data;
 
   try {
-    const exam = await db.select().from(examsTable).where(eq(examsTable.id, data.examId)).limit(1);
-    if (exam.length === 0) {
-      return res.status(400).json({ error: "Exam not found" });
+    const exams = await db
+      .select()
+      .from(examsTable)
+      .where(inArray(examsTable.id, data.examIds));
+
+    if (exams.length !== data.examIds.length) {
+      return res.status(400).json({ error: "One or more exams not found" });
     }
 
-    const toDateStr = (v: string | Date): string =>
-      typeof v === "string" ? v.slice(0, 10) : v.toISOString().slice(0, 10);
+    const dateStr = toDateStr(data.date as string | Date);
+    const dobStr = toDateStr(data.dateOfBirth as string | Date);
 
-    const [booking] = await db
-      .insert(bookingsTable)
-      .values({
-        examId: data.examId,
-        date: toDateStr(data.date as string | Date),
-        time: data.time,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        dateOfBirth: toDateStr(data.dateOfBirth as string | Date),
-        email: data.email,
-        phone: data.phone,
-        notes: data.notes ?? null,
-        status: "confirmed",
-      })
-      .returning();
+    const insertRows = data.examIds.map((examId) => ({
+      examId,
+      date: dateStr,
+      time: data.time,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      dateOfBirth: dobStr,
+      email: data.email,
+      phone: data.phone,
+      notes: data.notes ?? null,
+      status: "confirmed" as const,
+    }));
+
+    const inserted = await db.insert(bookingsTable).values(insertRows).returning();
+    const first = inserted[0];
+    const firstExam = exams.find((e) => e.id === first.examId);
 
     res.status(201).json({
-      id: booking.id,
-      examId: booking.examId,
-      examName: exam[0].name,
-      date: booking.date,
-      time: booking.time,
-      firstName: booking.firstName,
-      lastName: booking.lastName,
-      dateOfBirth: booking.dateOfBirth,
-      email: booking.email,
-      phone: booking.phone,
-      notes: booking.notes,
-      status: booking.status,
-      createdAt: booking.createdAt.toISOString(),
+      id: first.id,
+      examId: first.examId,
+      examName: firstExam?.descrizione ?? "Esame",
+      date: toDateStr(first.date as string | Date),
+      time: first.time,
+      firstName: first.firstName,
+      lastName: first.lastName,
+      dateOfBirth: toDateStr(first.dateOfBirth as string | Date),
+      email: first.email,
+      phone: first.phone,
+      notes: first.notes,
+      status: first.status,
+      createdAt: first.createdAt.toISOString(),
     });
   } catch (err) {
     req.log.error({ err }, "Failed to create booking");
@@ -101,35 +106,27 @@ router.get("/bookings/:id", async (req, res) => {
   }
 
   try {
-    const booking = await db
+    const rows = await db
       .select()
       .from(bookingsTable)
+      .leftJoin(examsTable, eq(bookingsTable.examId, examsTable.id))
       .where(eq(bookingsTable.id, parsed.data.id))
       .limit(1);
 
-    if (booking.length === 0) {
+    if (rows.length === 0) {
       return res.status(404).json({ error: "Booking not found" });
     }
 
-    const exam = await db
-      .select()
-      .from(examsTable)
-      .where(eq(examsTable.id, booking[0].examId))
-      .limit(1);
-
-    const toDateStr2 = (v: string | Date | null): string =>
-      !v ? "" : typeof v === "string" ? v.slice(0, 10) : v.toISOString().slice(0, 10);
-
-    const b = booking[0];
+    const { bookings: b, exams: exam } = rows[0];
     res.json({
       id: b.id,
       examId: b.examId,
-      examName: exam[0]?.name ?? "Esame",
-      date: toDateStr2(b.date as string | Date),
+      examName: exam?.descrizione ?? "Esame",
+      date: toDateStr(b.date as string | Date),
       time: b.time,
       firstName: b.firstName,
       lastName: b.lastName,
-      dateOfBirth: toDateStr2(b.dateOfBirth as string | Date),
+      dateOfBirth: toDateStr(b.dateOfBirth as string | Date),
       email: b.email,
       phone: b.phone,
       notes: b.notes,

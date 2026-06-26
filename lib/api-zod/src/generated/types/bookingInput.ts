@@ -7,7 +7,8 @@
  */
 
 export interface BookingInput {
-  examId: number;
+  /** @minItems 1 */
+  examIds: number[];
   date: Date;
   time: string;
   firstName: string;

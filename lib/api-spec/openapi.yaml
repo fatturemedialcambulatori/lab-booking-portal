@@ -297,10 +297,13 @@ components:
 
     BookingInput:
       type: object
-      required: [examId, date, time, firstName, lastName, dateOfBirth, email, phone]
+      required: [examIds, date, time, firstName, lastName, dateOfBirth, email, phone]
       properties:
-        examId:
-          type: integer
+        examIds:
+          type: array
+          items:
+            type: integer
+          minItems: 1
         date:
           type: string
           format: date
