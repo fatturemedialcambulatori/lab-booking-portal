@@ -109,8 +109,8 @@ export const BookingStatus = {
 
 export interface Booking {
   id: number;
-  examId: number;
-  examName: string;
+  examIds: number[];
+  examNames: string[];
   date: string;
   time: string;
   firstName: string;

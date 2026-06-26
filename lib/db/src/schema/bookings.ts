@@ -5,7 +5,6 @@ import { examsTable } from "./exams";
 
 export const bookingsTable = pgTable("bookings", {
   id: serial("id").primaryKey(),
-  examId: integer("exam_id").notNull().references(() => examsTable.id),
   date: text("date").notNull(),
   time: text("time").notNull(),
   firstName: text("first_name").notNull(),
@@ -20,6 +19,13 @@ export const bookingsTable = pgTable("bookings", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const bookingExamsTable = pgTable("booking_exams", {
+  id: serial("id").primaryKey(),
+  bookingId: integer("booking_id").notNull().references(() => bookingsTable.id, { onDelete: "cascade" }),
+  examId: integer("exam_id").notNull().references(() => examsTable.id),
+});
+
 export const insertBookingSchema = createInsertSchema(bookingsTable).omit({ id: true, createdAt: true, status: true });
 export type InsertBooking = z.infer<typeof insertBookingSchema>;
 export type Booking = typeof bookingsTable.$inferSelect;
+export type BookingExam = typeof bookingExamsTable.$inferSelect;

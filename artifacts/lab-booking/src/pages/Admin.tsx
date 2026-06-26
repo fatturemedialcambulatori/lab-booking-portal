@@ -215,7 +215,7 @@ function AdminDashboard({
 
 type Booking = {
   id: number;
-  examName: string;
+  examNames: string[];
   date: string;
   time: string;
   firstName: string;
@@ -269,7 +269,7 @@ function BookingRow({ booking, muted }: { booking: Booking; muted?: boolean }) {
           </p>
           <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
             <FlaskConical className="h-3 w-3 flex-shrink-0" />
-            <span className="truncate">{booking.examName}</span>
+            <span className="truncate">{booking.examNames.join(", ")}</span>
           </p>
         </div>
       </div>

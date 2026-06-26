@@ -471,14 +471,18 @@ components:
 
     Booking:
       type: object
-      required: [id, examId, examName, date, time, firstName, lastName, dateOfBirth, email, phone, status, createdAt]
+      required: [id, examIds, examNames, date, time, firstName, lastName, dateOfBirth, email, phone, status, createdAt]
       properties:
         id:
           type: integer
-        examId:
-          type: integer
-        examName:
-          type: string
+        examIds:
+          type: array
+          items:
+            type: integer
+        examNames:
+          type: array
+          items:
+            type: string
         date:
           type: string
           format: date

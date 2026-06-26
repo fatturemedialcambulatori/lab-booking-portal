@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { bookingsTable, examsTable } from "@workspace/db";
+import { bookingsTable, bookingExamsTable, examsTable } from "@workspace/db";
 import { eq, desc, inArray } from "drizzle-orm";
 import { CreateBookingBody, GetBookingParams } from "@workspace/api-zod";
 
@@ -9,33 +9,90 @@ const router = Router();
 const toDateStr = (v: string | Date | null): string =>
   !v ? "" : typeof v === "string" ? v.slice(0, 10) : v.toISOString().slice(0, 10);
 
+async function formatBooking(bookingId: number) {
+  const booking = await db
+    .select()
+    .from(bookingsTable)
+    .where(eq(bookingsTable.id, bookingId))
+    .limit(1);
+  if (!booking[0]) return null;
+
+  const examLinks = await db
+    .select({ examId: bookingExamsTable.examId, descrizione: examsTable.descrizione })
+    .from(bookingExamsTable)
+    .leftJoin(examsTable, eq(bookingExamsTable.examId, examsTable.id))
+    .where(eq(bookingExamsTable.bookingId, bookingId));
+
+  const b = booking[0];
+  return {
+    id: b.id,
+    examIds: examLinks.map((e) => e.examId),
+    examNames: examLinks.map((e) => e.descrizione ?? "Esame"),
+    date: toDateStr(b.date as string | Date),
+    time: b.time,
+    firstName: b.firstName,
+    lastName: b.lastName,
+    dateOfBirth: toDateStr(b.dateOfBirth as string | Date),
+    codiceFiscale: b.codiceFiscale,
+    gender: b.gender,
+    email: b.email,
+    phone: b.phone,
+    notes: b.notes,
+    status: b.status,
+    createdAt: b.createdAt.toISOString(),
+  };
+}
+
 router.get("/bookings", async (req, res) => {
   try {
-    const rows = await db
+    const bookings = await db
       .select()
       .from(bookingsTable)
-      .leftJoin(examsTable, eq(bookingsTable.examId, examsTable.id))
       .orderBy(desc(bookingsTable.date), bookingsTable.time);
 
-    const bookings = rows.map(({ bookings, exams }) => ({
-      id: bookings.id,
-      examId: bookings.examId,
-      examName: exams?.descrizione ?? "Esame",
-      date: toDateStr(bookings.date as string | Date),
-      time: bookings.time,
-      firstName: bookings.firstName,
-      lastName: bookings.lastName,
-      dateOfBirth: toDateStr(bookings.dateOfBirth as string | Date),
-      codiceFiscale: bookings.codiceFiscale,
-      gender: bookings.gender,
-      email: bookings.email,
-      phone: bookings.phone,
-      notes: bookings.notes,
-      status: bookings.status,
-      createdAt: bookings.createdAt.toISOString(),
-    }));
+    if (bookings.length === 0) {
+      return res.json([]);
+    }
 
-    res.json(bookings);
+    const bookingIds = bookings.map((b) => b.id);
+    const examLinks = await db
+      .select({
+        bookingId: bookingExamsTable.bookingId,
+        examId: bookingExamsTable.examId,
+        descrizione: examsTable.descrizione,
+      })
+      .from(bookingExamsTable)
+      .leftJoin(examsTable, eq(bookingExamsTable.examId, examsTable.id))
+      .where(inArray(bookingExamsTable.bookingId, bookingIds));
+
+    const examsByBooking = new Map<number, { examId: number; descrizione: string }[]>();
+    for (const link of examLinks) {
+      if (!examsByBooking.has(link.bookingId)) examsByBooking.set(link.bookingId, []);
+      examsByBooking.get(link.bookingId)!.push({ examId: link.examId, descrizione: link.descrizione ?? "Esame" });
+    }
+
+    const result = bookings.map((b) => {
+      const exams = examsByBooking.get(b.id) ?? [];
+      return {
+        id: b.id,
+        examIds: exams.map((e) => e.examId),
+        examNames: exams.map((e) => e.descrizione),
+        date: toDateStr(b.date as string | Date),
+        time: b.time,
+        firstName: b.firstName,
+        lastName: b.lastName,
+        dateOfBirth: toDateStr(b.dateOfBirth as string | Date),
+        codiceFiscale: b.codiceFiscale,
+        gender: b.gender,
+        email: b.email,
+        phone: b.phone,
+        notes: b.notes,
+        status: b.status,
+        createdAt: b.createdAt.toISOString(),
+      };
+    });
+
+    res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to list bookings");
     res.status(500).json({ error: "Internal server error" });
@@ -63,42 +120,29 @@ router.post("/bookings", async (req, res) => {
     const dateStr = toDateStr(data.date as string | Date);
     const dobStr = toDateStr(data.dateOfBirth as string | Date);
 
-    const insertRows = data.examIds.map((examId) => ({
-      examId,
-      date: dateStr,
-      time: data.time,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      dateOfBirth: dobStr,
-      codiceFiscale: data.codiceFiscale ?? null,
-      gender: data.gender ?? null,
-      email: data.email,
-      phone: data.phone,
-      notes: data.notes ?? null,
-      status: "confirmed" as const,
-    }));
+    const [inserted] = await db
+      .insert(bookingsTable)
+      .values({
+        date: dateStr,
+        time: data.time,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        dateOfBirth: dobStr,
+        codiceFiscale: data.codiceFiscale ?? null,
+        gender: data.gender ?? null,
+        email: data.email,
+        phone: data.phone,
+        notes: data.notes ?? null,
+        status: "confirmed",
+      })
+      .returning();
 
-    const inserted = await db.insert(bookingsTable).values(insertRows).returning();
-    const first = inserted[0];
-    const firstExam = exams.find((e) => e.id === first.examId);
+    await db.insert(bookingExamsTable).values(
+      data.examIds.map((examId) => ({ bookingId: inserted.id, examId }))
+    );
 
-    res.status(201).json({
-      id: first.id,
-      examId: first.examId,
-      examName: firstExam?.descrizione ?? "Esame",
-      date: toDateStr(first.date as string | Date),
-      time: first.time,
-      firstName: first.firstName,
-      lastName: first.lastName,
-      dateOfBirth: toDateStr(first.dateOfBirth as string | Date),
-      codiceFiscale: first.codiceFiscale,
-      gender: first.gender,
-      email: first.email,
-      phone: first.phone,
-      notes: first.notes,
-      status: first.status,
-      createdAt: first.createdAt.toISOString(),
-    });
+    const result = await formatBooking(inserted.id);
+    res.status(201).json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to create booking");
     res.status(500).json({ error: "Internal server error" });
@@ -112,35 +156,11 @@ router.get("/bookings/:id", async (req, res) => {
   }
 
   try {
-    const rows = await db
-      .select()
-      .from(bookingsTable)
-      .leftJoin(examsTable, eq(bookingsTable.examId, examsTable.id))
-      .where(eq(bookingsTable.id, parsed.data.id))
-      .limit(1);
-
-    if (rows.length === 0) {
+    const result = await formatBooking(parsed.data.id);
+    if (!result) {
       return res.status(404).json({ error: "Booking not found" });
     }
-
-    const { bookings: b, exams: exam } = rows[0];
-    res.json({
-      id: b.id,
-      examId: b.examId,
-      examName: exam?.descrizione ?? "Esame",
-      date: toDateStr(b.date as string | Date),
-      time: b.time,
-      firstName: b.firstName,
-      lastName: b.lastName,
-      dateOfBirth: toDateStr(b.dateOfBirth as string | Date),
-      codiceFiscale: b.codiceFiscale,
-      gender: b.gender,
-      email: b.email,
-      phone: b.phone,
-      notes: b.notes,
-      status: b.status,
-      createdAt: b.createdAt.toISOString(),
-    });
+    res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to get booking");
     res.status(500).json({ error: "Internal server error" });
@@ -160,37 +180,20 @@ router.patch("/bookings/:id/status", async (req, res) => {
   }
 
   try {
-    const rows = await db
+    const existing = await db
       .select()
       .from(bookingsTable)
-      .leftJoin(examsTable, eq(bookingsTable.examId, examsTable.id))
       .where(eq(bookingsTable.id, id))
       .limit(1);
 
-    if (rows.length === 0) {
+    if (existing.length === 0) {
       return res.status(404).json({ error: "Booking not found" });
     }
 
     await db.update(bookingsTable).set({ status }).where(eq(bookingsTable.id, id));
 
-    const { bookings: b, exams: exam } = rows[0];
-    res.json({
-      id: b.id,
-      examId: b.examId,
-      examName: exam?.descrizione ?? "Esame",
-      date: toDateStr(b.date as string | Date),
-      time: b.time,
-      firstName: b.firstName,
-      lastName: b.lastName,
-      dateOfBirth: toDateStr(b.dateOfBirth as string | Date),
-      codiceFiscale: b.codiceFiscale,
-      gender: b.gender,
-      email: b.email,
-      phone: b.phone,
-      notes: b.notes,
-      status,
-      createdAt: b.createdAt.toISOString(),
-    });
+    const result = await formatBooking(id);
+    res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to update booking status");
     res.status(500).json({ error: "Internal server error" });

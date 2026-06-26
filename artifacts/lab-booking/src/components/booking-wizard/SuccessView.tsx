@@ -62,8 +62,14 @@ export function SuccessView({ bookingId }: { bookingId: number }) {
                     <FlaskConical className="h-4 w-4 text-primary" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Esame</p>
-                    <p className="font-medium text-foreground">{booking.examName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {booking.examNames.length === 1 ? "Esame" : `Esami (${booking.examNames.length})`}
+                    </p>
+                    <div className="space-y-0.5">
+                      {booking.examNames.map((name, i) => (
+                        <p key={i} className="font-medium text-foreground">{name}</p>
+                      ))}
+                    </div>
                   </div>
                 </div>
 

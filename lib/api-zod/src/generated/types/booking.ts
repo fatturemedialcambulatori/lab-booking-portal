@@ -10,8 +10,8 @@ import type { BookingStatus } from './bookingStatus';
 
 export interface Booking {
   id: number;
-  examId: number;
-  examName: string;
+  examIds: number[];
+  examNames: string[];
   date: Date;
   time: string;
   firstName: string;

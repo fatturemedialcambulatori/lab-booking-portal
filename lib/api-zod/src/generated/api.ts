@@ -138,8 +138,8 @@ export const ListBookingsQueryParams = zod.object({
 
 export const ListBookingsResponseItem = zod.object({
   "id": zod.number(),
-  "examId": zod.number(),
-  "examName": zod.string(),
+  "examIds": zod.array(zod.number()),
+  "examNames": zod.array(zod.string()),
   "date": zod.coerce.date(),
   "time": zod.string(),
   "firstName": zod.string(),
@@ -178,8 +178,8 @@ export const CreateBookingBody = zod.object({
 
 export const CreateBookingResponse = zod.object({
   "id": zod.number(),
-  "examId": zod.number(),
-  "examName": zod.string(),
+  "examIds": zod.array(zod.number()),
+  "examNames": zod.array(zod.string()),
   "date": zod.coerce.date(),
   "time": zod.string(),
   "firstName": zod.string(),
@@ -204,8 +204,8 @@ export const GetBookingParams = zod.object({
 
 export const GetBookingResponse = zod.object({
   "id": zod.number(),
-  "examId": zod.number(),
-  "examName": zod.string(),
+  "examIds": zod.array(zod.number()),
+  "examNames": zod.array(zod.string()),
   "date": zod.coerce.date(),
   "time": zod.string(),
   "firstName": zod.string(),
@@ -234,8 +234,8 @@ export const UpdateBookingStatusBody = zod.object({
 
 export const UpdateBookingStatusResponse = zod.object({
   "id": zod.number(),
-  "examId": zod.number(),
-  "examName": zod.string(),
+  "examIds": zod.array(zod.number()),
+  "examNames": zod.array(zod.string()),
   "date": zod.coerce.date(),
   "time": zod.string(),
   "firstName": zod.string(),

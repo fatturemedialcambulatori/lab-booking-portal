@@ -36,23 +36,9 @@ import { NuovaPrenotazioneDialog } from "@/components/NuovaPrenotazioneDialog";
 
 type BookingStatus = "confirmed" | "pending" | "accepted" | "completed" | "cancelled";
 
-type Booking = {
-  id: number;
-  examId: number;
-  examName: string;
-  date: string;
-  time: string;
-  firstName: string;
-  lastName: string;
-  dateOfBirth: string;
-  email: string;
-  phone: string;
-  notes?: string | null;
-  status: string;
-};
-
 type Visit = {
   key: string;
+  id: number;
   date: string;
   time: string;
   firstName: string;
@@ -61,44 +47,10 @@ type Visit = {
   email: string;
   phone: string;
   notes?: string | null;
-  bookings: Booking[];
+  examIds: number[];
+  examNames: string[];
   status: BookingStatus;
 };
-
-function groupIntoVisits(bookings: Booking[]): Visit[] {
-  const map = new Map<string, Booking[]>();
-  for (const b of bookings) {
-    const key = `${b.firstName}|${b.lastName}|${b.date}|${b.time}`;
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(b);
-  }
-  const visits: Visit[] = [];
-  map.forEach((bks, key) => {
-    const first = bks[0];
-    visits.push({
-      key,
-      date: first.date,
-      time: first.time,
-      firstName: first.firstName,
-      lastName: first.lastName,
-      dateOfBirth: first.dateOfBirth,
-      email: first.email,
-      phone: first.phone,
-      notes: first.notes,
-      bookings: bks.sort((a, b) => a.examName.localeCompare(b.examName)),
-      status: first.status as BookingStatus,
-    });
-  });
-  return visits.sort((a, b) => a.time.localeCompare(b.time));
-}
-
-function visitStatus(visit: Visit): BookingStatus {
-  const statuses = visit.bookings.map((b) => b.status);
-  if (statuses.every((s) => s === "completed")) return "completed";
-  if (statuses.every((s) => s === "cancelled")) return "cancelled";
-  if (statuses.some((s) => s === "accepted")) return "accepted";
-  return (statuses[0] ?? "confirmed") as BookingStatus;
-}
 
 function StatusBadge({ status }: { status: string }) {
   switch (status) {
@@ -157,9 +109,28 @@ export function AccettazionePaziente() {
     return allBookings.filter((b) => b.date === selectedDate);
   }, [allBookings, selectedDate]);
 
-  const visits = React.useMemo(() => {
-    const grouped = groupIntoVisits(dayBookings);
-    return grouped.map((v) => ({ ...v, status: visitStatus(v) }));
+  const visits = React.useMemo((): Visit[] => {
+    return [...(dayBookings as Array<{
+      id: number; date: string; time: string; firstName: string; lastName: string;
+      dateOfBirth: string; email: string; phone: string; notes?: string | null;
+      examIds: number[]; examNames: string[]; status: string;
+    }>)]
+      .sort((a, b) => a.time.localeCompare(b.time))
+      .map((b) => ({
+        key: String(b.id),
+        id: b.id,
+        date: b.date,
+        time: b.time,
+        firstName: b.firstName,
+        lastName: b.lastName,
+        dateOfBirth: b.dateOfBirth,
+        email: b.email,
+        phone: b.phone,
+        notes: b.notes,
+        examIds: b.examIds,
+        examNames: b.examNames,
+        status: b.status as BookingStatus,
+      }));
   }, [dayBookings]);
 
   const filtered = React.useMemo(() => {
@@ -173,7 +144,7 @@ export function AccettazionePaziente() {
         (v) =>
           `${v.firstName} ${v.lastName}`.toLowerCase().includes(q) ||
           v.phone.includes(q) ||
-          v.bookings.some((b) => b.examName.toLowerCase().includes(q))
+          v.examNames.some((n) => n.toLowerCase().includes(q))
       );
     }
     return result;
@@ -189,11 +160,7 @@ export function AccettazionePaziente() {
   const updateVisitStatus = async (visit: Visit, newStatus: BookingStatus) => {
     setLoadingVisitKey(visit.key);
     try {
-      await Promise.all(
-        visit.bookings.map((b) =>
-          statusMutation.mutateAsync({ id: b.id, data: { status: newStatus } })
-        )
-      );
+      await statusMutation.mutateAsync({ id: visit.id, data: { status: newStatus } });
       await refetch();
     } finally {
       setLoadingVisitKey(null);
@@ -574,17 +541,16 @@ function VisitCard({
         {/* Exams list */}
         <div className="mt-4 border-t border-border/60 pt-3">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-            Esami prenotati ({visit.bookings.length})
+            Esami prenotati ({visit.examNames.length})
           </p>
           <div className="flex flex-wrap gap-2">
-            {visit.bookings.map((b) => (
+            {visit.examNames.map((name, i) => (
               <span
-                key={b.id}
+                key={i}
                 className="inline-flex items-center gap-1.5 text-xs bg-muted rounded-md px-2.5 py-1.5 border border-border"
               >
                 <FlaskConical className="h-3 w-3 text-primary flex-shrink-0" />
-                <span className="font-medium">{b.examName}</span>
-                <span className="text-muted-foreground">#{b.id}</span>
+                <span className="font-medium">{name}</span>
               </span>
             ))}
           </div>
