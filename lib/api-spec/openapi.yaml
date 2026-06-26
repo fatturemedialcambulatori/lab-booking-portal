@@ -3,13 +3,19 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: API specification for Lab Booking Portal
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: exams
+    description: Lab exam operations
+  - name: bookings
+    description: Booking operations
+  - name: slots
+    description: Available time slot operations
 paths:
   /healthz:
     get:
@@ -24,6 +30,100 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /exams:
+    get:
+      operationId: listExams
+      tags: [exams]
+      summary: List all available lab exams
+      responses:
+        "200":
+          description: List of exams
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Exam"
+
+  /slots:
+    get:
+      operationId: listSlots
+      tags: [slots]
+      summary: Get available time slots for a date
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          description: Date in YYYY-MM-DD format
+        - name: examId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Available time slots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TimeSlot"
+
+  /bookings:
+    post:
+      operationId: createBooking
+      tags: [bookings]
+      summary: Create a new booking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookingInput"
+      responses:
+        "201":
+          description: Booking created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bookings/{id}:
+    get:
+      operationId: getBooking
+      tags: [bookings]
+      summary: Get a booking by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Booking details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "404":
+          description: Booking not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +134,97 @@ components:
       required:
         - status
 
+    Exam:
+      type: object
+      required: [id, name, category, durationMinutes, preparationInstructions]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        category:
+          type: string
+        durationMinutes:
+          type: integer
+        preparationInstructions:
+          type: string
+        description:
+          type: ["string", "null"]
+
+    TimeSlot:
+      type: object
+      required: [time, available]
+      properties:
+        time:
+          type: string
+          description: Time in HH:MM format
+        available:
+          type: boolean
+
+    BookingInput:
+      type: object
+      required: [examId, date, time, firstName, lastName, dateOfBirth, email, phone]
+      properties:
+        examId:
+          type: integer
+        date:
+          type: string
+          format: date
+        time:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        dateOfBirth:
+          type: string
+          format: date
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        notes:
+          type: ["string", "null"]
+
+    Booking:
+      type: object
+      required: [id, examId, examName, date, time, firstName, lastName, dateOfBirth, email, phone, status, createdAt]
+      properties:
+        id:
+          type: integer
+        examId:
+          type: integer
+        examName:
+          type: string
+        date:
+          type: string
+          format: date
+        time:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        dateOfBirth:
+          type: string
+          format: date
+        email:
+          type: string
+        phone:
+          type: string
+        notes:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [confirmed, cancelled, pending]
+        createdAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
