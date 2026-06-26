@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, UserCheck } from "lucide-react";
 import type { BookingFormValues } from "../../pages/Home";
+import { parseFiscalCode } from "@/lib/fiscalCode";
 
 function FormField({
   label,
@@ -44,7 +45,19 @@ function FormField({
 }
 
 export function PersonalData({ onNext, onPrev }: { onNext: () => void; onPrev: () => void }) {
-  const { register, formState: { errors } } = useFormContext<BookingFormValues>();
+  const { register, watch, setValue, formState: { errors } } = useFormContext<BookingFormValues>();
+
+  const cfValue = watch("codiceFiscale") ?? "";
+  const cfInfo = React.useMemo(() => parseFiscalCode(cfValue), [cfValue]);
+
+  React.useEffect(() => {
+    if (cfInfo) {
+      const current = (document.getElementById("dateOfBirth") as HTMLInputElement)?.value;
+      if (!current) {
+        setValue("dateOfBirth", cfInfo.dateOfBirth, { shouldValidate: true });
+      }
+    }
+  }, [cfInfo, setValue]);
 
   return (
     <div className="space-y-6">
@@ -58,18 +71,46 @@ export function PersonalData({ onNext, onPrev }: { onNext: () => void; onPrev: (
         <FormField label="Cognome" name="lastName" placeholder="Rossi" required />
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-4">
-        <FormField
-          label="Data di nascita"
-          name="dateOfBirth"
-          type="date"
-          required
-        />
-        <FormField
-          label="Codice Fiscale"
-          name="codiceFiscale"
+      {/* Codice Fiscale with derived badge */}
+      <div className="space-y-1.5">
+        <Label htmlFor="codiceFiscale" className="text-sm font-medium text-foreground">
+          Codice Fiscale
+        </Label>
+        <Input
+          id="codiceFiscale"
           placeholder="RSSMRA85M01H501Z"
+          {...register("codiceFiscale")}
+          className="uppercase"
+          maxLength={16}
         />
+        {cfInfo && (
+          <div className="flex items-center gap-1.5 text-xs text-primary bg-primary/8 rounded-md px-3 py-1.5">
+            <UserCheck className="h-3.5 w-3.5 flex-shrink-0" />
+            <span>
+              {cfInfo.gender === "M" ? "Uomo" : "Donna"} · {cfInfo.age} anni · nato/a il {cfInfo.dateOfBirth.split("-").reverse().join("/")}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="dateOfBirth" className="text-sm font-medium text-foreground">
+            Data di nascita <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="dateOfBirth"
+            type="date"
+            {...register("dateOfBirth")}
+            className={errors.dateOfBirth ? "border-destructive focus-visible:ring-destructive" : ""}
+          />
+          {errors.dateOfBirth && (
+            <p className="text-xs text-destructive">{errors.dateOfBirth.message}</p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          {/* spacer or additional field */}
+        </div>
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">

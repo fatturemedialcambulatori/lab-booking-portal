@@ -31,7 +31,9 @@ import {
   CalendarDays,
   Clock,
   UserPlus,
+  UserCheck,
 } from "lucide-react";
+import { parseFiscalCode } from "@/lib/fiscalCode";
 
 type PatientData = {
   id?: number;
@@ -328,16 +330,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
                         <Input value={newPatient.lastName} onChange={(e) => setNewPatient((p) => ({ ...p, lastName: e.target.value }))} placeholder="Rossi" />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Data di nascita *</Label>
-                        <Input type="date" value={newPatient.dateOfBirth} max={today} onChange={(e) => setNewPatient((p) => ({ ...p, dateOfBirth: e.target.value }))} />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Codice Fiscale</Label>
-                        <Input value={newPatient.codiceFiscale ?? ""} onChange={(e) => setNewPatient((p) => ({ ...p, codiceFiscale: e.target.value.toUpperCase() }))} placeholder="RSSMRA85M01H501Z" className="uppercase" />
-                      </div>
-                    </div>
+                    <NewPatientCFAndDob newPatient={newPatient} setNewPatient={setNewPatient} today={today} />
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <Label className="text-xs">Email *</Label>
@@ -506,6 +499,64 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+type PatientDataSetter = React.Dispatch<React.SetStateAction<PatientData>>;
+
+function NewPatientCFAndDob({
+  newPatient,
+  setNewPatient,
+  today,
+}: {
+  newPatient: PatientData;
+  setNewPatient: PatientDataSetter;
+  today: string;
+}) {
+  const cfInfo = React.useMemo(
+    () => parseFiscalCode(newPatient.codiceFiscale ?? ""),
+    [newPatient.codiceFiscale]
+  );
+
+  React.useEffect(() => {
+    if (cfInfo && !newPatient.dateOfBirth) {
+      setNewPatient((p) => ({ ...p, dateOfBirth: cfInfo.dateOfBirth }));
+    }
+  }, [cfInfo, newPatient.dateOfBirth, setNewPatient]);
+
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1">
+        <Label className="text-xs">Codice Fiscale</Label>
+        <Input
+          value={newPatient.codiceFiscale ?? ""}
+          onChange={(e) =>
+            setNewPatient((p) => ({ ...p, codiceFiscale: e.target.value.toUpperCase() }))
+          }
+          placeholder="RSSMRA85M01H501Z"
+          className="uppercase"
+          maxLength={16}
+        />
+        {cfInfo && (
+          <div className="flex items-center gap-1.5 text-xs text-primary bg-primary/8 rounded-md px-2.5 py-1.5">
+            <UserCheck className="h-3.5 w-3.5 flex-shrink-0" />
+            <span>
+              {cfInfo.gender === "M" ? "Uomo" : "Donna"} · {cfInfo.age} anni · nato/a il{" "}
+              {cfInfo.dateOfBirth.split("-").reverse().join("/")}
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Data di nascita *</Label>
+        <Input
+          type="date"
+          value={newPatient.dateOfBirth}
+          max={today}
+          onChange={(e) => setNewPatient((p) => ({ ...p, dateOfBirth: e.target.value }))}
+        />
+      </div>
+    </div>
   );
 }
 

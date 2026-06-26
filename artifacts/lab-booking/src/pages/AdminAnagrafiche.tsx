@@ -28,7 +28,9 @@ import {
   CalendarDays,
   Users,
   AlertCircle,
+  UserCheck,
 } from "lucide-react";
+import { parseFiscalCode } from "@/lib/fiscalCode";
 
 type PatientForm = {
   firstName: string;
@@ -322,6 +324,14 @@ function PatientFormDialog({
   const set = (k: keyof PatientForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  const cfInfo = React.useMemo(() => parseFiscalCode(form.codiceFiscale), [form.codiceFiscale]);
+
+  React.useEffect(() => {
+    if (cfInfo && !form.dateOfBirth) {
+      setForm((f) => ({ ...f, dateOfBirth: cfInfo.dateOfBirth }));
+    }
+  }, [cfInfo, form.dateOfBirth]);
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
@@ -339,15 +349,31 @@ function PatientFormDialog({
               <Input value={form.lastName} onChange={set("lastName")} placeholder="Rossi" />
             </div>
           </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Codice Fiscale</Label>
+            <Input
+              value={form.codiceFiscale}
+              onChange={(e) => setForm((f) => ({ ...f, codiceFiscale: e.target.value.toUpperCase() }))}
+              placeholder="RSSMRA85M01H501Z"
+              className="uppercase"
+              maxLength={16}
+            />
+            {cfInfo && (
+              <div className="flex items-center gap-1.5 text-xs text-primary bg-primary/8 rounded-md px-2.5 py-1.5">
+                <UserCheck className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>
+                  {cfInfo.gender === "M" ? "Uomo" : "Donna"} · {cfInfo.age} anni · nato/a il{" "}
+                  {cfInfo.dateOfBirth.split("-").reverse().join("/")}
+                </span>
+              </div>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">Data di nascita *</Label>
               <Input type="date" value={form.dateOfBirth} max={today} onChange={set("dateOfBirth")} />
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Codice Fiscale</Label>
-              <Input value={form.codiceFiscale} onChange={set("codiceFiscale")} placeholder="RSSMRA85M01H501Z" className="uppercase" />
-            </div>
+            <div className="space-y-1" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
