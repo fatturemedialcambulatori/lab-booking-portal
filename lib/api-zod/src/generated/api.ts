@@ -22,13 +22,95 @@ export const HealthCheckResponse = zod.object({
  */
 export const ListExamsResponseItem = zod.object({
   "id": zod.number(),
-  "name": zod.string(),
-  "category": zod.string(),
-  "durationMinutes": zod.number(),
-  "preparationInstructions": zod.string(),
-  "description": zod.string().nullish()
+  "codiceAnalisi": zod.string(),
+  "descrizione": zod.string(),
+  "colorProvetta": zod.string().nullish(),
+  "synlab": zod.boolean(),
+  "um": zod.string().nullish(),
+  "metodo": zod.string().nullish(),
+  "regola": zod.string().nullish(),
+  "importo": zod.string().nullish().describe('Price as decimal string'),
+  "preparationInstructions": zod.string().optional()
 })
 export const ListExamsResponse = zod.array(ListExamsResponseItem)
+
+
+/**
+ * @summary Create a new exam
+ */
+export const createExamBodySynlabDefault = false;
+export const createExamBodyPreparationInstructionsDefault = ``;
+
+export const CreateExamBody = zod.object({
+  "codiceAnalisi": zod.string(),
+  "descrizione": zod.string(),
+  "colorProvetta": zod.string().nullish(),
+  "synlab": zod.boolean().default(createExamBodySynlabDefault),
+  "um": zod.string().nullish(),
+  "metodo": zod.string().nullish(),
+  "regola": zod.string().nullish(),
+  "importo": zod.string().nullish().describe('Price as decimal string'),
+  "preparationInstructions": zod.string().default(createExamBodyPreparationInstructionsDefault)
+})
+
+export const CreateExamResponse = zod.object({
+  "id": zod.number(),
+  "codiceAnalisi": zod.string(),
+  "descrizione": zod.string(),
+  "colorProvetta": zod.string().nullish(),
+  "synlab": zod.boolean(),
+  "um": zod.string().nullish(),
+  "metodo": zod.string().nullish(),
+  "regola": zod.string().nullish(),
+  "importo": zod.string().nullish().describe('Price as decimal string'),
+  "preparationInstructions": zod.string().optional()
+})
+
+
+/**
+ * @summary Update an exam
+ */
+export const UpdateExamParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const updateExamBodySynlabDefault = false;
+export const updateExamBodyPreparationInstructionsDefault = ``;
+
+export const UpdateExamBody = zod.object({
+  "codiceAnalisi": zod.string(),
+  "descrizione": zod.string(),
+  "colorProvetta": zod.string().nullish(),
+  "synlab": zod.boolean().default(updateExamBodySynlabDefault),
+  "um": zod.string().nullish(),
+  "metodo": zod.string().nullish(),
+  "regola": zod.string().nullish(),
+  "importo": zod.string().nullish().describe('Price as decimal string'),
+  "preparationInstructions": zod.string().default(updateExamBodyPreparationInstructionsDefault)
+})
+
+export const UpdateExamResponse = zod.object({
+  "id": zod.number(),
+  "codiceAnalisi": zod.string(),
+  "descrizione": zod.string(),
+  "colorProvetta": zod.string().nullish(),
+  "synlab": zod.boolean(),
+  "um": zod.string().nullish(),
+  "metodo": zod.string().nullish(),
+  "regola": zod.string().nullish(),
+  "importo": zod.string().nullish().describe('Price as decimal string'),
+  "preparationInstructions": zod.string().optional()
+})
+
+
+/**
+ * @summary Delete an exam
+ */
+export const DeleteExamParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteExamResponse = zod.void()
 
 
 /**

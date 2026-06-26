@@ -45,6 +45,79 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Exam"
+    post:
+      operationId: createExam
+      tags: [exams]
+      summary: Create a new exam
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExamInput"
+      responses:
+        "201":
+          description: Exam created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Exam"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /exams/{id}:
+    put:
+      operationId: updateExam
+      tags: [exams]
+      summary: Update an exam
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExamInput"
+      responses:
+        "200":
+          description: Exam updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Exam"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteExam
+      tags: [exams]
+      summary: Delete an exam
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /slots:
     get:
@@ -160,22 +233,57 @@ components:
       required:
         - status
 
+    ExamInput:
+      type: object
+      required: [codiceAnalisi, descrizione]
+      properties:
+        codiceAnalisi:
+          type: string
+        descrizione:
+          type: string
+        colorProvetta:
+          type: ["string", "null"]
+        synlab:
+          type: boolean
+          default: false
+        um:
+          type: ["string", "null"]
+        metodo:
+          type: ["string", "null"]
+        regola:
+          type: ["string", "null"]
+        importo:
+          type: ["string", "null"]
+          description: Price as decimal string
+        preparationInstructions:
+          type: string
+          default: ""
+
     Exam:
       type: object
-      required: [id, name, category, durationMinutes, preparationInstructions]
+      required: [id, codiceAnalisi, descrizione, synlab]
       properties:
         id:
           type: integer
-        name:
+        codiceAnalisi:
           type: string
-        category:
+        descrizione:
           type: string
-        durationMinutes:
-          type: integer
+        colorProvetta:
+          type: ["string", "null"]
+        synlab:
+          type: boolean
+        um:
+          type: ["string", "null"]
+        metodo:
+          type: ["string", "null"]
+        regola:
+          type: ["string", "null"]
+        importo:
+          type: ["string", "null"]
+          description: Price as decimal string
         preparationInstructions:
           type: string
-        description:
-          type: ["string", "null"]
 
     TimeSlot:
       type: object

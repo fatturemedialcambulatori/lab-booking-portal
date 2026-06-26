@@ -9,14 +9,45 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface ExamInput {
+  codiceAnalisi: string;
+  descrizione: string;
+  /** @nullable */
+  colorProvetta?: string | null;
+  synlab?: boolean;
+  /** @nullable */
+  um?: string | null;
+  /** @nullable */
+  metodo?: string | null;
+  /** @nullable */
+  regola?: string | null;
+  /**
+     * Price as decimal string
+     * @nullable
+     */
+  importo?: string | null;
+  preparationInstructions?: string;
+}
+
 export interface Exam {
   id: number;
-  name: string;
-  category: string;
-  durationMinutes: number;
-  preparationInstructions: string;
+  codiceAnalisi: string;
+  descrizione: string;
   /** @nullable */
-  description?: string | null;
+  colorProvetta?: string | null;
+  synlab: boolean;
+  /** @nullable */
+  um?: string | null;
+  /** @nullable */
+  metodo?: string | null;
+  /** @nullable */
+  regola?: string | null;
+  /**
+     * Price as decimal string
+     * @nullable
+     */
+  importo?: string | null;
+  preparationInstructions?: string;
 }
 
 export interface TimeSlot {

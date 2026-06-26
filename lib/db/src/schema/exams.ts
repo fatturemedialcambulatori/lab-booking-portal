@@ -1,14 +1,18 @@
-import { pgTable, text, serial, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, boolean, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const examsTable = pgTable("exams", {
   id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  category: text("category").notNull(),
-  durationMinutes: integer("duration_minutes").notNull(),
-  preparationInstructions: text("preparation_instructions").notNull(),
-  description: text("description"),
+  codiceAnalisi: text("codice_analisi").notNull(),
+  descrizione: text("descrizione").notNull(),
+  colorProvetta: text("color_provetta"),
+  synlab: boolean("synlab").notNull().default(false),
+  um: text("um"),
+  metodo: text("metodo"),
+  regola: text("regola"),
+  importo: numeric("importo", { precision: 10, scale: 2 }),
+  preparationInstructions: text("preparation_instructions").notNull().default(""),
 });
 
 export const insertExamSchema = createInsertSchema(examsTable).omit({ id: true });

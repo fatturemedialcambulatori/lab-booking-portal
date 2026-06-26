@@ -6,13 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface Exam {
-  id: number;
+export interface ExamInput {
   codiceAnalisi: string;
   descrizione: string;
   /** @nullable */
   colorProvetta?: string | null;
-  synlab: boolean;
+  synlab?: boolean;
   /** @nullable */
   um?: string | null;
   /** @nullable */

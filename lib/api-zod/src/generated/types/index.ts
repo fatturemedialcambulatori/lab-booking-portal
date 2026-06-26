@@ -11,6 +11,7 @@ export * from './bookingInput';
 export * from './bookingStatus';
 export * from './errorResponse';
 export * from './exam';
+export * from './examInput';
 export * from './healthStatus';
 export * from './listBookingsParams';
 export * from './listBookingsStatus';

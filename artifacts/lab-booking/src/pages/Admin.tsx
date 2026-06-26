@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, RefreshCw, CalendarDays, FlaskConical, User, Phone, LogOut } from "lucide-react";
 import { Login } from "./Login";
+import { AdminExams } from "./AdminExams";
 
 function StatusBadge({ status }: { status: string }) {
   if (status === "confirmed") {
@@ -39,6 +40,8 @@ export default function Admin() {
   return <AdminDashboard roleLabel={roleLabel} onLogout={handleLogout} navigate={navigate} />;
 }
 
+type TabId = "prenotazioni" | "listino";
+
 function AdminDashboard({
   roleLabel,
   onLogout,
@@ -48,6 +51,7 @@ function AdminDashboard({
   onLogout: () => void;
   navigate: (path: string) => void;
 }) {
+  const [activeTab, setActiveTab] = React.useState<TabId>("prenotazioni");
   const { data: bookings, isLoading, error, refetch, isFetching } = useListBookings();
 
   const today = format(new Date(), "yyyy-MM-dd");
@@ -69,16 +73,18 @@ function AdminDashboard({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refetch()}
-              disabled={isFetching}
-              className="gap-2"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-              Aggiorna
-            </Button>
+            {activeTab === "prenotazioni" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="gap-2"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+                Aggiorna
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="gap-2 hidden sm:flex">
               <ArrowLeft className="h-3.5 w-3.5" />
               Portale pazienti
@@ -89,63 +95,99 @@ function AdminDashboard({
             </Button>
           </div>
         </div>
+
+        {/* Tabs */}
+        <div className="max-w-5xl mx-auto mt-3 flex gap-1 border-b-0">
+          {(
+            [
+              { id: "prenotazioni" as TabId, label: "Prenotazioni" },
+              { id: "listino" as TabId, label: "Listino Esami" },
+            ] as { id: TabId; label: string }[]
+          ).map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-1.5 text-sm font-medium rounded-t-md transition-colors border-b-2 ${
+                activeTab === tab.id
+                  ? "border-primary text-primary bg-primary/5"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </header>
 
       <main className="flex-1 py-8 px-4 sm:px-6">
-        <div className="max-w-5xl mx-auto space-y-8">
+        <div className="max-w-5xl mx-auto">
 
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Gestione Prenotazioni</h1>
-            <p className="text-muted-foreground text-sm">Visualizza e gestisci tutte le prenotazioni del laboratorio.</p>
-          </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            {[
-              { label: "Totale", value: bookings?.length ?? 0, color: "text-foreground" },
-              { label: "Oggi", value: todayBookings.length, color: "text-primary" },
-              { label: "Prossime", value: upcomingBookings.length, color: "text-blue-600" },
-              { label: "Passate", value: pastBookings.length, color: "text-muted-foreground" },
-            ].map((stat) => (
-              <div key={stat.label} className="rounded-lg border border-border bg-card p-4">
-                <p className="text-xs text-muted-foreground mb-1">{stat.label}</p>
-                <div className={`text-2xl font-bold ${stat.color}`}>
-                  {isLoading ? <Skeleton className="h-8 w-10" /> : stat.value}
-                </div>
+          {activeTab === "prenotazioni" && (
+            <div className="space-y-8">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Gestione Prenotazioni</h1>
+                <p className="text-muted-foreground text-sm">Visualizza tutte le prenotazioni del laboratorio.</p>
               </div>
-            ))}
-          </div>
 
-          {/* Bookings list */}
-          {error ? (
-            <div className="rounded-md bg-destructive/10 border border-destructive/30 px-4 py-3 text-sm text-destructive">
-              Impossibile caricare le prenotazioni. Riprova.
-            </div>
-          ) : isLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-20 w-full rounded-lg" />
-              ))}
-            </div>
-          ) : bookings?.length === 0 ? (
-            <div className="text-center py-16 text-muted-foreground">
-              <FlaskConical className="h-10 w-10 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">Nessuna prenotazione</p>
-              <p className="text-sm">Le prenotazioni effettuate dai pazienti appariranno qui.</p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {todayBookings.length > 0 && (
-                <Section title="Oggi" bookings={todayBookings} highlight />
-              )}
-              {upcomingBookings.length > 0 && (
-                <Section title="Prossime" bookings={upcomingBookings} />
-              )}
-              {pastBookings.length > 0 && (
-                <Section title="Passate" bookings={pastBookings} muted />
+              {/* Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {[
+                  { label: "Totale", value: bookings?.length ?? 0, color: "text-foreground" },
+                  { label: "Oggi", value: todayBookings.length, color: "text-primary" },
+                  { label: "Prossime", value: upcomingBookings.length, color: "text-blue-600" },
+                  { label: "Passate", value: pastBookings.length, color: "text-muted-foreground" },
+                ].map((stat) => (
+                  <div key={stat.label} className="rounded-lg border border-border bg-card p-4">
+                    <p className="text-xs text-muted-foreground mb-1">{stat.label}</p>
+                    <div className={`text-2xl font-bold ${stat.color}`}>
+                      {isLoading ? <Skeleton className="h-8 w-10" /> : stat.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {error ? (
+                <div className="rounded-md bg-destructive/10 border border-destructive/30 px-4 py-3 text-sm text-destructive">
+                  Impossibile caricare le prenotazioni. Riprova.
+                </div>
+              ) : isLoading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} className="h-20 w-full rounded-lg" />
+                  ))}
+                </div>
+              ) : bookings?.length === 0 ? (
+                <div className="text-center py-16 text-muted-foreground">
+                  <FlaskConical className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <p className="font-medium">Nessuna prenotazione</p>
+                  <p className="text-sm">Le prenotazioni effettuate dai pazienti appariranno qui.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {todayBookings.length > 0 && (
+                    <Section title="Oggi" bookings={todayBookings} highlight />
+                  )}
+                  {upcomingBookings.length > 0 && (
+                    <Section title="Prossime" bookings={upcomingBookings} />
+                  )}
+                  {pastBookings.length > 0 && (
+                    <Section title="Passate" bookings={pastBookings} muted />
+                  )}
+                </div>
               )}
             </div>
           )}
+
+          {activeTab === "listino" && (
+            <div className="space-y-6">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Listino Esami</h1>
+                <p className="text-muted-foreground text-sm">Gestisci il catalogo degli esami disponibili e i relativi prezzi.</p>
+              </div>
+              <AdminExams />
+            </div>
+          )}
+
         </div>
       </main>
     </div>

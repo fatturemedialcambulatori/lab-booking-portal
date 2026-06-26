@@ -24,6 +24,7 @@ import type {
   BookingInput,
   ErrorResponse,
   Exam,
+  ExamInput,
   HealthStatus,
   ListBookingsParams,
   ListSlotsParams,
@@ -211,6 +212,217 @@ export function useListExams<TData = Awaited<ReturnType<typeof listExams>>, TErr
 
 
 
+
+export const getCreateExamUrl = () => {
+
+
+
+
+  return `/api/exams`
+}
+
+/**
+ * @summary Create a new exam
+ */
+export const createExam = async (examInput: ExamInput, options?: RequestInit): Promise<Exam> => {
+
+  return customFetch<Exam>(getCreateExamUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(examInput)
+  }
+);}
+
+
+
+
+export const getCreateExamMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExam>>, TError,{data: BodyType<ExamInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createExam>>, TError,{data: BodyType<ExamInput>}, TContext> => {
+
+const mutationKey = ['createExam'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createExam>>, {data: BodyType<ExamInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createExam(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateExamMutationResult = NonNullable<Awaited<ReturnType<typeof createExam>>>
+    export type CreateExamMutationBody = BodyType<ExamInput>
+    export type CreateExamMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Create a new exam
+ */
+export const useCreateExam = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExam>>, TError,{data: BodyType<ExamInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createExam>>,
+        TError,
+        {data: BodyType<ExamInput>},
+        TContext
+      > => {
+      return useMutation(getCreateExamMutationOptions(options));
+    }
+
+export const getUpdateExamUrl = (id: number,) => {
+
+
+
+
+  return `/api/exams/${id}`
+}
+
+/**
+ * @summary Update an exam
+ */
+export const updateExam = async (id: number,
+    examInput: ExamInput, options?: RequestInit): Promise<Exam> => {
+
+  return customFetch<Exam>(getUpdateExamUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(examInput)
+  }
+);}
+
+
+
+
+export const getUpdateExamMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateExam>>, TError,{id: number;data: BodyType<ExamInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateExam>>, TError,{id: number;data: BodyType<ExamInput>}, TContext> => {
+
+const mutationKey = ['updateExam'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateExam>>, {id: number;data: BodyType<ExamInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateExam(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateExamMutationResult = NonNullable<Awaited<ReturnType<typeof updateExam>>>
+    export type UpdateExamMutationBody = BodyType<ExamInput>
+    export type UpdateExamMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Update an exam
+ */
+export const useUpdateExam = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateExam>>, TError,{id: number;data: BodyType<ExamInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateExam>>,
+        TError,
+        {id: number;data: BodyType<ExamInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateExamMutationOptions(options));
+    }
+
+export const getDeleteExamUrl = (id: number,) => {
+
+
+
+
+  return `/api/exams/${id}`
+}
+
+/**
+ * @summary Delete an exam
+ */
+export const deleteExam = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteExamUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteExamMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteExam>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteExam>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteExam'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteExam>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteExam(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteExamMutationResult = NonNullable<Awaited<ReturnType<typeof deleteExam>>>
+
+    export type DeleteExamMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Delete an exam
+ */
+export const useDeleteExam = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteExam>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteExam>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteExamMutationOptions(options));
+    }
 
 export const getListSlotsUrl = (params: ListSlotsParams,) => {
   const normalizedParams = new URLSearchParams();
