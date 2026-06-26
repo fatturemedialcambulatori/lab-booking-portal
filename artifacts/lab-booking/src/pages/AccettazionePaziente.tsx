@@ -135,7 +135,9 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
 
   const filtered = React.useMemo(() => {
     let result = visits;
-    if (filter !== "all") {
+    if (role === "laboratorio") {
+      result = result.filter((v) => v.status === "accepted");
+    } else if (filter !== "all") {
       result = result.filter((v) => v.status === filter);
     }
     if (search.trim()) {
@@ -148,7 +150,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
       );
     }
     return result;
-  }, [visits, filter, search]);
+  }, [visits, filter, search, role]);
 
   const counts = React.useMemo(() => ({
     confirmed: visits.filter((v) => v.status === "confirmed").length,
@@ -175,7 +177,11 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Accettazione Pazienti</h1>
-          <p className="text-muted-foreground text-sm">Gestisci l'arrivo e l'accettazione dei pazienti.</p>
+          <p className="text-muted-foreground text-sm">
+            {role === "laboratorio"
+              ? "Pazienti accettati dalla segreteria — pronti per gli esami."
+              : "Gestisci l'arrivo e l'accettazione dei pazienti."}
+          </p>
         </div>
 
         {role === "segreteria" && (
@@ -207,22 +213,24 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
         </div>
       </div>
 
-      {/* Stats bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: "Da accettare", value: counts.confirmed, color: "text-amber-600", bg: "bg-amber-50 border-amber-200" },
-          { label: "Accettati", value: counts.accepted, color: "text-blue-600", bg: "bg-blue-50 border-blue-200" },
-          { label: "Completati", value: counts.completed, color: "text-green-600", bg: "bg-green-50 border-green-200" },
-          { label: "Annullati", value: counts.cancelled, color: "text-red-500", bg: "bg-red-50 border-red-200" },
-        ].map((s) => (
-          <div key={s.label} className={`rounded-lg border px-4 py-3 ${s.bg}`}>
-            <p className="text-xs text-muted-foreground mb-0.5">{s.label}</p>
-            <p className={`text-2xl font-bold ${s.color}`}>
-              {isLoading ? <Skeleton className="h-7 w-8" /> : s.value}
-            </p>
-          </div>
-        ))}
-      </div>
+      {/* Stats bar — segreteria only */}
+      {role === "segreteria" && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: "Da accettare", value: counts.confirmed, color: "text-amber-600", bg: "bg-amber-50 border-amber-200" },
+            { label: "Accettati", value: counts.accepted, color: "text-blue-600", bg: "bg-blue-50 border-blue-200" },
+            { label: "Completati", value: counts.completed, color: "text-green-600", bg: "bg-green-50 border-green-200" },
+            { label: "Annullati", value: counts.cancelled, color: "text-red-500", bg: "bg-red-50 border-red-200" },
+          ].map((s) => (
+            <div key={s.label} className={`rounded-lg border px-4 py-3 ${s.bg}`}>
+              <p className="text-xs text-muted-foreground mb-0.5">{s.label}</p>
+              <p className={`text-2xl font-bold ${s.color}`}>
+                {isLoading ? <Skeleton className="h-7 w-8" /> : s.value}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Search + filters */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -235,24 +243,26 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
             className="pl-9"
           />
         </div>
-        <div className="flex gap-1 bg-muted/50 rounded-lg p-1 border border-border flex-shrink-0">
-          {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => setFilter(f.id)}
-              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                filter === f.id
-                  ? "bg-white text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {f.label}
-              {f.id !== "all" && counts[f.id as keyof typeof counts] > 0 && (
-                <span className="ml-1 text-muted-foreground">({counts[f.id as keyof typeof counts]})</span>
-              )}
-            </button>
-          ))}
-        </div>
+        {role === "segreteria" && (
+          <div className="flex gap-1 bg-muted/50 rounded-lg p-1 border border-border flex-shrink-0">
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setFilter(f.id)}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  filter === f.id
+                    ? "bg-white text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {f.label}
+                {f.id !== "all" && counts[f.id as keyof typeof counts] > 0 && (
+                  <span className="ml-1 text-muted-foreground">({counts[f.id as keyof typeof counts]})</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Content */}
