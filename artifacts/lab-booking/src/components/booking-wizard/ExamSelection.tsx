@@ -7,32 +7,6 @@ import { CheckCircle2, Search, X, ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { BookingFormValues } from "../../pages/Home";
 
-const TUBE_COLOR_STYLE: Record<string, string> = {
-  "GIALLO": "bg-yellow-400",
-  "GIALLA": "bg-yellow-400",
-  "ROSSO": "bg-red-500",
-  "ROSSA": "bg-red-500",
-  "VIOLA": "bg-purple-500",
-  "BLU": "bg-blue-500",
-  "VERDE": "bg-green-500",
-  "GRIGIO": "bg-gray-400",
-  "ARANCIO": "bg-orange-400",
-  "ARANCIONE": "bg-orange-400",
-  "BIANCO": "bg-white border border-gray-300",
-  "NERO": "bg-gray-900",
-};
-
-function TubeDot({ color }: { color: string | null | undefined }) {
-  if (!color) return null;
-  const key = color.toUpperCase().split(/[\s,]/)[0];
-  const cls = TUBE_COLOR_STYLE[key] ?? "bg-gray-300";
-  return (
-    <span
-      className={`inline-block w-3 h-3 rounded-full flex-shrink-0 ${cls}`}
-      title={`Provetta ${color}`}
-    />
-  );
-}
 
 export function ExamSelection({ onNext }: { onNext: () => void }) {
   const { data: exams, isLoading, error } = useListExams();
@@ -146,15 +120,11 @@ export function ExamSelection({ onNext }: { onNext: () => void }) {
                   }`}>
                     {isSelected && <CheckCircle2 className="w-3 h-3 text-white" />}
                   </div>
-                  <TubeDot color={exam.colorProvetta} />
                   <div className="min-w-0">
                     <p className="font-medium text-sm leading-snug truncate">{exam.descrizione}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {exam.codiceAnalisi}
                       {exam.um && <span className="ml-2 text-muted-foreground/70">· {exam.um}</span>}
-                      {exam.synlab && (
-                        <span className="ml-2 text-blue-600 font-medium">· Synlab</span>
-                      )}
                     </p>
                   </div>
                 </div>
