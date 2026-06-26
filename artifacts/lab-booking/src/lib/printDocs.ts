@@ -52,9 +52,10 @@ function printWindow(html: string) {
 
 const BASE_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #fff; padding: 24px 32px; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1a1a1a; padding-bottom: 14px; margin-bottom: 18px; }
-  .logo { height: 56px; object-fit: contain; }
+  html { color-scheme: light; }
+  body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #fff !important; padding: 24px 32px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1a1a1a; padding-bottom: 14px; margin-bottom: 18px; background: #fff; }
+  .logo { height: 64px; max-width: 220px; object-fit: contain; background: #fff; display: block; }
   .lab-info { text-align: right; font-size: 9.5px; line-height: 1.55; color: #333; }
   .lab-info strong { display: block; font-size: 11px; color: #1a1a1a; margin-bottom: 2px; }
   .doc-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; color: #1a1a1a; letter-spacing: -0.3px; }
