@@ -32,8 +32,11 @@ import {
   Clock,
   UserPlus,
   UserCheck,
+  Printer,
+  FileText,
 } from "lucide-react";
 import { parseFiscalCode } from "@/lib/fiscalCode";
+import { printPreventivo, printSchedaLaboratorio } from "@/lib/printDocs";
 
 type PatientData = {
   id?: number;
@@ -416,6 +419,38 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
                       </Badge>
                     ))}
                     <span className="text-xs text-muted-foreground self-center ml-auto">€ {totalPrice.toFixed(2)}</span>
+                  </div>
+                )}
+
+                {/* ─── Stampa documenti ─── */}
+                {selectedExamIds.length > 0 && activePatient && (
+                  <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                      <Printer className="h-3.5 w-3.5" />
+                      Stampa / Esporta PDF
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 text-xs"
+                        onClick={() => printPreventivo(activePatient, selectedExams)}
+                      >
+                        <FileText className="h-3.5 w-3.5 text-primary" />
+                        Preventivo Paziente
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 text-xs"
+                        onClick={() => printSchedaLaboratorio(activePatient, selectedExams)}
+                      >
+                        <FlaskConical className="h-3.5 w-3.5 text-primary" />
+                        Scheda Laboratorio
+                      </Button>
+                    </div>
                   </div>
                 )}
 
