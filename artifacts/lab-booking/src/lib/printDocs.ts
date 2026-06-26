@@ -18,10 +18,11 @@ export type PrintPatient = {
   gender?: string;
   email?: string;
   phone?: string;
-  billingAddress?: string;
-  billingCap?: string;
-  billingCity?: string;
-  billingProvincia?: string;
+  notes?: string | null;
+  billingAddress?: string | null;
+  billingCap?: string | null;
+  billingCity?: string | null;
+  billingProvincia?: string | null;
 };
 
 const LAB_INFO = {
@@ -106,11 +107,14 @@ export function printPreventivo(patient: PrintPatient, exams: PrintExam[]) {
     <div class="patient-box">
       <div class="row">
         <div><span>Nome: </span><strong>${patient.firstName} ${patient.lastName}</strong></div>
-        ${patient.codiceFiscale ? `<div><span>C.F.: </span><strong>${patient.codiceFiscale}</strong></div>` : ""}
         ${patient.dateOfBirth ? `<div><span>Data di nascita: </span><strong>${patient.dateOfBirth}</strong></div>` : ""}
+        ${patient.codiceFiscale ? `<div><span>C.F.: </span><strong>${patient.codiceFiscale}</strong></div>` : ""}
+        ${patient.gender ? `<div><span>Sesso: </span><strong>${patient.gender === "M" ? "Maschio" : "Femmina"}</strong></div>` : ""}
       </div>
       ${patient.email ? `<div style="margin-top:3px"><span>Email: </span><strong>${patient.email}</strong></div>` : ""}
-      ${billingLines.length ? `<div style="margin-top:3px"><span>Indirizzo: </span><strong>${billingLines.join(", ")}</strong></div>` : ""}
+      ${patient.phone ? `<div style="margin-top:3px"><span>Telefono: </span><strong>${patient.phone}</strong></div>` : ""}
+      ${billingLines.length ? `<div style="margin-top:3px"><span>Indirizzo fatturazione: </span><strong>${billingLines.join(", ")}</strong></div>` : ""}
+      ${patient.notes ? `<div style="margin-top:3px"><span>Note: </span><strong>${patient.notes}</strong></div>` : ""}
     </div>
   `;
 
@@ -213,6 +217,10 @@ export function printSchedaLaboratorio(patient: PrintPatient, exams: PrintExam[]
         ${patient.codiceFiscale ? `<div><span>C.F.: </span><strong>${patient.codiceFiscale}</strong></div>` : ""}
         ${patient.gender ? `<div><span>Sesso: </span><strong>${patient.gender === "M" ? "Maschio" : "Femmina"}</strong></div>` : ""}
       </div>
+      ${patient.email ? `<div style="margin-top:3px"><span>Email: </span><strong>${patient.email}</strong></div>` : ""}
+      ${patient.phone ? `<div style="margin-top:3px"><span>Telefono: </span><strong>${patient.phone}</strong></div>` : ""}
+      ${[patient.billingAddress, [patient.billingCap, patient.billingCity, patient.billingProvincia ? `(${patient.billingProvincia})` : ""].filter(Boolean).join(" ")].filter(Boolean).join(", ") ? `<div style="margin-top:3px"><span>Indirizzo fatturazione: </span><strong>${[patient.billingAddress, [patient.billingCap, patient.billingCity, patient.billingProvincia ? `(${patient.billingProvincia})` : ""].filter(Boolean).join(" ")].filter(Boolean).join(", ")}</strong></div>` : ""}
+      ${patient.notes ? `<div style="margin-top:3px"><span>Note: </span><strong>${patient.notes}</strong></div>` : ""}
     </div>
 
     <div class="section-title">Dettaglio esami</div>

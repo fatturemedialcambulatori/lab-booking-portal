@@ -75,29 +75,27 @@ export function ExamTodoDialog({ visit, doneIds, onToggle, onClose, onCompleted,
     }
   };
 
+  const fullPatient = () => ({
+    firstName: visit.firstName,
+    lastName: visit.lastName,
+    dateOfBirth: visit.dateOfBirth,
+    codiceFiscale: visit.codiceFiscale ?? patient?.codiceFiscale ?? undefined,
+    gender: patient?.gender ?? undefined,
+    email: visit.email,
+    phone: visit.phone,
+    notes: patient?.notes ?? undefined,
+    billingAddress: patient?.billingAddress ?? undefined,
+    billingCap: patient?.billingCap ?? undefined,
+    billingCity: patient?.billingCity ?? undefined,
+    billingProvincia: patient?.billingProvincia ?? undefined,
+  });
+
   const handlePrintScheda = () => {
-    printSchedaLaboratorio(
-      { firstName: visit.firstName, lastName: visit.lastName, dateOfBirth: visit.dateOfBirth },
-      exams
-    );
+    printSchedaLaboratorio(fullPatient(), exams);
   };
 
   const handlePrintPreventivo = () => {
-    printPreventivo(
-      {
-        firstName: visit.firstName,
-        lastName: visit.lastName,
-        dateOfBirth: visit.dateOfBirth,
-        codiceFiscale: visit.codiceFiscale ?? undefined,
-        email: visit.email,
-        phone: visit.phone,
-        billingAddress: patient?.billingAddress ?? undefined,
-        billingCap: patient?.billingCap ?? undefined,
-        billingCity: patient?.billingCity ?? undefined,
-        billingProvincia: patient?.billingProvincia ?? undefined,
-      },
-      exams
-    );
+    printPreventivo(fullPatient(), exams);
   };
 
   return (
