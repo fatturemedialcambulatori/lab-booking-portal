@@ -6,7 +6,8 @@ import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, RefreshCw, CalendarDays, FlaskConical, User, Phone } from "lucide-react";
+import { ArrowLeft, RefreshCw, CalendarDays, FlaskConical, User, Phone, LogOut } from "lucide-react";
+import { Login } from "./Login";
 
 function StatusBadge({ status }: { status: string }) {
   if (status === "confirmed") {
@@ -20,6 +21,33 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function Admin() {
   const [, navigate] = useLocation();
+  const [role, setRole] = React.useState<string | null>(
+    () => sessionStorage.getItem("operator_role")
+  );
+
+  const handleLogout = () => {
+    sessionStorage.removeItem("operator_role");
+    setRole(null);
+  };
+
+  if (!role) {
+    return <Login onSuccess={(r) => setRole(r)} />;
+  }
+
+  const roleLabel = role === "segreteria" ? "Segreteria" : "Laboratorio";
+
+  return <AdminDashboard roleLabel={roleLabel} onLogout={handleLogout} navigate={navigate} />;
+}
+
+function AdminDashboard({
+  roleLabel,
+  onLogout,
+  navigate,
+}: {
+  roleLabel: string;
+  onLogout: () => void;
+  navigate: (path: string) => void;
+}) {
   const { data: bookings, isLoading, error, refetch, isFetching } = useListBookings();
 
   const today = format(new Date(), "yyyy-MM-dd");
@@ -37,7 +65,7 @@ export default function Admin() {
             </div>
             <div>
               <span className="font-semibold text-lg text-primary leading-none">LabMedica</span>
-              <span className="text-xs text-muted-foreground block leading-none mt-0.5">Pannello Segreteria</span>
+              <span className="text-xs text-muted-foreground block leading-none mt-0.5">Pannello {roleLabel}</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -51,9 +79,13 @@ export default function Admin() {
               <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
               Aggiorna
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="gap-2">
+            <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="gap-2 hidden sm:flex">
               <ArrowLeft className="h-3.5 w-3.5" />
               Portale pazienti
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onLogout} className="gap-2 text-muted-foreground hover:text-destructive">
+              <LogOut className="h-3.5 w-3.5" />
+              Esci
             </Button>
           </div>
         </div>
