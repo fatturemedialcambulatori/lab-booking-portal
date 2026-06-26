@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { bookingsTable, bookingExamsTable, examsTable } from "@workspace/db";
+import { bookingsTable, bookingExamsTable, examsTable, patientsTable } from "@workspace/db";
 import { eq, desc, inArray } from "drizzle-orm";
 import { CreateBookingBody, GetBookingParams } from "@workspace/api-zod";
 
@@ -92,10 +92,10 @@ router.get("/bookings", async (req, res) => {
       };
     });
 
-    res.json(result);
+    return res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to list bookings");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -141,11 +141,31 @@ router.post("/bookings", async (req, res) => {
       data.examIds.map((examId) => ({ bookingId: inserted.id, examId }))
     );
 
+    // Upsert patient: crea il record in anagrafica se non esiste già con questa email
+    const existing = await db
+      .select({ id: patientsTable.id })
+      .from(patientsTable)
+      .where(eq(patientsTable.email, data.email))
+      .limit(1);
+
+    if (existing.length === 0) {
+      await db.insert(patientsTable).values({
+        firstName: data.firstName,
+        lastName: data.lastName,
+        dateOfBirth: dobStr,
+        codiceFiscale: data.codiceFiscale ?? null,
+        gender: data.gender ?? null,
+        email: data.email,
+        phone: data.phone,
+        notes: null,
+      });
+    }
+
     const result = await formatBooking(inserted.id);
-    res.status(201).json(result);
+    return res.status(201).json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to create booking");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -160,10 +180,10 @@ router.get("/bookings/:id", async (req, res) => {
     if (!result) {
       return res.status(404).json({ error: "Booking not found" });
     }
-    res.json(result);
+    return res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to get booking");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -193,10 +213,10 @@ router.patch("/bookings/:id/status", async (req, res) => {
     await db.update(bookingsTable).set({ status }).where(eq(bookingsTable.id, id));
 
     const result = await formatBooking(id);
-    res.json(result);
+    return res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to update booking status");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
