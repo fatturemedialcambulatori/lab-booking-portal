@@ -28,6 +28,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Pencil, Trash2, Search, FlaskConical } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { type RefType, buildRefString, parseRefValue, REF_TYPE_LABELS } from "@/lib/refValue";
 
 type Exam = {
   id: number;
@@ -52,7 +60,10 @@ const EMPTY_FORM = {
   metodo: "",
   regola: "",
   importo: "",
-  valoreRiferimento: "",
+  refType: "" as RefType,
+  refMin: "",
+  refMax: "",
+  refSingle: "",
   preparationInstructions: "",
 };
 
@@ -106,9 +117,56 @@ function ExamForm({
         </div>
       </div>
 
-      <div className="space-y-1">
+      <div className="space-y-2">
         <Label>Valore di riferimento</Label>
-        <Input value={value.valoreRiferimento} onChange={(e) => set("valoreRiferimento", e.target.value)} placeholder="es. 70–100 mg/dL" />
+        <Select
+          value={value.refType || "__none__"}
+          onValueChange={(v) => set("refType", (v === "__none__" ? "" : v) as RefType)}
+        >
+          <SelectTrigger className="h-9">
+            <SelectValue placeholder="Nessuno" />
+          </SelectTrigger>
+          <SelectContent>
+            {REF_TYPE_LABELS.map((r) => (
+              <SelectItem key={r.value || "__none__"} value={r.value || "__none__"}>
+                {r.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {value.refType === "range" && (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Minimo</Label>
+              <Input
+                value={value.refMin}
+                onChange={(e) => set("refMin", e.target.value)}
+                placeholder="es. 70"
+                type="number"
+                step="any"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Massimo</Label>
+              <Input
+                value={value.refMax}
+                onChange={(e) => set("refMax", e.target.value)}
+                placeholder="es. 100"
+                type="number"
+                step="any"
+              />
+            </div>
+          </div>
+        )}
+        {value.refType && value.refType !== "range" && (
+          <Input
+            value={value.refSingle}
+            onChange={(e) => set("refSingle", e.target.value)}
+            placeholder="Valore numerico"
+            type="number"
+            step="any"
+          />
+        )}
       </div>
 
       <div className="space-y-1">
@@ -161,6 +219,7 @@ export function AdminExams() {
   };
 
   const openEdit = (exam: Exam) => {
+    const ref = parseRefValue(exam.valoreRiferimento);
     setFormValues({
       codiceAnalisi: exam.codiceAnalisi,
       descrizione: exam.descrizione,
@@ -170,7 +229,10 @@ export function AdminExams() {
       metodo: exam.metodo ?? "",
       regola: exam.regola ?? "",
       importo: exam.importo ?? "",
-      valoreRiferimento: exam.valoreRiferimento ?? "",
+      refType: ref.type,
+      refMin: ref.min != null ? String(ref.min) : "",
+      refMax: ref.max != null ? String(ref.max) : "",
+      refSingle: ref.value != null ? String(ref.value) : "",
       preparationInstructions: exam.preparationInstructions,
     });
     setFormError("");
@@ -195,7 +257,7 @@ export function AdminExams() {
           metodo: toNull(formValues.metodo),
           regola: toNull(formValues.regola),
           importo: toNull(formValues.importo),
-          valoreRiferimento: toNull(formValues.valoreRiferimento),
+          valoreRiferimento: buildRefString(formValues.refType, formValues.refMin, formValues.refMax, formValues.refSingle),
           preparationInstructions: formValues.preparationInstructions.trim(),
         },
       },
@@ -227,7 +289,7 @@ export function AdminExams() {
           metodo: toNull(formValues.metodo),
           regola: toNull(formValues.regola),
           importo: toNull(formValues.importo),
-          valoreRiferimento: toNull(formValues.valoreRiferimento),
+          valoreRiferimento: buildRefString(formValues.refType, formValues.refMin, formValues.refMax, formValues.refSingle),
           preparationInstructions: formValues.preparationInstructions.trim(),
         },
       },

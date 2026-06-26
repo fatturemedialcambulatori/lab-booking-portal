@@ -1,3 +1,5 @@
+import { displayRefValue, isOutOfRange } from "./refValue";
+
 export type PrintExam = {
   codiceAnalisi: string;
   descrizione: string;
@@ -185,7 +187,9 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
     [patient.billingCap, patient.billingCity, patient.billingProvincia ? `(${patient.billingProvincia})` : ""].filter(Boolean).join(" "),
   ].filter(Boolean);
 
-  const rows = exams.map((e, i) => `
+  const rows = exams.map((e, i) => {
+    const oor = isOutOfRange(e.valoreRiferimento, e.valore);
+    return `
     <tr>
       <td>${i + 1}</td>
       <td style="font-weight:600">${e.codiceAnalisi}</td>
@@ -194,11 +198,13 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
       <td>${e.um ?? "—"}</td>
       <td>${e.metodo ?? "—"}</td>
       <td>${e.regola ?? "—"}</td>
-      <td style="white-space:pre-wrap">${e.valoreRiferimento ?? "—"}</td>
-      <td style="font-weight:600;color:${e.valore ? "#1a1a1a" : "#999"}">${e.valore ?? "—"}</td>
+      <td>${displayRefValue(e.valoreRiferimento)}</td>
+      <td style="font-weight:700;color:${oor ? "#c62828" : e.valore ? "#1a1a1a" : "#999"}">
+        ${e.valore ?? "—"}${oor ? ' <span style="color:#c62828;font-weight:900">!</span>' : ""}
+      </td>
       <td style="font-style:italic;color:#555">${e.refertaNote ?? ""}</td>
     </tr>
-  `).join("");
+  `;}).join("");
 
   const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>Referto – ${patient.firstName} ${patient.lastName}</title><style>
     ${BASE_CSS}

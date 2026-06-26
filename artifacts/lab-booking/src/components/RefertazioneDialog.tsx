@@ -29,10 +29,12 @@ import {
   Printer,
   ChevronDown,
   ChevronUp,
+  AlertTriangle,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
 import { printSchedaLaboratorio } from "@/lib/printDocs";
+import { displayRefValue, isOutOfRange } from "@/lib/refValue";
 import type { TodoVisit } from "./ExamTodoDialog";
 
 interface Props {
@@ -227,6 +229,7 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
               const saved = getReferto(exam.id);
               const local = localValues[exam.id] ?? { valore: "", note: "" };
               const noteExpanded = expandedNote.has(exam.id);
+              const outOfRange = isOutOfRange(exam.valoreRiferimento, saved?.valore ?? local.valore);
 
               return (
                 <div
@@ -265,11 +268,22 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
                       {isDone && saved ? (
                         /* Saved state: show result + edit option */
                         <div className="mt-2 space-y-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-xs text-muted-foreground">Risultato:</span>
-                            <span className="text-sm font-semibold text-green-700">
+                            <span className={`text-sm font-semibold ${outOfRange ? "text-red-600" : "text-green-700"}`}>
                               {saved.valore}{exam.um ? ` ${exam.um}` : ""}
                             </span>
+                            {outOfRange && (
+                              <span className="flex items-center gap-0.5 text-xs font-bold text-red-500 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">
+                                <AlertTriangle className="h-3 w-3" />
+                                Fuori range
+                              </span>
+                            )}
+                            {exam.valoreRiferimento && (
+                              <span className="text-xs text-muted-foreground">
+                                rif: {displayRefValue(exam.valoreRiferimento)}{exam.um ? ` ${exam.um}` : ""}
+                              </span>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
@@ -288,6 +302,11 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
                       ) : (
                         /* Input state */
                         <div className="mt-2 space-y-2">
+                          {exam.valoreRiferimento && (
+                            <p className="text-xs text-muted-foreground">
+                              Val. riferimento: <span className="font-medium">{displayRefValue(exam.valoreRiferimento)}{exam.um ? ` ${exam.um}` : ""}</span>
+                            </p>
+                          )}
                           <div className="flex gap-2">
                             <Input
                               placeholder={`Inserisci risultato${exam.um ? ` (${exam.um})` : ""}…`}
