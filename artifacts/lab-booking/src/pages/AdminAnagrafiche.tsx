@@ -29,8 +29,10 @@ import {
   Users,
   AlertCircle,
   UserCheck,
+  Upload,
 } from "lucide-react";
 import { parseFiscalCode } from "@/lib/fiscalCode";
+import { BulkImportDialog } from "@/components/BulkImportDialog";
 
 type PatientForm = {
   firstName: string;
@@ -62,6 +64,7 @@ export function AdminAnagrafiche() {
   const queryClient = useQueryClient();
   const [search, setSearch] = React.useState("");
   const [showCreate, setShowCreate] = React.useState(false);
+  const [showBulkImport, setShowBulkImport] = React.useState(false);
   const [editPatient, setEditPatient] = React.useState<{ id: number; form: PatientForm } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = React.useState<number | null>(null);
   const [formError, setFormError] = React.useState<string | null>(null);
@@ -163,10 +166,16 @@ export function AdminAnagrafiche() {
             Gestisci il registro pazienti: {patients?.length ?? 0} pazienti registrati.
           </p>
         </div>
-        <Button onClick={() => { setShowCreate(true); setFormError(null); }} className="gap-2 shrink-0">
-          <UserPlus className="h-4 w-4" />
-          Nuovo Paziente
-        </Button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Button variant="outline" onClick={() => setShowBulkImport(true)} className="gap-2">
+            <Upload className="h-4 w-4" />
+            Importa CSV/Excel
+          </Button>
+          <Button onClick={() => { setShowCreate(true); setFormError(null); }} className="gap-2">
+            <UserPlus className="h-4 w-4" />
+            Nuovo Paziente
+          </Button>
+        </div>
       </div>
 
       <div className="relative">
@@ -271,6 +280,14 @@ export function AdminAnagrafiche() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* ─── BULK IMPORT ─── */}
+      {showBulkImport && (
+        <BulkImportDialog
+          onClose={() => setShowBulkImport(false)}
+          onImported={() => { refetch(); }}
+        />
       )}
 
       {/* ─── CREATE DIALOG ─── */}

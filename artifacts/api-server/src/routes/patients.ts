@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { patientsTable } from "@workspace/db";
-import { eq, ilike, or } from "drizzle-orm";
+import { eq, ilike, or, and, isNotNull } from "drizzle-orm";
 import { CreatePatientBody, UpdatePatientBody } from "@workspace/api-zod";
 
 const router = Router();
@@ -164,6 +164,71 @@ router.delete("/patients/:id", async (req, res) => {
     req.log.error({ err }, "Failed to delete patient");
     res.status(500).json({ error: "Internal server error" });
   }
+});
+
+router.post("/patients/bulk", async (req, res) => {
+  const rows = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    res.status(400).json({ error: "Provide a non-empty array of patients" });
+    return;
+  }
+
+  let created = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (const row of rows) {
+    const firstName = String(row.firstName ?? "").trim();
+    const lastName = String(row.lastName ?? "").trim();
+    const email = String(row.email ?? "").trim();
+    const phone = String(row.phone ?? "").trim();
+    const dateOfBirth = toDateStr(String(row.dateOfBirth ?? "").trim());
+    const cf = String(row.codiceFiscale ?? "").trim().toUpperCase() || null;
+    const gender = (String(row.gender ?? "").trim().toUpperCase() === "M" ? "M" : String(row.gender ?? "").trim().toUpperCase() === "F" ? "F" : null);
+
+    if (!firstName || !lastName || !email || !phone) {
+      errors.push(`Riga saltata (dati obbligatori mancanti): ${firstName} ${lastName}`);
+      continue;
+    }
+
+    try {
+      const existingCondition = cf
+        ? and(isNotNull(patientsTable.codiceFiscale), eq(patientsTable.codiceFiscale, cf))
+        : eq(patientsTable.email, email);
+
+      const existing = await db
+        .select({ id: patientsTable.id })
+        .from(patientsTable)
+        .where(existingCondition)
+        .limit(1);
+
+      if (existing.length > 0) {
+        skipped++;
+        continue;
+      }
+
+      await db.insert(patientsTable).values({
+        firstName,
+        lastName,
+        dateOfBirth: dateOfBirth || "1900-01-01",
+        codiceFiscale: cf,
+        gender,
+        email,
+        phone,
+        notes: String(row.notes ?? "").trim() || null,
+        billingAddress: String(row.billingAddress ?? "").trim() || null,
+        billingCap: String(row.billingCap ?? "").trim() || null,
+        billingCity: String(row.billingCity ?? "").trim() || null,
+        billingProvincia: String(row.billingProvincia ?? "").trim() || null,
+      });
+      created++;
+    } catch (err) {
+      req.log.error({ err }, "Bulk import row error");
+      errors.push(`Errore su ${firstName} ${lastName}: errore di inserimento`);
+    }
+  }
+
+  res.json({ created, skipped, errors });
 });
 
 export default router;
