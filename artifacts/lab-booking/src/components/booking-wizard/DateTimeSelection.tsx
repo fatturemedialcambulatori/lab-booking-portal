@@ -4,8 +4,16 @@ import { useListSlots } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { it } from "date-fns/locale";
-import { format, addDays } from "date-fns";
+import { format, addDays, startOfDay, addWeeks } from "date-fns";
 import type { BookingFormValues } from "../../pages/Home";
+
+function getNextWeekday(from: Date): Date {
+  const d = new Date(from);
+  while (d.getDay() === 0 || d.getDay() === 6) {
+    d.setDate(d.getDate() + 1);
+  }
+  return d;
+}
 
 export function DateTimeSelection({ onNext, onPrev }: { onNext: () => void; onPrev: () => void }) {
   const { setValue, watch, formState: { errors } } = useFormContext<BookingFormValues>();
@@ -13,6 +21,9 @@ export function DateTimeSelection({ onNext, onPrev }: { onNext: () => void; onPr
   const selectedDate = watch("date");
   const selectedTime = watch("time");
   const examId = watch("examId");
+
+  const today = startOfDay(new Date());
+  const firstAvailableDay = getNextWeekday(today);
 
   const [calendarDate, setCalendarDate] = React.useState<Date | undefined>(undefined);
 
@@ -33,15 +44,15 @@ export function DateTimeSelection({ onNext, onPrev }: { onNext: () => void; onPr
     setValue("time", time, { shouldValidate: true });
   };
 
-  const availableSlots = slots?.filter((s) => s.available) ?? [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const allSlots = slots ?? [];
+  const availableSlots = allSlots.filter((s) => s.available);
+  const allUnavailable = allSlots.length > 0 && availableSlots.length === 0;
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold mb-1 text-foreground">Scegli Data e Ora</h2>
-        <p className="text-muted-foreground text-sm">Seleziona il giorno e l'orario preferito per l'esame.</p>
+        <p className="text-muted-foreground text-sm">Seleziona il giorno e l'orario preferito per l'esame. Il laboratorio e' aperto dal lunedi' al venerdi'.</p>
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
@@ -54,13 +65,13 @@ export function DateTimeSelection({ onNext, onPrev }: { onNext: () => void; onPr
               onSelect={handleDateSelect}
               locale={it}
               disabled={(date) => {
-                const d = new Date(date);
-                d.setHours(0, 0, 0, 0);
+                const d = startOfDay(date);
                 const day = d.getDay();
                 return d < today || day === 0 || day === 6;
               }}
+              defaultMonth={firstAvailableDay}
               fromDate={today}
-              toDate={addDays(today, 90)}
+              toDate={addWeeks(today, 12)}
               className="w-full"
             />
           </div>
@@ -71,43 +82,52 @@ export function DateTimeSelection({ onNext, onPrev }: { onNext: () => void; onPr
 
         <div className="space-y-2">
           <p className="text-sm font-medium text-foreground">Orario disponibile</p>
+
           {!selectedDate ? (
             <div className="border border-dashed border-border rounded-lg p-6 text-center text-muted-foreground text-sm flex items-center justify-center min-h-[200px]">
-              Seleziona prima una data
+              Seleziona prima una data dal calendario
             </div>
           ) : slotsLoading ? (
-            <div className="space-y-2 min-h-[200px]">
-              {Array.from({ length: 6 }).map((_, i) => (
+            <div className="grid grid-cols-3 gap-2 min-h-[200px] content-start">
+              {Array.from({ length: 12 }).map((_, i) => (
                 <div key={i} className="h-10 bg-muted animate-pulse rounded-md" />
               ))}
             </div>
-          ) : availableSlots.length === 0 ? (
+          ) : allSlots.length === 0 ? (
             <div className="border border-dashed border-border rounded-lg p-6 text-center text-muted-foreground text-sm flex items-center justify-center min-h-[200px]">
-              Nessun orario disponibile per questa data.<br />Prova un altro giorno.
+              Nessun orario per questa data.<br />Prova un altro giorno feriale.
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-2 min-h-[200px] content-start">
-              {slots?.map((slot) => (
-                <button
-                  key={slot.time}
-                  type="button"
-                  disabled={!slot.available}
-                  onClick={() => slot.available && handleTimeSelect(slot.time)}
-                  className={`
-                    px-3 py-2 rounded-md text-sm font-medium transition-all border
-                    ${!slot.available ? "opacity-40 cursor-not-allowed bg-muted text-muted-foreground border-transparent" : ""}
-                    ${slot.available && selectedTime === slot.time
-                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                      : slot.available
-                      ? "bg-background border-border hover:border-primary hover:text-primary cursor-pointer"
-                      : ""}
-                  `}
-                >
-                  {slot.time}
-                </button>
-              ))}
+            <div className="space-y-3">
+              {allUnavailable && (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                  Gli orari di oggi sono esauriti. Seleziona un altro giorno.
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-2 content-start">
+                {allSlots.map((slot) => (
+                  <button
+                    key={slot.time}
+                    type="button"
+                    disabled={!slot.available}
+                    onClick={() => slot.available && handleTimeSelect(slot.time)}
+                    title={!slot.available ? "Orario non disponibile" : undefined}
+                    className={[
+                      "px-3 py-2 rounded-md text-sm font-medium transition-all border",
+                      !slot.available
+                        ? "opacity-35 cursor-not-allowed bg-muted text-muted-foreground border-transparent line-through"
+                        : selectedTime === slot.time
+                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                        : "bg-background border-border hover:border-primary hover:text-primary cursor-pointer",
+                    ].join(" ")}
+                  >
+                    {slot.time}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
+
           {errors.time && (
             <p className="text-sm text-destructive">{errors.time.message}</p>
           )}

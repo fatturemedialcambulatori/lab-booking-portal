@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { ListSlotsQueryParams } from "@workspace/api-zod";
 
 const router = Router();
 
@@ -9,39 +8,39 @@ const ALL_SLOTS = [
   "15:00", "15:30", "16:00",
 ];
 
-router.get("/slots", async (req, res) => {
-  const parsed = ListSlotsQueryParams.safeParse(req.query);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Missing required parameter: date" });
+router.get("/slots", (req, res) => {
+  const dateParam = req.query.date as string | undefined;
+
+  if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+    return res.status(400).json({ error: "Missing required parameter: date (YYYY-MM-DD)" });
   }
 
-  const { date } = parsed.data;
+  const [year, month, day] = dateParam.split("-").map(Number);
+  const requestedDate = new Date(year, month - 1, day);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const requestedDate = new Date(date);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
   if (requestedDate < today) {
     return res.json([]);
   }
 
-  const isToday = requestedDate.toDateString() === today.toDateString();
-  const currentHour = new Date().getHours();
-  const currentMinute = new Date().getMinutes();
+  const isToday = requestedDate.getTime() === today.getTime();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+  const dayOfWeek = requestedDate.getDay();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
   const slots = ALL_SLOTS.map((time) => {
     const [h, m] = time.split(":").map(Number);
     let available = true;
 
-    if (isToday) {
+    if (isWeekend) {
+      available = false;
+    } else if (isToday) {
       if (h < currentHour || (h === currentHour && m <= currentMinute)) {
         available = false;
       }
-    }
-
-    const dayOfWeek = requestedDate.getDay();
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      available = false;
     }
 
     return { time, available };
