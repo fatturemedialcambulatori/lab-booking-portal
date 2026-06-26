@@ -3,7 +3,7 @@ import { useFormContext } from "react-hook-form";
 import { useListExams } from "@workspace/api-client-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, Search, X } from "lucide-react";
+import { CheckCircle2, Search, X, ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { BookingFormValues } from "../../pages/Home";
 
@@ -106,16 +106,6 @@ export function ExamSelection({ onNext }: { onNext: () => void }) {
 
       {selectedIds.length > 0 && (
         <div className="rounded-lg bg-primary/5 border border-primary/20 px-4 py-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-primary">
-              {selectedIds.length} {selectedIds.length === 1 ? "esame selezionato" : "esami selezionati"}
-            </p>
-            {totalPrice > 0 && (
-              <p className="text-sm font-semibold text-primary">
-                Totale: € {totalPrice.toFixed(2)}
-              </p>
-            )}
-          </div>
           <div className="flex flex-wrap gap-1.5">
             {selectedExams.map((e) => (
               <span
@@ -185,20 +175,38 @@ export function ExamSelection({ onNext }: { onNext: () => void }) {
         <p className="text-sm text-destructive">{errors.examIds.message}</p>
       )}
 
-      <div className="flex justify-end pt-2">
-        <Button
-          onClick={onNext}
-          disabled={selectedIds.length === 0}
-          size="lg"
-          className="w-full sm:w-auto"
-        >
-          Continua
-          {selectedIds.length > 0 && (
-            <span className="ml-2 bg-white/20 rounded-full px-1.5 py-0.5 text-xs font-bold">
-              {selectedIds.length}
-            </span>
+      {/* Sticky bottom CTA bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-sm border-t border-border shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+          {selectedIds.length > 0 ? (
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground leading-tight">
+                {selectedIds.length} {selectedIds.length === 1 ? "esame" : "esami"} selezionat{selectedIds.length === 1 ? "o" : "i"}
+              </p>
+              {totalPrice > 0 && (
+                <p className="text-xs text-muted-foreground">Totale stimato: € {totalPrice.toFixed(2)}</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Seleziona almeno un esame</p>
           )}
-        </Button>
+          <Button
+            onClick={onNext}
+            disabled={selectedIds.length === 0}
+            size="lg"
+            className="flex-shrink-0 gap-2"
+          >
+            Continua
+            {selectedIds.length > 0 && (
+              <>
+                <span className="bg-white/20 rounded-full px-1.5 py-0.5 text-xs font-bold leading-none">
+                  {selectedIds.length}
+                </span>
+                <ArrowRight className="h-4 w-4" />
+              </>
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   );

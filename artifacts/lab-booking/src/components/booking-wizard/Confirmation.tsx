@@ -2,10 +2,9 @@ import React from "react";
 import { useFormContext } from "react-hook-form";
 import { useListExams, useCreateBooking } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { format, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
-import { Loader2 } from "lucide-react";
+import { Loader2, ShieldCheck } from "lucide-react";
 import type { BookingFormValues } from "../../pages/Home";
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -125,20 +124,38 @@ export function Confirmation({
         </div>
       )}
 
-      <div className="flex justify-between pt-4">
-        <Button variant="outline" onClick={onPrev} disabled={mutation.isPending} size="lg">
-          Indietro
-        </Button>
-        <Button onClick={handleConfirm} disabled={mutation.isPending} size="lg" className="min-w-[200px]">
-          {mutation.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Confermando...
-            </>
-          ) : (
-            "Conferma Prenotazione"
-          )}
-        </Button>
+      {/* Sticky bottom CTA bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-sm border-t border-border shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+          <Button variant="outline" onClick={onPrev} disabled={mutation.isPending} size="lg">
+            Indietro
+          </Button>
+          <div className="flex items-center gap-3">
+            {totalPrice > 0 && (
+              <p className="text-sm font-semibold text-foreground hidden sm:block">
+                Totale: € {totalPrice.toFixed(2)}
+              </p>
+            )}
+            <Button
+              onClick={handleConfirm}
+              disabled={mutation.isPending}
+              size="lg"
+              className="gap-2 min-w-[200px]"
+            >
+              {mutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Confermando...
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="h-4 w-4" />
+                  Conferma Prenotazione
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

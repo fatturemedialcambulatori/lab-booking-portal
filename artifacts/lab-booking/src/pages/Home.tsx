@@ -85,7 +85,8 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="flex-1 py-12 px-4 sm:px-6">
+      {/* pb-28 leaves space for the fixed bottom CTA bar */}
+      <main className="flex-1 py-12 px-4 sm:px-6 pb-28">
         <div className="max-w-3xl mx-auto">
           <div className="mb-8">
             <h1 className="text-3xl font-bold tracking-tight text-foreground mb-2">Prenota un esame</h1>
