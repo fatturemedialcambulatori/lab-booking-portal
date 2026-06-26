@@ -2,6 +2,7 @@ export type PrintExam = {
   codiceAnalisi: string;
   descrizione: string;
   colorProvetta?: string | null;
+  synlab?: boolean | null;
   um?: string | null;
   metodo?: string | null;
   regola?: string | null;
@@ -175,6 +176,7 @@ export function printSchedaLaboratorio(patient: PrintPatient, exams: PrintExam[]
       <td style="font-weight:600">${e.codiceAnalisi}</td>
       <td>${e.descrizione}</td>
       <td>${provettaColor(e.colorProvetta)}</td>
+      <td style="text-align:center">${e.synlab === true ? '<span style="color:#1565c0;font-weight:700;">✓ Sì</span>' : e.synlab === false ? '<span style="color:#555;">No</span>' : "—"}</td>
       <td>${e.um ?? "—"}</td>
       <td>${e.metodo ?? "—"}</td>
       <td>${e.regola ?? "—"}</td>
@@ -184,9 +186,9 @@ export function printSchedaLaboratorio(patient: PrintPatient, exams: PrintExam[]
 
   const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>Scheda Lab – ${patient.firstName} ${patient.lastName}</title><style>
     ${BASE_CSS}
-    table { font-size: 9.5px; }
-    th { font-size: 8px; }
-    td { padding: 5px 6px; }
+    table { font-size: 9px; }
+    th { font-size: 7.5px; }
+    td { padding: 4px 5px; }
   </style></head><body>
     <div class="header">
       <img src="${logoUrl()}" alt="Logo" class="logo" />
@@ -217,14 +219,15 @@ export function printSchedaLaboratorio(patient: PrintPatient, exams: PrintExam[]
     <table>
       <thead>
         <tr>
-          <th style="width:22px">#</th>
-          <th style="width:80px">Codice</th>
-          <th style="min-width:150px">Descrizione</th>
-          <th style="width:80px">Provetta</th>
-          <th style="width:40px">UM</th>
-          <th style="width:90px">Metodo</th>
-          <th style="width:80px">Regola</th>
-          <th>Istruzioni preparazione</th>
+          <th style="width:20px">#</th>
+          <th style="width:72px">Codice</th>
+          <th style="min-width:130px">Descrizione</th>
+          <th style="width:72px">Provetta</th>
+          <th style="width:48px">Synlab</th>
+          <th style="width:36px">UM</th>
+          <th style="width:80px">Metodo</th>
+          <th style="width:72px">Regola</th>
+          <th>Prep.</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
