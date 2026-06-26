@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { format as formatDate, addDays, subDays } from "date-fns";
 import { NuovaPrenotazioneDialog } from "@/components/NuovaPrenotazioneDialog";
+import { ExamTodoDialog, TodoVisit } from "@/components/ExamTodoDialog";
 
 type BookingStatus = "confirmed" | "pending" | "accepted" | "completed" | "cancelled";
 
@@ -101,6 +102,19 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
   const [loadingVisitKey, setLoadingVisitKey] = React.useState<string | null>(null);
   const [showNuovaPrenotazione, setShowNuovaPrenotazione] = React.useState(false);
   const [billingVisit, setBillingVisit] = React.useState<Visit | null>(null);
+  const [todoVisit, setTodoVisit] = React.useState<Visit | null>(null);
+  const [doneMap, setDoneMap] = React.useState<Map<string, Set<number>>>(new Map());
+
+  const toggleExamDone = (visitKey: string, examId: number) => {
+    setDoneMap((prev) => {
+      const next = new Map(prev);
+      const set = new Set(next.get(visitKey) ?? []);
+      if (set.has(examId)) set.delete(examId);
+      else set.add(examId);
+      next.set(visitKey, set);
+      return next;
+    });
+  };
 
   const todayStr = formatDate(new Date(), "yyyy-MM-dd");
 
@@ -295,6 +309,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
               onUpdateStatus={updateVisitStatus}
               onEditBilling={() => setBillingVisit(visit)}
               showBilling={role === "segreteria"}
+              onOpenTodo={() => setTodoVisit(visit)}
             />
           ))}
         </div>
@@ -313,6 +328,19 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
         <BillingDialog
           visit={billingVisit}
           onClose={() => setBillingVisit(null)}
+        />
+      )}
+
+      {todoVisit && (
+        <ExamTodoDialog
+          visit={todoVisit as TodoVisit}
+          doneIds={doneMap.get(todoVisit.key) ?? new Set()}
+          onToggle={(examId) => toggleExamDone(todoVisit.key, examId)}
+          onClose={() => setTodoVisit(null)}
+          onCompleted={() => {
+            setTodoVisit(null);
+            refetch();
+          }}
         />
       )}
     </div>
@@ -424,12 +452,14 @@ function VisitCard({
   onUpdateStatus,
   onEditBilling,
   showBilling = true,
+  onOpenTodo,
 }: {
   visit: Visit;
   isLoading: boolean;
   onUpdateStatus: (visit: Visit, status: BookingStatus) => void;
   onEditBilling: () => void;
   showBilling?: boolean;
+  onOpenTodo?: () => void;
 }) {
   const totalPrice = 0; // could sum from exam data if available
 
@@ -448,18 +478,26 @@ function VisitCard({
         <div className="flex flex-col sm:flex-row sm:items-start gap-4">
           {/* Patient info */}
           <div className="flex items-start gap-3 flex-1 min-w-0">
-            <div className={`h-11 w-11 rounded-full flex items-center justify-center flex-shrink-0 text-white font-bold text-sm ${
-              visit.status === "completed" ? "bg-green-500" :
-              visit.status === "accepted" ? "bg-blue-500" :
-              visit.status === "cancelled" ? "bg-red-400" : "bg-amber-500"
-            }`}>
+            <button
+              onClick={onOpenTodo}
+              disabled={!onOpenTodo}
+              className={`h-11 w-11 rounded-full flex items-center justify-center flex-shrink-0 text-white font-bold text-sm transition-opacity ${
+                visit.status === "completed" ? "bg-green-500" :
+                visit.status === "accepted" ? "bg-blue-500" :
+                visit.status === "cancelled" ? "bg-red-400" : "bg-amber-500"
+              } ${onOpenTodo ? "hover:opacity-80 cursor-pointer" : "cursor-default"}`}
+            >
               {visit.firstName[0]}{visit.lastName[0]}
-            </div>
+            </button>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-semibold text-foreground text-base">
+                <button
+                  onClick={onOpenTodo}
+                  disabled={!onOpenTodo}
+                  className={`font-semibold text-foreground text-base leading-tight ${onOpenTodo ? "hover:text-primary hover:underline underline-offset-2 cursor-pointer" : "cursor-default"}`}
+                >
                   {visit.firstName} {visit.lastName}
-                </h3>
+                </button>
                 <StatusBadge status={visit.status} />
               </div>
               <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-muted-foreground">
