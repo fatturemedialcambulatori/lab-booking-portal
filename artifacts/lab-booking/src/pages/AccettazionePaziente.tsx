@@ -20,8 +20,10 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertCircle,
+  Plus,
 } from "lucide-react";
 import { format as formatDate, addDays, subDays } from "date-fns";
+import { NuovaPrenotazioneDialog } from "@/components/NuovaPrenotazioneDialog";
 
 type BookingStatus = "confirmed" | "pending" | "accepted" | "completed" | "cancelled";
 
@@ -136,6 +138,7 @@ export function AccettazionePaziente() {
   const [search, setSearch] = React.useState("");
   const [filter, setFilter] = React.useState<FilterId>("all");
   const [loadingVisitKey, setLoadingVisitKey] = React.useState<string | null>(null);
+  const [showNuovaPrenotazione, setShowNuovaPrenotazione] = React.useState(false);
 
   const todayStr = formatDate(new Date(), "yyyy-MM-dd");
 
@@ -197,6 +200,11 @@ export function AccettazionePaziente() {
           <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Accettazione Pazienti</h1>
           <p className="text-muted-foreground text-sm">Gestisci l'arrivo e l'accettazione dei pazienti.</p>
         </div>
+
+        <Button onClick={() => setShowNuovaPrenotazione(true)} className="gap-2 shrink-0">
+          <Plus className="h-4 w-4" />
+          Nuova Prenotazione
+        </Button>
 
         {/* Date navigator */}
         <div className="flex items-center gap-2 bg-muted/50 rounded-lg p-1 border border-border">
@@ -300,6 +308,15 @@ export function AccettazionePaziente() {
           ))}
         </div>
       )}
+
+      <NuovaPrenotazioneDialog
+        open={showNuovaPrenotazione}
+        defaultDate={selectedDate}
+        onClose={() => {
+          setShowNuovaPrenotazione(false);
+          refetch();
+        }}
+      />
     </div>
   );
 }

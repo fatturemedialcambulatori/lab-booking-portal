@@ -17,10 +17,12 @@ import {
   UserCheck,
   CheckCircle2,
   Clock,
+  Users,
 } from "lucide-react";
 import { Login } from "./Login";
 import { AdminExams } from "./AdminExams";
 import { AccettazionePaziente } from "./AccettazionePaziente";
+import { AdminAnagrafiche } from "./AdminAnagrafiche";
 
 function StatusBadge({ status }: { status: string }) {
   switch (status) {
@@ -57,7 +59,7 @@ export default function Admin() {
   return <AdminDashboard roleLabel={roleLabel} onLogout={handleLogout} navigate={navigate} />;
 }
 
-type TabId = "prenotazioni" | "accettazione" | "listino";
+type TabId = "prenotazioni" | "accettazione" | "listino" | "anagrafiche";
 
 function AdminDashboard({
   roleLabel,
@@ -79,6 +81,7 @@ function AdminDashboard({
   const TABS: { id: TabId; label: string; icon?: React.ReactNode }[] = [
     { id: "accettazione", label: "Accettazione", icon: <UserCheck className="h-3.5 w-3.5" /> },
     { id: "prenotazioni", label: "Prenotazioni", icon: <CalendarDays className="h-3.5 w-3.5" /> },
+    { id: "anagrafiche", label: "Anagrafiche", icon: <Users className="h-3.5 w-3.5" /> },
     { id: "listino", label: "Listino Esami", icon: <FlaskConical className="h-3.5 w-3.5" /> },
   ];
 
@@ -142,6 +145,8 @@ function AdminDashboard({
         <div className="max-w-5xl mx-auto">
 
           {activeTab === "accettazione" && <AccettazionePaziente />}
+
+          {activeTab === "anagrafiche" && <AdminAnagrafiche />}
 
           {activeTab === "prenotazioni" && (
             <div className="space-y-8">

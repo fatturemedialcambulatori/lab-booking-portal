@@ -241,3 +241,85 @@ export const UpdateBookingStatusResponse = zod.object({
 })
 
 
+/**
+ * @summary List all patients
+ */
+export const ListPatientsQueryParams = zod.object({
+  "search": zod.coerce.string().optional().describe('Search by name, email, or phone')
+})
+
+export const ListPatientsResponseItem = zod.object({
+  "id": zod.number(),
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "dateOfBirth": zod.coerce.date(),
+  "email": zod.string(),
+  "phone": zod.string(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListPatientsResponse = zod.array(ListPatientsResponseItem)
+
+
+/**
+ * @summary Create a new patient
+ */
+export const CreatePatientBody = zod.object({
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "dateOfBirth": zod.coerce.date(),
+  "email": zod.string(),
+  "phone": zod.string(),
+  "notes": zod.string().nullish()
+})
+
+export const CreatePatientResponse = zod.object({
+  "id": zod.number(),
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "dateOfBirth": zod.coerce.date(),
+  "email": zod.string(),
+  "phone": zod.string(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Update a patient
+ */
+export const UpdatePatientParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdatePatientBody = zod.object({
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "dateOfBirth": zod.coerce.date(),
+  "email": zod.string(),
+  "phone": zod.string(),
+  "notes": zod.string().nullish()
+})
+
+export const UpdatePatientResponse = zod.object({
+  "id": zod.number(),
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "dateOfBirth": zod.coerce.date(),
+  "email": zod.string(),
+  "phone": zod.string(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Delete a patient
+ */
+export const DeletePatientParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeletePatientResponse = zod.void()
+
+

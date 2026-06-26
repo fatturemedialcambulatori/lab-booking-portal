@@ -17,5 +17,8 @@ export * from './examInput';
 export * from './healthStatus';
 export * from './listBookingsParams';
 export * from './listBookingsStatus';
+export * from './listPatientsParams';
 export * from './listSlotsParams';
+export * from './patient';
+export * from './patientInput';
 export * from './timeSlot';

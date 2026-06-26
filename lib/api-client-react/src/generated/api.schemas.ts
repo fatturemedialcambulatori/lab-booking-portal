@@ -113,6 +113,28 @@ export interface BookingStatusUpdate {
   status: BookingStatusUpdateStatus;
 }
 
+export interface Patient {
+  id: number;
+  firstName: string;
+  lastName: string;
+  dateOfBirth: string;
+  email: string;
+  phone: string;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface PatientInput {
+  firstName: string;
+  lastName: string;
+  dateOfBirth: string;
+  email: string;
+  phone: string;
+  /** @nullable */
+  notes?: string | null;
+}
+
 export interface ErrorResponse {
   error: string;
 }
@@ -138,4 +160,11 @@ export const ListBookingsStatus = {
   cancelled: 'cancelled',
   pending: 'pending',
 } as const;
+
+export type ListPatientsParams = {
+/**
+ * Search by name, email, or phone
+ */
+search?: string;
+};
 
