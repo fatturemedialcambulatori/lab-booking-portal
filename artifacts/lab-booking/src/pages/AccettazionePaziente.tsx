@@ -156,7 +156,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
   const filtered = React.useMemo(() => {
     let result = visits;
     if (role === "laboratorio") {
-      result = result.filter((v) => v.status === "accepted");
+      result = result.filter((v) => v.status === "accepted" || v.status === "completed");
     } else if (filter !== "all") {
       result = result.filter((v) => v.status === filter);
     }
