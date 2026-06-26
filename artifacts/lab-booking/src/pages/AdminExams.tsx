@@ -39,6 +39,7 @@ type Exam = {
   metodo?: string | null;
   regola?: string | null;
   importo?: string | null;
+  valoreRiferimento?: string | null;
   preparationInstructions: string;
 };
 
@@ -51,6 +52,7 @@ const EMPTY_FORM = {
   metodo: "",
   regola: "",
   importo: "",
+  valoreRiferimento: "",
   preparationInstructions: "",
 };
 
@@ -102,6 +104,11 @@ function ExamForm({
           <Label>Regola</Label>
           <Input value={value.regola} onChange={(e) => set("regola", e.target.value)} />
         </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label>Valore di riferimento</Label>
+        <Input value={value.valoreRiferimento} onChange={(e) => set("valoreRiferimento", e.target.value)} placeholder="es. 70–100 mg/dL" />
       </div>
 
       <div className="space-y-1">
@@ -163,6 +170,7 @@ export function AdminExams() {
       metodo: exam.metodo ?? "",
       regola: exam.regola ?? "",
       importo: exam.importo ?? "",
+      valoreRiferimento: exam.valoreRiferimento ?? "",
       preparationInstructions: exam.preparationInstructions,
     });
     setFormError("");
@@ -187,6 +195,7 @@ export function AdminExams() {
           metodo: toNull(formValues.metodo),
           regola: toNull(formValues.regola),
           importo: toNull(formValues.importo),
+          valoreRiferimento: toNull(formValues.valoreRiferimento),
           preparationInstructions: formValues.preparationInstructions.trim(),
         },
       },
@@ -218,6 +227,7 @@ export function AdminExams() {
           metodo: toNull(formValues.metodo),
           regola: toNull(formValues.regola),
           importo: toNull(formValues.importo),
+          valoreRiferimento: toNull(formValues.valoreRiferimento),
           preparationInstructions: formValues.preparationInstructions.trim(),
         },
       },
