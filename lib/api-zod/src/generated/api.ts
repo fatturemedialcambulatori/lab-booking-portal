@@ -268,6 +268,10 @@ export const ListPatientsResponseItem = zod.object({
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "billingCap": zod.string().nullish(),
+  "billingCity": zod.string().nullish(),
+  "billingProvincia": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 export const ListPatientsResponse = zod.array(ListPatientsResponseItem)
@@ -284,7 +288,11 @@ export const CreatePatientBody = zod.object({
   "gender": zod.union([zod.literal('M'),zod.literal('F'),zod.literal(null)]).nullish(),
   "email": zod.string(),
   "phone": zod.string(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "billingCap": zod.string().nullish(),
+  "billingCity": zod.string().nullish(),
+  "billingProvincia": zod.string().nullish()
 })
 
 export const CreatePatientResponse = zod.object({
@@ -297,6 +305,10 @@ export const CreatePatientResponse = zod.object({
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "billingCap": zod.string().nullish(),
+  "billingCity": zod.string().nullish(),
+  "billingProvincia": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 
@@ -316,7 +328,11 @@ export const UpdatePatientBody = zod.object({
   "gender": zod.union([zod.literal('M'),zod.literal('F'),zod.literal(null)]).nullish(),
   "email": zod.string(),
   "phone": zod.string(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "billingCap": zod.string().nullish(),
+  "billingCity": zod.string().nullish(),
+  "billingProvincia": zod.string().nullish()
 })
 
 export const UpdatePatientResponse = zod.object({
@@ -329,6 +345,10 @@ export const UpdatePatientResponse = zod.object({
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
+  "billingAddress": zod.string().nullish(),
+  "billingCap": zod.string().nullish(),
+  "billingCity": zod.string().nullish(),
+  "billingProvincia": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 

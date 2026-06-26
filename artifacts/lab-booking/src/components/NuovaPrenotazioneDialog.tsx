@@ -45,6 +45,10 @@ type PatientData = {
   email: string;
   phone: string;
   notes?: string;
+  billingAddress?: string;
+  billingCap?: string;
+  billingCity?: string;
+  billingProvincia?: string;
 };
 
 type Step = 1 | 2 | 3;
@@ -66,6 +70,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
   const [selectedPatient, setSelectedPatient] = React.useState<PatientData | null>(null);
   const [newPatient, setNewPatient] = React.useState<PatientData>({
     firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", gender: undefined, email: "", phone: "", notes: "",
+    billingAddress: "", billingCap: "", billingCity: "", billingProvincia: "",
   });
   const [examSearch, setExamSearch] = React.useState("");
   const [selectedExamIds, setSelectedExamIds] = React.useState<number[]>([]);
@@ -134,7 +139,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
     setPatientSearch("");
     setCreatingNew(false);
     setSelectedPatient(null);
-    setNewPatient({ firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", gender: undefined, email: "", phone: "", notes: "" });
+    setNewPatient({ firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", gender: undefined, email: "", phone: "", notes: "", billingAddress: "", billingCap: "", billingCity: "", billingProvincia: "" });
     setExamSearch("");
     setSelectedExamIds([]);
     setSelectedDate(defaultDate ?? new Date().toISOString().slice(0, 10));
@@ -166,9 +171,23 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
             email: newPatient.email,
             phone: newPatient.phone,
             notes: newPatient.notes || null,
+            billingAddress: newPatient.billingAddress || null,
+            billingCap: newPatient.billingCap || null,
+            billingCity: newPatient.billingCity || null,
+            billingProvincia: newPatient.billingProvincia || null,
           },
         });
-        patientData = { ...created, dateOfBirth: created.dateOfBirth, codiceFiscale: created.codiceFiscale ?? "", gender: (created.gender as "M" | "F" | undefined) ?? undefined, notes: created.notes ?? "" };
+        patientData = {
+          ...created,
+          dateOfBirth: created.dateOfBirth,
+          codiceFiscale: created.codiceFiscale ?? "",
+          gender: (created.gender as "M" | "F" | undefined) ?? undefined,
+          notes: created.notes ?? "",
+          billingAddress: created.billingAddress ?? undefined,
+          billingCap: created.billingCap ?? undefined,
+          billingCity: created.billingCity ?? undefined,
+          billingProvincia: created.billingProvincia ?? undefined,
+        };
         await queryClient.invalidateQueries({ queryKey: ["listPatients"] });
       }
 
@@ -342,6 +361,29 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
                       <div className="space-y-1">
                         <Label className="text-xs">Telefono *</Label>
                         <Input value={newPatient.phone} onChange={(e) => setNewPatient((p) => ({ ...p, phone: e.target.value }))} placeholder="+39 333..." />
+                      </div>
+                    </div>
+
+                    {/* Fatturazione */}
+                    <div className="border-t border-border pt-3 space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Indirizzo di fatturazione</p>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Via / Indirizzo</Label>
+                        <Input value={newPatient.billingAddress ?? ""} onChange={(e) => setNewPatient((p) => ({ ...p, billingAddress: e.target.value }))} placeholder="Via Roma 12" />
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">CAP</Label>
+                          <Input value={newPatient.billingCap ?? ""} onChange={(e) => setNewPatient((p) => ({ ...p, billingCap: e.target.value }))} placeholder="00100" maxLength={5} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Città</Label>
+                          <Input value={newPatient.billingCity ?? ""} onChange={(e) => setNewPatient((p) => ({ ...p, billingCity: e.target.value }))} placeholder="Roma" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Prov.</Label>
+                          <Input value={newPatient.billingProvincia ?? ""} onChange={(e) => setNewPatient((p) => ({ ...p, billingProvincia: e.target.value.toUpperCase() }))} placeholder="RM" maxLength={2} className="uppercase" />
+                        </div>
                       </div>
                     </div>
                   </div>

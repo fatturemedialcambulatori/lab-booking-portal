@@ -1,12 +1,20 @@
 import React from "react";
-import { useListBookings, useUpdateBookingStatus } from "@workspace/api-client-react";
+import { useListBookings, useUpdateBookingStatus, useListPatients, useUpdatePatient } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, parseISO, isToday, isTomorrow } from "date-fns";
 import { it } from "date-fns/locale";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   CheckCircle2,
   Clock,
@@ -21,6 +29,7 @@ import {
   ChevronRight,
   AlertCircle,
   Plus,
+  MapPin,
 } from "lucide-react";
 import { format as formatDate, addDays, subDays } from "date-fns";
 import { NuovaPrenotazioneDialog } from "@/components/NuovaPrenotazioneDialog";
@@ -139,6 +148,7 @@ export function AccettazionePaziente() {
   const [filter, setFilter] = React.useState<FilterId>("all");
   const [loadingVisitKey, setLoadingVisitKey] = React.useState<string | null>(null);
   const [showNuovaPrenotazione, setShowNuovaPrenotazione] = React.useState(false);
+  const [billingVisit, setBillingVisit] = React.useState<Visit | null>(null);
 
   const todayStr = formatDate(new Date(), "yyyy-MM-dd");
 
@@ -304,6 +314,7 @@ export function AccettazionePaziente() {
               visit={visit}
               isLoading={loadingVisitKey === visit.key}
               onUpdateStatus={updateVisitStatus}
+              onEditBilling={() => setBillingVisit(visit)}
             />
           ))}
         </div>
@@ -317,7 +328,113 @@ export function AccettazionePaziente() {
           refetch();
         }}
       />
+
+      {billingVisit && (
+        <BillingDialog
+          visit={billingVisit}
+          onClose={() => setBillingVisit(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function BillingDialog({ visit, onClose }: { visit: Visit; onClose: () => void }) {
+  const { data: patients } = useListPatients({ search: visit.email });
+  const updatePatient = useUpdatePatient();
+  const queryClient = useQueryClient();
+
+  const patient = patients?.[0];
+
+  const [form, setForm] = React.useState({ billingAddress: "", billingCap: "", billingCity: "", billingProvincia: "" });
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (patient) {
+      setForm({
+        billingAddress: patient.billingAddress ?? "",
+        billingCap: patient.billingCap ?? "",
+        billingCity: patient.billingCity ?? "",
+        billingProvincia: patient.billingProvincia ?? "",
+      });
+    }
+  }, [patient]);
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const handleSave = async () => {
+    if (!patient) return;
+    setSaving(true);
+    try {
+      await updatePatient.mutateAsync({
+        id: patient.id,
+        data: {
+          firstName: patient.firstName,
+          lastName: patient.lastName,
+          dateOfBirth: patient.dateOfBirth,
+          email: patient.email,
+          phone: patient.phone,
+          billingAddress: form.billingAddress.trim() || null,
+          billingCap: form.billingCap.trim() || null,
+          billingCity: form.billingCity.trim() || null,
+          billingProvincia: form.billingProvincia.trim() || null,
+        },
+      });
+      await queryClient.invalidateQueries({ queryKey: ["listPatients"] });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-primary" />
+            Indirizzo fatturazione — {visit.firstName} {visit.lastName}
+          </DialogTitle>
+        </DialogHeader>
+        {!patient ? (
+          <p className="text-sm text-muted-foreground py-2">Ricerca anagrafica in corso...</p>
+        ) : (
+          <div className="space-y-3 py-1">
+            <div className="space-y-1">
+              <Label className="text-xs">Via / Indirizzo</Label>
+              <Input value={form.billingAddress} onChange={set("billingAddress")} placeholder="Via Roma 12" />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">CAP</Label>
+                <Input value={form.billingCap} onChange={set("billingCap")} placeholder="00100" maxLength={5} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Città</Label>
+                <Input value={form.billingCity} onChange={set("billingCity")} placeholder="Roma" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Prov.</Label>
+                <Input
+                  value={form.billingProvincia}
+                  onChange={(e) => setForm((f) => ({ ...f, billingProvincia: e.target.value.toUpperCase() }))}
+                  placeholder="RM"
+                  maxLength={2}
+                  className="uppercase"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>Annulla</Button>
+          <Button onClick={handleSave} disabled={!patient || saving}>
+            {saving ? "Salvataggio..." : "Salva"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -325,10 +442,12 @@ function VisitCard({
   visit,
   isLoading,
   onUpdateStatus,
+  onEditBilling,
 }: {
   visit: Visit;
   isLoading: boolean;
   onUpdateStatus: (visit: Visit, status: BookingStatus) => void;
+  onEditBilling: () => void;
 }) {
   const totalPrice = 0; // could sum from exam data if available
 
@@ -388,7 +507,16 @@ function VisitCard({
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-2 flex-shrink-0 self-start">
+          <div className="flex items-center gap-2 flex-shrink-0 self-start flex-wrap justify-end">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-muted-foreground"
+              onClick={onEditBilling}
+            >
+              <MapPin className="h-3.5 w-3.5" />
+              Fatturazione
+            </Button>
             {visit.status === "confirmed" && (
               <Button
                 size="sm"

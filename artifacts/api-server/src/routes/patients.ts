@@ -20,6 +20,10 @@ function formatPatient(p: typeof patientsTable.$inferSelect) {
     email: p.email,
     phone: p.phone,
     notes: p.notes,
+    billingAddress: p.billingAddress,
+    billingCap: p.billingCap,
+    billingCity: p.billingCity,
+    billingProvincia: p.billingProvincia,
     createdAt: p.createdAt.toISOString(),
   };
 }
@@ -74,6 +78,10 @@ router.post("/patients", async (req, res) => {
         email: d.email,
         phone: d.phone,
         notes: d.notes ?? null,
+        billingAddress: d.billingAddress ?? null,
+        billingCap: d.billingCap ?? null,
+        billingCity: d.billingCity ?? null,
+        billingProvincia: d.billingProvincia ?? null,
       })
       .returning();
     res.status(201).json(formatPatient(inserted));
@@ -117,6 +125,10 @@ router.patch("/patients/:id", async (req, res) => {
       ...(d.email !== undefined && { email: d.email }),
       ...(d.phone !== undefined && { phone: d.phone }),
       ...(d.notes !== undefined && { notes: d.notes }),
+      ...(d.billingAddress !== undefined && { billingAddress: d.billingAddress }),
+      ...(d.billingCap !== undefined && { billingCap: d.billingCap }),
+      ...(d.billingCity !== undefined && { billingCity: d.billingCity }),
+      ...(d.billingProvincia !== undefined && { billingProvincia: d.billingProvincia }),
     };
 
     const [updated] = await db

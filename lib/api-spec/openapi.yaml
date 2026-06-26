@@ -541,6 +541,14 @@ components:
           type: string
         notes:
           type: ["string", "null"]
+        billingAddress:
+          type: ["string", "null"]
+        billingCap:
+          type: ["string", "null"]
+        billingCity:
+          type: ["string", "null"]
+        billingProvincia:
+          type: ["string", "null"]
         createdAt:
           type: string
           format: date-time
@@ -566,6 +574,14 @@ components:
         phone:
           type: string
         notes:
+          type: ["string", "null"]
+        billingAddress:
+          type: ["string", "null"]
+        billingCap:
+          type: ["string", "null"]
+        billingCity:
+          type: ["string", "null"]
+        billingProvincia:
           type: ["string", "null"]
 
     ErrorResponse:

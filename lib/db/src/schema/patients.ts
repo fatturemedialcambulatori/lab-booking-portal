@@ -12,6 +12,10 @@ export const patientsTable = pgTable("patients", {
   email: text("email").notNull(),
   phone: text("phone").notNull(),
   notes: text("notes"),
+  billingAddress: text("billing_address"),
+  billingCap: text("billing_cap"),
+  billingCity: text("billing_city"),
+  billingProvincia: text("billing_provincia"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

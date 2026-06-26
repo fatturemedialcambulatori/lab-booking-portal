@@ -19,4 +19,12 @@ export interface PatientInput {
   phone: string;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  billingAddress?: string | null;
+  /** @nullable */
+  billingCap?: string | null;
+  /** @nullable */
+  billingCity?: string | null;
+  /** @nullable */
+  billingProvincia?: string | null;
 }
