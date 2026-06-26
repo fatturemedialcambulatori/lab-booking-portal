@@ -56,20 +56,30 @@ export default function Admin() {
 
   const roleLabel = role === "segreteria" ? "Segreteria" : "Laboratorio";
 
-  return <AdminDashboard roleLabel={roleLabel} onLogout={handleLogout} navigate={navigate} />;
+  return <AdminDashboard role={role} roleLabel={roleLabel} onLogout={handleLogout} navigate={navigate} />;
 }
 
 type TabId = "prenotazioni" | "accettazione" | "listino" | "anagrafiche";
 
+const ALL_TABS: { id: TabId; label: string; icon: React.ReactNode; roles: string[] }[] = [
+  { id: "accettazione", label: "Accettazione", icon: <UserCheck className="h-3.5 w-3.5" />, roles: ["segreteria", "laboratorio"] },
+  { id: "prenotazioni", label: "Prenotazioni", icon: <CalendarDays className="h-3.5 w-3.5" />, roles: ["segreteria"] },
+  { id: "anagrafiche", label: "Anagrafiche", icon: <Users className="h-3.5 w-3.5" />, roles: ["segreteria"] },
+  { id: "listino", label: "Listino Esami", icon: <FlaskConical className="h-3.5 w-3.5" />, roles: ["segreteria", "laboratorio"] },
+];
+
 function AdminDashboard({
+  role,
   roleLabel,
   onLogout,
   navigate,
 }: {
+  role: string;
   roleLabel: string;
   onLogout: () => void;
   navigate: (path: string) => void;
 }) {
+  const TABS = ALL_TABS.filter((t) => t.roles.includes(role));
   const [activeTab, setActiveTab] = React.useState<TabId>("accettazione");
   const { data: bookings, isLoading, error, refetch, isFetching } = useListBookings();
 
@@ -77,13 +87,6 @@ function AdminDashboard({
   const todayBookings = bookings?.filter((b) => b.date === today) ?? [];
   const upcomingBookings = bookings?.filter((b) => b.date > today) ?? [];
   const pastBookings = bookings?.filter((b) => b.date < today) ?? [];
-
-  const TABS: { id: TabId; label: string; icon?: React.ReactNode }[] = [
-    { id: "accettazione", label: "Accettazione", icon: <UserCheck className="h-3.5 w-3.5" /> },
-    { id: "prenotazioni", label: "Prenotazioni", icon: <CalendarDays className="h-3.5 w-3.5" /> },
-    { id: "anagrafiche", label: "Anagrafiche", icon: <Users className="h-3.5 w-3.5" /> },
-    { id: "listino", label: "Listino Esami", icon: <FlaskConical className="h-3.5 w-3.5" /> },
-  ];
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -144,7 +147,7 @@ function AdminDashboard({
       <main className="flex-1 py-8 px-4 sm:px-6">
         <div className="max-w-5xl mx-auto">
 
-          {activeTab === "accettazione" && <AccettazionePaziente />}
+          {activeTab === "accettazione" && <AccettazionePaziente role={role} />}
 
           {activeTab === "anagrafiche" && <AdminAnagrafiche />}
 

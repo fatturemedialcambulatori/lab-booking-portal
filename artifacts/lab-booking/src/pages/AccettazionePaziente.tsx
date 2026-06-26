@@ -88,7 +88,7 @@ const FILTERS: { id: FilterId; label: string }[] = [
   { id: "cancelled", label: "Annullati" },
 ];
 
-export function AccettazionePaziente() {
+export function AccettazionePaziente({ role = "segreteria" }: { role?: string }) {
   const queryClient = useQueryClient();
   const { data: allBookings, isLoading, error, refetch } = useListBookings();
   const statusMutation = useUpdateBookingStatus();
@@ -178,10 +178,12 @@ export function AccettazionePaziente() {
           <p className="text-muted-foreground text-sm">Gestisci l'arrivo e l'accettazione dei pazienti.</p>
         </div>
 
-        <Button onClick={() => setShowNuovaPrenotazione(true)} className="gap-2 shrink-0">
-          <Plus className="h-4 w-4" />
-          Nuova Prenotazione
-        </Button>
+        {role === "segreteria" && (
+          <Button onClick={() => setShowNuovaPrenotazione(true)} className="gap-2 shrink-0">
+            <Plus className="h-4 w-4" />
+            Nuova Prenotazione
+          </Button>
+        )}
 
         {/* Date navigator */}
         <div className="flex items-center gap-2 bg-muted/50 rounded-lg p-1 border border-border">
@@ -282,6 +284,7 @@ export function AccettazionePaziente() {
               isLoading={loadingVisitKey === visit.key}
               onUpdateStatus={updateVisitStatus}
               onEditBilling={() => setBillingVisit(visit)}
+              showBilling={role === "segreteria"}
             />
           ))}
         </div>
@@ -410,11 +413,13 @@ function VisitCard({
   isLoading,
   onUpdateStatus,
   onEditBilling,
+  showBilling = true,
 }: {
   visit: Visit;
   isLoading: boolean;
   onUpdateStatus: (visit: Visit, status: BookingStatus) => void;
   onEditBilling: () => void;
+  showBilling?: boolean;
 }) {
   const totalPrice = 0; // could sum from exam data if available
 
@@ -475,15 +480,17 @@ function VisitCard({
 
           {/* Actions */}
           <div className="flex items-center gap-2 flex-shrink-0 self-start flex-wrap justify-end">
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5 text-muted-foreground"
-              onClick={onEditBilling}
-            >
-              <MapPin className="h-3.5 w-3.5" />
-              Fatturazione
-            </Button>
+            {showBilling && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-muted-foreground"
+                onClick={onEditBilling}
+              >
+                <MapPin className="h-3.5 w-3.5" />
+                Fatturazione
+              </Button>
+            )}
             {visit.status === "confirmed" && (
               <Button
                 size="sm"
