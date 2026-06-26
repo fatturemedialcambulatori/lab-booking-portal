@@ -139,4 +139,52 @@ router.get("/bookings/:id", async (req, res) => {
   }
 });
 
+router.patch("/bookings/:id/status", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: "Invalid booking ID" });
+  }
+
+  const VALID_STATUSES = ["confirmed", "pending", "accepted", "completed", "cancelled"];
+  const { status } = req.body as { status?: string };
+  if (!status || !VALID_STATUSES.includes(status)) {
+    return res.status(400).json({ error: "Invalid status" });
+  }
+
+  try {
+    const rows = await db
+      .select()
+      .from(bookingsTable)
+      .leftJoin(examsTable, eq(bookingsTable.examId, examsTable.id))
+      .where(eq(bookingsTable.id, id))
+      .limit(1);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    await db.update(bookingsTable).set({ status }).where(eq(bookingsTable.id, id));
+
+    const { bookings: b, exams: exam } = rows[0];
+    res.json({
+      id: b.id,
+      examId: b.examId,
+      examName: exam?.descrizione ?? "Esame",
+      date: toDateStr(b.date as string | Date),
+      time: b.time,
+      firstName: b.firstName,
+      lastName: b.lastName,
+      dateOfBirth: toDateStr(b.dateOfBirth as string | Date),
+      email: b.email,
+      phone: b.phone,
+      notes: b.notes,
+      status,
+      createdAt: b.createdAt.toISOString(),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to update booking status");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

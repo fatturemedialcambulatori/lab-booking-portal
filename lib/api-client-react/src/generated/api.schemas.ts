@@ -75,8 +75,10 @@ export type BookingStatus = typeof BookingStatus[keyof typeof BookingStatus];
 
 export const BookingStatus = {
   confirmed: 'confirmed',
-  cancelled: 'cancelled',
   pending: 'pending',
+  accepted: 'accepted',
+  completed: 'completed',
+  cancelled: 'cancelled',
 } as const;
 
 export interface Booking {
@@ -94,6 +96,21 @@ export interface Booking {
   notes?: string | null;
   status: BookingStatus;
   createdAt: string;
+}
+
+export type BookingStatusUpdateStatus = typeof BookingStatusUpdateStatus[keyof typeof BookingStatusUpdateStatus];
+
+
+export const BookingStatusUpdateStatus = {
+  confirmed: 'confirmed',
+  pending: 'pending',
+  accepted: 'accepted',
+  completed: 'completed',
+  cancelled: 'cancelled',
+} as const;
+
+export interface BookingStatusUpdate {
+  status: BookingStatusUpdateStatus;
 }
 
 export interface ErrorResponse {

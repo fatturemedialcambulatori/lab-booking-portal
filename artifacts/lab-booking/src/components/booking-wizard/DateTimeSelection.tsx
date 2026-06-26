@@ -28,8 +28,9 @@ export function DateTimeSelection({ onNext, onPrev }: { onNext: () => void; onPr
   const [calendarDate, setCalendarDate] = React.useState<Date | undefined>(undefined);
 
   const { data: slots, isLoading: slotsLoading } = useListSlots(
-    { date: selectedDate },
-    { query: { enabled: !!selectedDate } }
+    { date: selectedDate ?? "" },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { query: { enabled: !!selectedDate } as any }
   );
 
   const handleDateSelect = (date: Date | undefined) => {

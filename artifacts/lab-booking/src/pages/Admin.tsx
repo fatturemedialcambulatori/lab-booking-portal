@@ -6,18 +6,35 @@ import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, RefreshCw, CalendarDays, FlaskConical, User, Phone, LogOut } from "lucide-react";
+import {
+  ArrowLeft,
+  RefreshCw,
+  CalendarDays,
+  FlaskConical,
+  User,
+  Phone,
+  LogOut,
+  UserCheck,
+  CheckCircle2,
+  Clock,
+} from "lucide-react";
 import { Login } from "./Login";
 import { AdminExams } from "./AdminExams";
+import { AccettazionePaziente } from "./AccettazionePaziente";
 
 function StatusBadge({ status }: { status: string }) {
-  if (status === "confirmed") {
-    return <Badge className="bg-green-100 text-green-700 border-green-200 hover:bg-green-100">Confermata</Badge>;
+  switch (status) {
+    case "confirmed":
+      return <Badge className="bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100">Confermata</Badge>;
+    case "accepted":
+      return <Badge className="bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100 gap-1"><UserCheck className="h-3 w-3" />Accettata</Badge>;
+    case "completed":
+      return <Badge className="bg-green-100 text-green-700 border-green-200 hover:bg-green-100 gap-1"><CheckCircle2 className="h-3 w-3" />Completata</Badge>;
+    case "cancelled":
+      return <Badge variant="destructive">Annullata</Badge>;
+    default:
+      return <Badge variant="secondary">In attesa</Badge>;
   }
-  if (status === "cancelled") {
-    return <Badge variant="destructive">Annullata</Badge>;
-  }
-  return <Badge variant="secondary">In attesa</Badge>;
 }
 
 export default function Admin() {
@@ -40,7 +57,7 @@ export default function Admin() {
   return <AdminDashboard roleLabel={roleLabel} onLogout={handleLogout} navigate={navigate} />;
 }
 
-type TabId = "prenotazioni" | "listino";
+type TabId = "prenotazioni" | "accettazione" | "listino";
 
 function AdminDashboard({
   roleLabel,
@@ -51,7 +68,7 @@ function AdminDashboard({
   onLogout: () => void;
   navigate: (path: string) => void;
 }) {
-  const [activeTab, setActiveTab] = React.useState<TabId>("prenotazioni");
+  const [activeTab, setActiveTab] = React.useState<TabId>("accettazione");
   const { data: bookings, isLoading, error, refetch, isFetching } = useListBookings();
 
   const today = format(new Date(), "yyyy-MM-dd");
@@ -59,10 +76,16 @@ function AdminDashboard({
   const upcomingBookings = bookings?.filter((b) => b.date > today) ?? [];
   const pastBookings = bookings?.filter((b) => b.date < today) ?? [];
 
+  const TABS: { id: TabId; label: string; icon?: React.ReactNode }[] = [
+    { id: "accettazione", label: "Accettazione", icon: <UserCheck className="h-3.5 w-3.5" /> },
+    { id: "prenotazioni", label: "Prenotazioni", icon: <CalendarDays className="h-3.5 w-3.5" /> },
+    { id: "listino", label: "Listino Esami", icon: <FlaskConical className="h-3.5 w-3.5" /> },
+  ];
+
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
-      <header className="bg-white border-b border-border py-4 px-6 sticky top-0 z-10 shadow-sm">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
+      <header className="bg-white border-b border-border sticky top-0 z-10 shadow-sm">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="h-8 w-8 bg-primary rounded flex items-center justify-center">
               <span className="text-white font-bold text-lg leading-none">+</span>
@@ -97,22 +120,18 @@ function AdminDashboard({
         </div>
 
         {/* Tabs */}
-        <div className="max-w-5xl mx-auto mt-3 flex gap-1 border-b-0">
-          {(
-            [
-              { id: "prenotazioni" as TabId, label: "Prenotazioni" },
-              { id: "listino" as TabId, label: "Listino Esami" },
-            ] as { id: TabId; label: string }[]
-          ).map((tab) => (
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 flex gap-0.5 border-t border-border/50">
+          {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-1.5 text-sm font-medium rounded-t-md transition-colors border-b-2 ${
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.id
                   ? "border-primary text-primary bg-primary/5"
-                  : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40"
               }`}
             >
+              {tab.icon}
               {tab.label}
             </button>
           ))}
@@ -122,6 +141,8 @@ function AdminDashboard({
       <main className="flex-1 py-8 px-4 sm:px-6">
         <div className="max-w-5xl mx-auto">
 
+          {activeTab === "accettazione" && <AccettazionePaziente />}
+
           {activeTab === "prenotazioni" && (
             <div className="space-y-8">
               <div>
@@ -129,7 +150,6 @@ function AdminDashboard({
                 <p className="text-muted-foreground text-sm">Visualizza tutte le prenotazioni del laboratorio.</p>
               </div>
 
-              {/* Stats */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 {[
                   { label: "Totale", value: bookings?.length ?? 0, color: "text-foreground" },
@@ -164,15 +184,9 @@ function AdminDashboard({
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {todayBookings.length > 0 && (
-                    <Section title="Oggi" bookings={todayBookings} highlight />
-                  )}
-                  {upcomingBookings.length > 0 && (
-                    <Section title="Prossime" bookings={upcomingBookings} />
-                  )}
-                  {pastBookings.length > 0 && (
-                    <Section title="Passate" bookings={pastBookings} muted />
-                  )}
+                  {todayBookings.length > 0 && <Section title="Oggi" bookings={todayBookings} highlight />}
+                  {upcomingBookings.length > 0 && <Section title="Prossime" bookings={upcomingBookings} />}
+                  {pastBookings.length > 0 && <Section title="Passate" bookings={pastBookings} muted />}
                 </div>
               )}
             </div>

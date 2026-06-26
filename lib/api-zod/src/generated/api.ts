@@ -148,7 +148,7 @@ export const ListBookingsResponseItem = zod.object({
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
-  "status": zod.enum(['confirmed', 'cancelled', 'pending']),
+  "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled']),
   "createdAt": zod.coerce.date()
 })
 export const ListBookingsResponse = zod.array(ListBookingsResponseItem)
@@ -184,7 +184,7 @@ export const CreateBookingResponse = zod.object({
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
-  "status": zod.enum(['confirmed', 'cancelled', 'pending']),
+  "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled']),
   "createdAt": zod.coerce.date()
 })
 
@@ -208,7 +208,35 @@ export const GetBookingResponse = zod.object({
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
-  "status": zod.enum(['confirmed', 'cancelled', 'pending']),
+  "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled']),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Update the status of a booking
+ */
+export const UpdateBookingStatusParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateBookingStatusBody = zod.object({
+  "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled'])
+})
+
+export const UpdateBookingStatusResponse = zod.object({
+  "id": zod.number(),
+  "examId": zod.number(),
+  "examName": zod.string(),
+  "date": zod.coerce.date(),
+  "time": zod.string(),
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "dateOfBirth": zod.coerce.date(),
+  "email": zod.string(),
+  "phone": zod.string(),
+  "notes": zod.string().nullish(),
+  "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled']),
   "createdAt": zod.coerce.date()
 })
 
