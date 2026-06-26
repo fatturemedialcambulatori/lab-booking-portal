@@ -201,8 +201,8 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <DialogContent className="max-w-lg max-h-[90vh] flex flex-col gap-0 p-0">
-        <DialogHeader className="px-6 pt-5 pb-4 border-b border-border shrink-0">
+      <DialogContent className="!max-w-none !w-screen !h-screen !rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 flex flex-col gap-0 p-0">
+        <DialogHeader className="px-6 pt-5 pb-4 border-b border-border shrink-0 [&>*]:max-w-3xl [&>*]:mx-auto">
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-primary" />
             Nuova Prenotazione
@@ -237,7 +237,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
         </DialogHeader>
 
         <ScrollArea className="flex-1 min-h-0">
-          <div className="px-6 py-4 space-y-4">
+          <div className="px-6 py-6 space-y-4 max-w-3xl mx-auto">
             {/* ─── STEP 1: PAZIENTE ─── */}
             {step === 1 && (
               <div className="space-y-4">
@@ -377,7 +377,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
                   </div>
                 )}
 
-                <div className="space-y-1 max-h-64 overflow-y-auto pr-0.5">
+                <div className="space-y-1">
                   {filteredExams.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">Nessun esame trovato.</p>
                   ) : filteredExams.map((exam) => {
@@ -473,7 +473,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
           </div>
         </ScrollArea>
 
-        <DialogFooter className="px-6 py-4 border-t border-border gap-2 shrink-0">
+        <DialogFooter className="px-6 py-4 border-t border-border gap-2 shrink-0 max-w-3xl mx-auto w-full">
           {step > 1 && (
             <Button variant="outline" onClick={() => setStep((s) => (s - 1) as Step)} disabled={submitting}>
               <ChevronLeft className="h-4 w-4 mr-1" />
