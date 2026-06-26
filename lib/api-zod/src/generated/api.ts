@@ -151,7 +151,8 @@ export const ListBookingsResponseItem = zod.object({
   "phone": zod.string(),
   "notes": zod.string().nullish(),
   "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled']),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "refertiCount": zod.number().optional().describe('Number of exam results submitted for this booking')
 })
 export const ListBookingsResponse = zod.array(ListBookingsResponseItem)
 
@@ -191,7 +192,8 @@ export const CreateBookingResponse = zod.object({
   "phone": zod.string(),
   "notes": zod.string().nullish(),
   "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled']),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "refertiCount": zod.number().optional().describe('Number of exam results submitted for this booking')
 })
 
 
@@ -217,7 +219,8 @@ export const GetBookingResponse = zod.object({
   "phone": zod.string(),
   "notes": zod.string().nullish(),
   "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled']),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "refertiCount": zod.number().optional().describe('Number of exam results submitted for this booking')
 })
 
 
@@ -247,7 +250,8 @@ export const UpdateBookingStatusResponse = zod.object({
   "phone": zod.string(),
   "notes": zod.string().nullish(),
   "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled']),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "refertiCount": zod.number().optional().describe('Number of exam results submitted for this booking')
 })
 
 
@@ -361,5 +365,43 @@ export const DeletePatientParams = zod.object({
 })
 
 export const DeletePatientResponse = zod.void()
+
+
+/**
+ * @summary List exam results for a booking
+ */
+export const ListRefertiQueryParams = zod.object({
+  "bookingId": zod.coerce.number()
+})
+
+export const ListRefertiResponseItem = zod.object({
+  "id": zod.number(),
+  "bookingId": zod.number(),
+  "examId": zod.number(),
+  "valore": zod.string(),
+  "note": zod.string().nullish(),
+  "refertataAt": zod.coerce.date()
+})
+export const ListRefertiResponse = zod.array(ListRefertiResponseItem)
+
+
+/**
+ * @summary Create or update an exam result
+ */
+export const UpsertRefertoBody = zod.object({
+  "bookingId": zod.number(),
+  "examId": zod.number(),
+  "valore": zod.string(),
+  "note": zod.string().nullish()
+})
+
+export const UpsertRefertoResponse = zod.object({
+  "id": zod.number(),
+  "bookingId": zod.number(),
+  "examId": zod.number(),
+  "valore": zod.string(),
+  "note": zod.string().nullish(),
+  "refertataAt": zod.coerce.date()
+})
 
 

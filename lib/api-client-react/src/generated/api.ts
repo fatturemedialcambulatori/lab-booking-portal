@@ -29,9 +29,12 @@ import type {
   HealthStatus,
   ListBookingsParams,
   ListPatientsParams,
+  ListRefertiParams,
   ListSlotsParams,
   Patient,
   PatientInput,
+  RefertaInput,
+  Referto,
   TimeSlot
 } from './api.schemas';
 
@@ -1107,5 +1110,159 @@ export const useDeletePatient = <TError = ErrorType<ErrorResponse>,
         TContext
       > => {
       return useMutation(getDeletePatientMutationOptions(options));
+    }
+
+export const getListRefertiUrl = (params: ListRefertiParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/referti?${stringifiedParams}` : `/api/referti`
+}
+
+/**
+ * @summary List exam results for a booking
+ */
+export const listReferti = async (params: ListRefertiParams, options?: RequestInit): Promise<Referto[]> => {
+
+  return customFetch<Referto[]>(getListRefertiUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListRefertiQueryKey = (params?: ListRefertiParams,) => {
+    return [
+    `/api/referti`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListRefertiQueryOptions = <TData = Awaited<ReturnType<typeof listReferti>>, TError = ErrorType<unknown>>(params: ListRefertiParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listReferti>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListRefertiQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listReferti>>> = ({ signal }) => listReferti(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listReferti>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListRefertiQueryResult = NonNullable<Awaited<ReturnType<typeof listReferti>>>
+export type ListRefertiQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List exam results for a booking
+ */
+
+export function useListReferti<TData = Awaited<ReturnType<typeof listReferti>>, TError = ErrorType<unknown>>(
+ params: ListRefertiParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listReferti>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListRefertiQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpsertRefertoUrl = () => {
+
+
+
+
+  return `/api/referti`
+}
+
+/**
+ * @summary Create or update an exam result
+ */
+export const upsertReferto = async (refertaInput: RefertaInput, options?: RequestInit): Promise<Referto> => {
+
+  return customFetch<Referto>(getUpsertRefertoUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(refertaInput)
+  }
+);}
+
+
+
+
+export const getUpsertRefertoMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertReferto>>, TError,{data: BodyType<RefertaInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof upsertReferto>>, TError,{data: BodyType<RefertaInput>}, TContext> => {
+
+const mutationKey = ['upsertReferto'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof upsertReferto>>, {data: BodyType<RefertaInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  upsertReferto(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpsertRefertoMutationResult = NonNullable<Awaited<ReturnType<typeof upsertReferto>>>
+    export type UpsertRefertoMutationBody = BodyType<RefertaInput>
+    export type UpsertRefertoMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Create or update an exam result
+ */
+export const useUpsertReferto = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertReferto>>, TError,{data: BodyType<RefertaInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof upsertReferto>>,
+        TError,
+        {data: BodyType<RefertaInput>},
+        TContext
+      > => {
+      return useMutation(getUpsertRefertoMutationOptions(options));
     }
 

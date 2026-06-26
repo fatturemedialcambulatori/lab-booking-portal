@@ -18,6 +18,8 @@ tags:
     description: Available time slot operations
   - name: patients
     description: Patient anagrafica operations
+  - name: referti
+    description: Exam results (refertazione)
 paths:
   /healthz:
     get:
@@ -363,6 +365,50 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /referti:
+    get:
+      operationId: listReferti
+      tags: [referti]
+      summary: List exam results for a booking
+      parameters:
+        - name: bookingId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of exam results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Referto"
+    post:
+      operationId: upsertReferto
+      tags: [referti]
+      summary: Create or update an exam result
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefertaInput"
+      responses:
+        "200":
+          description: Referto saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Referto"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -512,6 +558,9 @@ components:
         createdAt:
           type: string
           format: date-time
+        refertiCount:
+          type: integer
+          description: Number of exam results submitted for this booking
 
     BookingStatusUpdate:
       type: object
@@ -586,6 +635,37 @@ components:
         billingCity:
           type: ["string", "null"]
         billingProvincia:
+          type: ["string", "null"]
+
+    Referto:
+      type: object
+      required: [id, bookingId, examId, valore, refertataAt]
+      properties:
+        id:
+          type: integer
+        bookingId:
+          type: integer
+        examId:
+          type: integer
+        valore:
+          type: string
+        note:
+          type: ["string", "null"]
+        refertataAt:
+          type: string
+          format: date-time
+
+    RefertaInput:
+      type: object
+      required: [bookingId, examId, valore]
+      properties:
+        bookingId:
+          type: integer
+        examId:
+          type: integer
+        valore:
+          type: string
+        note:
           type: ["string", "null"]
 
     ErrorResponse:

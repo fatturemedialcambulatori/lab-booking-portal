@@ -126,6 +126,8 @@ export interface Booking {
   notes?: string | null;
   status: BookingStatus;
   createdAt: string;
+  /** Number of exam results submitted for this booking */
+  refertiCount?: number;
 }
 
 export type BookingStatusUpdateStatus = typeof BookingStatusUpdateStatus[keyof typeof BookingStatusUpdateStatus];
@@ -211,6 +213,24 @@ export interface PatientInput {
   billingProvincia?: string | null;
 }
 
+export interface Referto {
+  id: number;
+  bookingId: number;
+  examId: number;
+  valore: string;
+  /** @nullable */
+  note?: string | null;
+  refertataAt: string;
+}
+
+export interface RefertaInput {
+  bookingId: number;
+  examId: number;
+  valore: string;
+  /** @nullable */
+  note?: string | null;
+}
+
 export interface ErrorResponse {
   error: string;
 }
@@ -242,5 +262,9 @@ export type ListPatientsParams = {
  * Search by name, email, or phone
  */
 search?: string;
+};
+
+export type ListRefertiParams = {
+bookingId: number;
 };
 

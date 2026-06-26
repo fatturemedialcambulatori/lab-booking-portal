@@ -34,6 +34,7 @@ import {
 import { format as formatDate, addDays, subDays } from "date-fns";
 import { NuovaPrenotazioneDialog } from "@/components/NuovaPrenotazioneDialog";
 import { ExamTodoDialog, TodoVisit } from "@/components/ExamTodoDialog";
+import { RefertazioneDialog } from "@/components/RefertazioneDialog";
 
 type BookingStatus = "confirmed" | "pending" | "accepted" | "completed" | "cancelled";
 
@@ -52,6 +53,7 @@ type Visit = {
   examIds: number[];
   examNames: string[];
   status: BookingStatus;
+  refertiCount: number;
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -104,6 +106,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
   const [showNuovaPrenotazione, setShowNuovaPrenotazione] = React.useState(false);
   const [billingVisit, setBillingVisit] = React.useState<Visit | null>(null);
   const [todoVisit, setTodoVisit] = React.useState<Visit | null>(null);
+  const [refertaVisit, setRefertaVisit] = React.useState<Visit | null>(null);
   const [doneMap, setDoneMap] = React.useState<Map<string, Set<number>>>(new Map());
 
   const toggleExamDone = (visitKey: string, examId: number) => {
@@ -128,7 +131,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
     return [...(dayBookings as Array<{
       id: number; date: string; time: string; firstName: string; lastName: string;
       dateOfBirth: string; codiceFiscale?: string | null; email: string; phone: string; notes?: string | null;
-      examIds: number[]; examNames: string[]; status: string;
+      examIds: number[]; examNames: string[]; status: string; refertiCount?: number;
     }>)]
       .sort((a, b) => a.time.localeCompare(b.time))
       .map((b) => ({
@@ -146,6 +149,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
         examIds: b.examIds,
         examNames: b.examNames,
         status: b.status as BookingStatus,
+        refertiCount: b.refertiCount ?? 0,
       }));
   }, [dayBookings]);
 
@@ -307,11 +311,19 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
             <VisitCard
               key={visit.key}
               visit={visit}
+              role={role}
               isLoading={loadingVisitKey === visit.key}
               onUpdateStatus={updateVisitStatus}
               onEditBilling={() => setBillingVisit(visit)}
               showBilling={role === "segreteria"}
-              onOpenTodo={() => setTodoVisit(visit)}
+              onOpenTodo={() =>
+                role === "laboratorio" ? setRefertaVisit(visit) : setTodoVisit(visit)
+              }
+              canComplete={
+                role === "laboratorio"
+                  ? visit.refertiCount >= visit.examIds.length && visit.examIds.length > 0
+                  : true
+              }
             />
           ))}
         </div>
@@ -344,6 +356,17 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
             refetch();
           }}
           role={role}
+        />
+      )}
+
+      {refertaVisit && (
+        <RefertazioneDialog
+          visit={refertaVisit as TodoVisit}
+          onClose={() => setRefertaVisit(null)}
+          onCompleted={() => {
+            setRefertaVisit(null);
+            refetch();
+          }}
         />
       )}
     </div>
@@ -451,18 +474,22 @@ function BillingDialog({ visit, onClose }: { visit: Visit; onClose: () => void }
 
 function VisitCard({
   visit,
+  role,
   isLoading,
   onUpdateStatus,
   onEditBilling,
   showBilling = true,
   onOpenTodo,
+  canComplete = true,
 }: {
   visit: Visit;
+  role?: string;
   isLoading: boolean;
   onUpdateStatus: (visit: Visit, status: BookingStatus) => void;
   onEditBilling: () => void;
   showBilling?: boolean;
   onOpenTodo?: () => void;
+  canComplete?: boolean;
 }) {
   const totalPrice = 0; // could sum from exam data if available
 
@@ -557,12 +584,23 @@ function VisitCard({
               <>
                 <Button
                   size="sm"
-                  className="bg-green-600 hover:bg-green-700 text-white gap-1.5"
-                  disabled={isLoading}
-                  onClick={() => onUpdateStatus(visit, "completed")}
+                  className={`gap-1.5 transition-all ${
+                    canComplete
+                      ? "bg-green-600 hover:bg-green-700 text-white"
+                      : "bg-muted text-muted-foreground cursor-not-allowed"
+                  }`}
+                  disabled={isLoading || !canComplete}
+                  title={
+                    !canComplete
+                      ? `Referta tutti gli esami prima di completare (${visit.refertiCount}/${visit.examIds.length})`
+                      : undefined
+                  }
+                  onClick={() => canComplete && onUpdateStatus(visit, "completed")}
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  Completa
+                  {role === "laboratorio" && !canComplete
+                    ? `Referta (${visit.refertiCount}/${visit.examIds.length})`
+                    : "Completa"}
                 </Button>
                 <Button
                   size="sm"

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { bookingsTable, bookingExamsTable, examsTable, patientsTable } from "@workspace/db";
-import { eq, desc, inArray, or, and, isNotNull } from "drizzle-orm";
+import { bookingsTable, bookingExamsTable, examsTable, patientsTable, refertiTable } from "@workspace/db";
+import { eq, desc, inArray, or, and, isNotNull, sql } from "drizzle-orm";
 import { CreateBookingBody, GetBookingParams } from "@workspace/api-zod";
 
 const router = Router();
@@ -71,6 +71,13 @@ router.get("/bookings", async (req, res) => {
       examsByBooking.get(link.bookingId)!.push({ examId: link.examId, descrizione: link.descrizione ?? "Esame" });
     }
 
+    const refertiCounts = await db
+      .select({ bookingId: refertiTable.bookingId, count: sql<number>`cast(count(*) as int)` })
+      .from(refertiTable)
+      .where(inArray(refertiTable.bookingId, bookingIds))
+      .groupBy(refertiTable.bookingId);
+    const refertiByBooking = new Map(refertiCounts.map((r) => [r.bookingId, r.count]));
+
     const result = bookings.map((b) => {
       const exams = examsByBooking.get(b.id) ?? [];
       return {
@@ -89,6 +96,7 @@ router.get("/bookings", async (req, res) => {
         notes: b.notes,
         status: b.status,
         createdAt: b.createdAt.toISOString(),
+        refertiCount: refertiByBooking.get(b.id) ?? 0,
       };
     });
 

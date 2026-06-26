@@ -27,4 +27,6 @@ export interface Booking {
   notes?: string | null;
   status: BookingStatus;
   createdAt: Date;
+  /** Number of exam results submitted for this booking */
+  refertiCount?: number;
 }
