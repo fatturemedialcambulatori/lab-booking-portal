@@ -34,13 +34,14 @@ type PatientForm = {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  codiceFiscale: string;
   email: string;
   phone: string;
   notes: string;
 };
 
 const emptyForm = (): PatientForm => ({
-  firstName: "", lastName: "", dateOfBirth: "", email: "", phone: "", notes: "",
+  firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", email: "", phone: "", notes: "",
 });
 
 function isFormValid(f: PatientForm) {
@@ -85,6 +86,7 @@ export function AdminAnagrafiche() {
           firstName: form.firstName.trim(),
           lastName: form.lastName.trim(),
           dateOfBirth: form.dateOfBirth,
+          codiceFiscale: form.codiceFiscale.trim() || null,
           email: form.email.trim(),
           phone: form.phone.trim(),
           notes: form.notes.trim() || null,
@@ -109,6 +111,7 @@ export function AdminAnagrafiche() {
           firstName: form.firstName.trim(),
           lastName: form.lastName.trim(),
           dateOfBirth: form.dateOfBirth,
+          codiceFiscale: form.codiceFiscale.trim() || null,
           email: form.email.trim(),
           phone: form.phone.trim(),
           notes: form.notes.trim() || null,
@@ -221,6 +224,7 @@ export function AdminAnagrafiche() {
                         firstName: p.firstName,
                         lastName: p.lastName,
                         dateOfBirth: p.dateOfBirth,
+                        codiceFiscale: p.codiceFiscale ?? "",
                         email: p.email,
                         phone: p.phone,
                         notes: p.notes ?? "",
@@ -335,9 +339,15 @@ function PatientFormDialog({
               <Input value={form.lastName} onChange={set("lastName")} placeholder="Rossi" />
             </div>
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Data di nascita *</Label>
-            <Input type="date" value={form.dateOfBirth} max={today} onChange={set("dateOfBirth")} />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Data di nascita *</Label>
+              <Input type="date" value={form.dateOfBirth} max={today} onChange={set("dateOfBirth")} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Codice Fiscale</Label>
+              <Input value={form.codiceFiscale} onChange={set("codiceFiscale")} placeholder="RSSMRA85M01H501Z" className="uppercase" />
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">

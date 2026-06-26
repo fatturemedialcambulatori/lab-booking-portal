@@ -10,6 +10,8 @@ export interface PatientInput {
   firstName: string;
   lastName: string;
   dateOfBirth: Date;
+  /** @nullable */
+  codiceFiscale?: string | null;
   email: string;
   phone: string;
   /** @nullable */

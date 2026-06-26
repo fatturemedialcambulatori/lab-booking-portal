@@ -18,6 +18,7 @@ const bookingSchema = z.object({
   firstName: z.string().min(1, "Il nome è obbligatorio"),
   lastName: z.string().min(1, "Il cognome è obbligatorio"),
   dateOfBirth: z.string().min(1, "La data di nascita è obbligatoria"),
+  codiceFiscale: z.string().optional(),
   email: z.string().email("Email non valida"),
   phone: z.string().min(5, "Il telefono è obbligatorio"),
   notes: z.string().optional(),

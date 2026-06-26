@@ -64,6 +64,8 @@ export interface BookingInput {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  /** @nullable */
+  codiceFiscale?: string | null;
   email: string;
   phone: string;
   /** @nullable */
@@ -90,6 +92,8 @@ export interface Booking {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  /** @nullable */
+  codiceFiscale?: string | null;
   email: string;
   phone: string;
   /** @nullable */
@@ -118,6 +122,8 @@ export interface Patient {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  /** @nullable */
+  codiceFiscale?: string | null;
   email: string;
   phone: string;
   /** @nullable */
@@ -129,6 +135,8 @@ export interface PatientInput {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  /** @nullable */
+  codiceFiscale?: string | null;
   email: string;
   phone: string;
   /** @nullable */

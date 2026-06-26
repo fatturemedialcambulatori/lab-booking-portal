@@ -58,12 +58,19 @@ export function PersonalData({ onNext, onPrev }: { onNext: () => void; onPrev: (
         <FormField label="Cognome" name="lastName" placeholder="Rossi" required />
       </div>
 
-      <FormField
-        label="Data di nascita"
-        name="dateOfBirth"
-        type="date"
-        required
-      />
+      <div className="grid sm:grid-cols-2 gap-4">
+        <FormField
+          label="Data di nascita"
+          name="dateOfBirth"
+          type="date"
+          required
+        />
+        <FormField
+          label="Codice Fiscale"
+          name="codiceFiscale"
+          placeholder="RSSMRA85M01H501Z"
+        />
+      </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
         <FormField label="Email" name="email" type="email" placeholder="mario.rossi@email.it" required />

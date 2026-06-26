@@ -51,6 +51,7 @@ export function Confirmation({
           dateOfBirth: values.dateOfBirth,
           email: values.email,
           phone: values.phone,
+          codiceFiscale: values.codiceFiscale || null,
           notes: values.notes || null,
         },
       },
@@ -112,6 +113,7 @@ export function Confirmation({
         <div className="px-4 divide-y divide-border/60">
           <Row label="Nome e cognome" value={`${values.firstName} ${values.lastName}`} />
           <Row label="Data di nascita" value={formattedDob} />
+          {values.codiceFiscale && <Row label="Codice Fiscale" value={values.codiceFiscale} />}
           <Row label="Email" value={values.email} />
           <Row label="Telefono" value={values.phone} />
           {values.notes && <Row label="Note" value={values.notes} />}

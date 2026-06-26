@@ -38,6 +38,7 @@ type PatientData = {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  codiceFiscale?: string;
   email: string;
   phone: string;
   notes?: string;
@@ -61,7 +62,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
   const [creatingNew, setCreatingNew] = React.useState(false);
   const [selectedPatient, setSelectedPatient] = React.useState<PatientData | null>(null);
   const [newPatient, setNewPatient] = React.useState<PatientData>({
-    firstName: "", lastName: "", dateOfBirth: "", email: "", phone: "", notes: "",
+    firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", email: "", phone: "", notes: "",
   });
   const [examSearch, setExamSearch] = React.useState("");
   const [selectedExamIds, setSelectedExamIds] = React.useState<number[]>([]);
@@ -130,7 +131,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
     setPatientSearch("");
     setCreatingNew(false);
     setSelectedPatient(null);
-    setNewPatient({ firstName: "", lastName: "", dateOfBirth: "", email: "", phone: "", notes: "" });
+    setNewPatient({ firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", email: "", phone: "", notes: "" });
     setExamSearch("");
     setSelectedExamIds([]);
     setSelectedDate(defaultDate ?? new Date().toISOString().slice(0, 10));
@@ -157,12 +158,13 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
             firstName: newPatient.firstName,
             lastName: newPatient.lastName,
             dateOfBirth: newPatient.dateOfBirth,
+            codiceFiscale: newPatient.codiceFiscale || null,
             email: newPatient.email,
             phone: newPatient.phone,
             notes: newPatient.notes || null,
           },
         });
-        patientData = { ...created, dateOfBirth: created.dateOfBirth, notes: created.notes ?? "" };
+        patientData = { ...created, dateOfBirth: created.dateOfBirth, codiceFiscale: created.codiceFiscale ?? "", notes: created.notes ?? "" };
         await queryClient.invalidateQueries({ queryKey: ["listPatients"] });
       }
 
@@ -174,6 +176,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
           firstName: patientData.firstName,
           lastName: patientData.lastName,
           dateOfBirth: patientData.dateOfBirth,
+          codiceFiscale: patientData.codiceFiscale || null,
           email: patientData.email,
           phone: patientData.phone,
           notes: notes || null,
@@ -277,7 +280,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
                                 selectedPatient?.id === p.id ? "border-primary bg-primary/5" : "border-border"
                               }`}
                               onClick={() => {
-                                setSelectedPatient({ id: p.id, firstName: p.firstName, lastName: p.lastName, dateOfBirth: p.dateOfBirth, email: p.email, phone: p.phone, notes: p.notes ?? "" });
+                                setSelectedPatient({ id: p.id, firstName: p.firstName, lastName: p.lastName, dateOfBirth: p.dateOfBirth, codiceFiscale: p.codiceFiscale ?? "", email: p.email, phone: p.phone, notes: p.notes ?? "" });
                                 setPatientSearch("");
                               }}
                             >
@@ -325,9 +328,15 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
                         <Input value={newPatient.lastName} onChange={(e) => setNewPatient((p) => ({ ...p, lastName: e.target.value }))} placeholder="Rossi" />
                       </div>
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Data di nascita *</Label>
-                      <Input type="date" value={newPatient.dateOfBirth} max={today} onChange={(e) => setNewPatient((p) => ({ ...p, dateOfBirth: e.target.value }))} />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Data di nascita *</Label>
+                        <Input type="date" value={newPatient.dateOfBirth} max={today} onChange={(e) => setNewPatient((p) => ({ ...p, dateOfBirth: e.target.value }))} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Codice Fiscale</Label>
+                        <Input value={newPatient.codiceFiscale ?? ""} onChange={(e) => setNewPatient((p) => ({ ...p, codiceFiscale: e.target.value.toUpperCase() }))} placeholder="RSSMRA85M01H501Z" className="uppercase" />
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
