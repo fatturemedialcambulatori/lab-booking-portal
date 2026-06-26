@@ -16,7 +16,6 @@ import {
   CheckCircle2,
   Circle,
   Printer,
-  X,
   User2,
 } from "lucide-react";
 import { printSchedaLaboratorio, printPreventivo } from "@/lib/printDocs";
@@ -133,12 +132,6 @@ export function ExamTodoDialog({ visit, doneIds, onToggle, onClose, onCompleted,
                 )}
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="text-muted-foreground hover:text-foreground transition-colors shrink-0 mt-0.5"
-            >
-              <X className="h-4 w-4" />
-            </button>
           </div>
         </DialogHeader>
 

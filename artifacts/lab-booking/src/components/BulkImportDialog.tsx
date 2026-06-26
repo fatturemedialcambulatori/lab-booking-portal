@@ -14,7 +14,6 @@ import {
   FileSpreadsheet,
   CheckCircle2,
   AlertCircle,
-  X,
   SkipForward,
   Download,
 } from "lucide-react";
@@ -180,9 +179,6 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
               <FileSpreadsheet className="h-5 w-5 text-primary" />
               Importazione bulk pazienti
             </DialogTitle>
-            <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
-              <X className="h-4 w-4" />
-            </button>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             Formati supportati: CSV, XLSX, XLS, ODS
