@@ -56,6 +56,17 @@ export interface TimeSlot {
   available: boolean;
 }
 
+/**
+ * @nullable
+ */
+export type BookingInputGender = typeof BookingInputGender[keyof typeof BookingInputGender] | null;
+
+
+export const BookingInputGender = {
+  M: 'M',
+  F: 'F',
+} as const;
+
 export interface BookingInput {
   /** @minItems 1 */
   examIds: number[];
@@ -66,11 +77,24 @@ export interface BookingInput {
   dateOfBirth: string;
   /** @nullable */
   codiceFiscale?: string | null;
+  /** @nullable */
+  gender?: BookingInputGender;
   email: string;
   phone: string;
   /** @nullable */
   notes?: string | null;
 }
+
+/**
+ * @nullable
+ */
+export type BookingGender = typeof BookingGender[keyof typeof BookingGender] | null;
+
+
+export const BookingGender = {
+  M: 'M',
+  F: 'F',
+} as const;
 
 export type BookingStatus = typeof BookingStatus[keyof typeof BookingStatus];
 
@@ -94,6 +118,8 @@ export interface Booking {
   dateOfBirth: string;
   /** @nullable */
   codiceFiscale?: string | null;
+  /** @nullable */
+  gender?: BookingGender;
   email: string;
   phone: string;
   /** @nullable */
@@ -117,6 +143,17 @@ export interface BookingStatusUpdate {
   status: BookingStatusUpdateStatus;
 }
 
+/**
+ * @nullable
+ */
+export type PatientGender = typeof PatientGender[keyof typeof PatientGender] | null;
+
+
+export const PatientGender = {
+  M: 'M',
+  F: 'F',
+} as const;
+
 export interface Patient {
   id: number;
   firstName: string;
@@ -124,6 +161,8 @@ export interface Patient {
   dateOfBirth: string;
   /** @nullable */
   codiceFiscale?: string | null;
+  /** @nullable */
+  gender?: PatientGender;
   email: string;
   phone: string;
   /** @nullable */
@@ -131,12 +170,25 @@ export interface Patient {
   createdAt: string;
 }
 
+/**
+ * @nullable
+ */
+export type PatientInputGender = typeof PatientInputGender[keyof typeof PatientInputGender] | null;
+
+
+export const PatientInputGender = {
+  M: 'M',
+  F: 'F',
+} as const;
+
 export interface PatientInput {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
   /** @nullable */
   codiceFiscale?: string | null;
+  /** @nullable */
+  gender?: PatientInputGender;
   email: string;
   phone: string;
   /** @nullable */

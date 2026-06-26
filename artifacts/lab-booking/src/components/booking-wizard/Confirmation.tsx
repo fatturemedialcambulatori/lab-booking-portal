@@ -52,6 +52,7 @@ export function Confirmation({
           email: values.email,
           phone: values.phone,
           codiceFiscale: values.codiceFiscale || null,
+          gender: values.gender || null,
           notes: values.notes || null,
         },
       },
@@ -114,6 +115,7 @@ export function Confirmation({
           <Row label="Nome e cognome" value={`${values.firstName} ${values.lastName}`} />
           <Row label="Data di nascita" value={formattedDob} />
           {values.codiceFiscale && <Row label="Codice Fiscale" value={values.codiceFiscale} />}
+          {values.gender && <Row label="Sesso" value={values.gender === "M" ? "Maschio" : "Femmina"} />}
           <Row label="Email" value={values.email} />
           <Row label="Telefono" value={values.phone} />
           {values.notes && <Row label="Note" value={values.notes} />}

@@ -41,6 +41,7 @@ type PatientData = {
   lastName: string;
   dateOfBirth: string;
   codiceFiscale?: string;
+  gender?: "M" | "F";
   email: string;
   phone: string;
   notes?: string;
@@ -64,7 +65,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
   const [creatingNew, setCreatingNew] = React.useState(false);
   const [selectedPatient, setSelectedPatient] = React.useState<PatientData | null>(null);
   const [newPatient, setNewPatient] = React.useState<PatientData>({
-    firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", email: "", phone: "", notes: "",
+    firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", gender: undefined, email: "", phone: "", notes: "",
   });
   const [examSearch, setExamSearch] = React.useState("");
   const [selectedExamIds, setSelectedExamIds] = React.useState<number[]>([]);
@@ -133,7 +134,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
     setPatientSearch("");
     setCreatingNew(false);
     setSelectedPatient(null);
-    setNewPatient({ firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", email: "", phone: "", notes: "" });
+    setNewPatient({ firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", gender: undefined, email: "", phone: "", notes: "" });
     setExamSearch("");
     setSelectedExamIds([]);
     setSelectedDate(defaultDate ?? new Date().toISOString().slice(0, 10));
@@ -161,12 +162,13 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
             lastName: newPatient.lastName,
             dateOfBirth: newPatient.dateOfBirth,
             codiceFiscale: newPatient.codiceFiscale || null,
+            gender: newPatient.gender || null,
             email: newPatient.email,
             phone: newPatient.phone,
             notes: newPatient.notes || null,
           },
         });
-        patientData = { ...created, dateOfBirth: created.dateOfBirth, codiceFiscale: created.codiceFiscale ?? "", notes: created.notes ?? "" };
+        patientData = { ...created, dateOfBirth: created.dateOfBirth, codiceFiscale: created.codiceFiscale ?? "", gender: (created.gender as "M" | "F" | undefined) ?? undefined, notes: created.notes ?? "" };
         await queryClient.invalidateQueries({ queryKey: ["listPatients"] });
       }
 
@@ -179,6 +181,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
           lastName: patientData.lastName,
           dateOfBirth: patientData.dateOfBirth,
           codiceFiscale: patientData.codiceFiscale || null,
+          gender: patientData.gender || null,
           email: patientData.email,
           phone: patientData.phone,
           notes: notes || null,
@@ -282,7 +285,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
                                 selectedPatient?.id === p.id ? "border-primary bg-primary/5" : "border-border"
                               }`}
                               onClick={() => {
-                                setSelectedPatient({ id: p.id, firstName: p.firstName, lastName: p.lastName, dateOfBirth: p.dateOfBirth, codiceFiscale: p.codiceFiscale ?? "", email: p.email, phone: p.phone, notes: p.notes ?? "" });
+                                setSelectedPatient({ id: p.id, firstName: p.firstName, lastName: p.lastName, dateOfBirth: p.dateOfBirth, codiceFiscale: p.codiceFiscale ?? "", gender: (p.gender as "M" | "F" | undefined) ?? undefined, email: p.email, phone: p.phone, notes: p.notes ?? "" });
                                 setPatientSearch("");
                               }}
                             >
@@ -519,10 +522,14 @@ function NewPatientCFAndDob({
   );
 
   React.useEffect(() => {
-    if (cfInfo && !newPatient.dateOfBirth) {
-      setNewPatient((p) => ({ ...p, dateOfBirth: cfInfo.dateOfBirth }));
+    if (cfInfo) {
+      setNewPatient((p) => ({
+        ...p,
+        ...(p.dateOfBirth ? {} : { dateOfBirth: cfInfo.dateOfBirth }),
+        gender: cfInfo.gender,
+      }));
     }
-  }, [cfInfo, newPatient.dateOfBirth, setNewPatient]);
+  }, [cfInfo, setNewPatient]);
 
   return (
     <div className="space-y-2">
@@ -547,14 +554,35 @@ function NewPatientCFAndDob({
           </div>
         )}
       </div>
-      <div className="space-y-1">
-        <Label className="text-xs">Data di nascita *</Label>
-        <Input
-          type="date"
-          value={newPatient.dateOfBirth}
-          max={today}
-          onChange={(e) => setNewPatient((p) => ({ ...p, dateOfBirth: e.target.value }))}
-        />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Data di nascita *</Label>
+          <Input
+            type="date"
+            value={newPatient.dateOfBirth}
+            max={today}
+            onChange={(e) => setNewPatient((p) => ({ ...p, dateOfBirth: e.target.value }))}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Sesso</Label>
+          <div className="flex gap-1.5">
+            {(["M", "F"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setNewPatient((p) => ({ ...p, gender: p.gender === v ? undefined : v }))}
+                className={`flex-1 rounded-md border py-1.5 text-xs font-medium transition-colors ${
+                  newPatient.gender === v
+                    ? "border-primary bg-primary text-white"
+                    : "border-border hover:border-primary/50"
+                }`}
+              >
+                {v === "M" ? "M" : "F"}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -37,13 +37,14 @@ type PatientForm = {
   lastName: string;
   dateOfBirth: string;
   codiceFiscale: string;
+  gender: "M" | "F" | "";
   email: string;
   phone: string;
   notes: string;
 };
 
 const emptyForm = (): PatientForm => ({
-  firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", email: "", phone: "", notes: "",
+  firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", gender: "", email: "", phone: "", notes: "",
 });
 
 function isFormValid(f: PatientForm) {
@@ -89,6 +90,7 @@ export function AdminAnagrafiche() {
           lastName: form.lastName.trim(),
           dateOfBirth: form.dateOfBirth,
           codiceFiscale: form.codiceFiscale.trim() || null,
+          gender: form.gender || null,
           email: form.email.trim(),
           phone: form.phone.trim(),
           notes: form.notes.trim() || null,
@@ -114,6 +116,7 @@ export function AdminAnagrafiche() {
           lastName: form.lastName.trim(),
           dateOfBirth: form.dateOfBirth,
           codiceFiscale: form.codiceFiscale.trim() || null,
+          gender: form.gender || null,
           email: form.email.trim(),
           phone: form.phone.trim(),
           notes: form.notes.trim() || null,
@@ -227,6 +230,7 @@ export function AdminAnagrafiche() {
                         lastName: p.lastName,
                         dateOfBirth: p.dateOfBirth,
                         codiceFiscale: p.codiceFiscale ?? "",
+                        gender: (p.gender as "M" | "F" | "") ?? "",
                         email: p.email,
                         phone: p.phone,
                         notes: p.notes ?? "",
@@ -327,10 +331,14 @@ function PatientFormDialog({
   const cfInfo = React.useMemo(() => parseFiscalCode(form.codiceFiscale), [form.codiceFiscale]);
 
   React.useEffect(() => {
-    if (cfInfo && !form.dateOfBirth) {
-      setForm((f) => ({ ...f, dateOfBirth: cfInfo.dateOfBirth }));
+    if (cfInfo) {
+      setForm((f) => ({
+        ...f,
+        ...(f.dateOfBirth ? {} : { dateOfBirth: cfInfo.dateOfBirth }),
+        gender: cfInfo.gender,
+      }));
     }
-  }, [cfInfo, form.dateOfBirth]);
+  }, [cfInfo]);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -373,7 +381,25 @@ function PatientFormDialog({
               <Label className="text-xs">Data di nascita *</Label>
               <Input type="date" value={form.dateOfBirth} max={today} onChange={set("dateOfBirth")} />
             </div>
-            <div className="space-y-1" />
+            <div className="space-y-1">
+              <Label className="text-xs">Sesso</Label>
+              <div className="flex gap-1.5">
+                {(["M", "F"] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, gender: f.gender === v ? "" : v }))}
+                    className={`flex-1 rounded-md border py-1.5 text-xs font-medium transition-colors ${
+                      form.gender === v
+                        ? "border-primary bg-primary text-white"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                  >
+                    {v === "M" ? "M — Maschio" : "F — Femmina"}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">

@@ -12,6 +12,7 @@ export const bookingsTable = pgTable("bookings", {
   lastName: text("last_name").notNull(),
   dateOfBirth: text("date_of_birth").notNull(),
   codiceFiscale: text("codice_fiscale"),
+  gender: text("gender"),
   email: text("email").notNull(),
   phone: text("phone").notNull(),
   notes: text("notes"),

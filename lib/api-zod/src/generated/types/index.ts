@@ -7,7 +7,9 @@
  */
 
 export * from './booking';
+export * from './bookingGender';
 export * from './bookingInput';
+export * from './bookingInputGender';
 export * from './bookingStatus';
 export * from './bookingStatusUpdate';
 export * from './bookingStatusUpdateStatus';
@@ -20,5 +22,7 @@ export * from './listBookingsStatus';
 export * from './listPatientsParams';
 export * from './listSlotsParams';
 export * from './patient';
+export * from './patientGender';
 export * from './patientInput';
+export * from './patientInputGender';
 export * from './timeSlot';

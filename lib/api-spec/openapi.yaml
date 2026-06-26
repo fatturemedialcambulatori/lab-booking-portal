@@ -458,6 +458,9 @@ components:
           format: date
         codiceFiscale:
           type: ["string", "null"]
+        gender:
+          type: ["string", "null"]
+          enum: ["M", "F", null]
         email:
           type: string
           format: email
@@ -490,6 +493,9 @@ components:
           format: date
         codiceFiscale:
           type: ["string", "null"]
+        gender:
+          type: ["string", "null"]
+          enum: ["M", "F", null]
         email:
           type: string
         phone:
@@ -526,6 +532,9 @@ components:
           format: date
         codiceFiscale:
           type: ["string", "null"]
+        gender:
+          type: ["string", "null"]
+          enum: ["M", "F", null]
         email:
           type: string
         phone:
@@ -549,6 +558,9 @@ components:
           format: date
         codiceFiscale:
           type: ["string", "null"]
+        gender:
+          type: ["string", "null"]
+          enum: ["M", "F", null]
         email:
           type: string
         phone:

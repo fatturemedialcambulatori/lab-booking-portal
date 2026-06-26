@@ -5,6 +5,7 @@
  * API specification for Lab Booking Portal
  * OpenAPI spec version: 0.1.0
  */
+import type { BookingGender } from './bookingGender';
 import type { BookingStatus } from './bookingStatus';
 
 export interface Booking {
@@ -18,6 +19,8 @@ export interface Booking {
   dateOfBirth: Date;
   /** @nullable */
   codiceFiscale?: string | null;
+  /** @nullable */
+  gender?: BookingGender;
   email: string;
   phone: string;
   /** @nullable */
