@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { bookingsTable, bookingExamsTable, examsTable, patientsTable } from "@workspace/db";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, desc, inArray, or, and, isNotNull } from "drizzle-orm";
 import { CreateBookingBody, GetBookingParams } from "@workspace/api-zod";
 
 const router = Router();
@@ -141,11 +141,16 @@ router.post("/bookings", async (req, res) => {
       data.examIds.map((examId) => ({ bookingId: inserted.id, examId }))
     );
 
-    // Upsert patient: crea il record in anagrafica se non esiste già con questa email
+    // Upsert patient: usa il codice fiscale come chiave univoca (fallback: email)
+    const cf = data.codiceFiscale?.trim().toUpperCase() ?? null;
+    const existingCondition = cf
+      ? and(isNotNull(patientsTable.codiceFiscale), eq(patientsTable.codiceFiscale, cf))
+      : eq(patientsTable.email, data.email);
+
     const existing = await db
       .select({ id: patientsTable.id })
       .from(patientsTable)
-      .where(eq(patientsTable.email, data.email))
+      .where(existingCondition)
       .limit(1);
 
     if (existing.length === 0) {
@@ -153,7 +158,7 @@ router.post("/bookings", async (req, res) => {
         firstName: data.firstName,
         lastName: data.lastName,
         dateOfBirth: dobStr,
-        codiceFiscale: data.codiceFiscale ?? null,
+        codiceFiscale: cf,
         gender: data.gender ?? null,
         email: data.email,
         phone: data.phone,
