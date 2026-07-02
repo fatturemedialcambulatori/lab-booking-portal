@@ -97,8 +97,8 @@ export default function Home() {
             <p className="text-muted-foreground">Pochi semplici passi per prenotare la tua visita presso i nostri laboratori.</p>
           </div>
 
-          <Card className="p-0 overflow-hidden border-border/60 shadow-lg">
-            <div className="bg-muted/30 px-6 py-5 border-b border-border/40">
+          <Card className="p-0 border-border/60 shadow-lg">
+            <div className="bg-muted/30 px-6 py-5 border-b border-border/40 rounded-t-xl">
               <StepIndicator currentStep={step} />
             </div>
 
