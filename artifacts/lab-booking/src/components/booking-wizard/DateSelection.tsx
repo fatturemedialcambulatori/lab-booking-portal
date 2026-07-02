@@ -49,24 +49,21 @@ export function DateSelection({ onNext, onPrev }: { onNext: () => void; onPrev: 
 
       <div className="flex justify-center">
         <div className="space-y-2 w-full max-w-sm">
-          <div className="border border-border rounded-lg p-4 bg-background">
-            <Calendar
-              mode="single"
-              selected={calendarDate}
-              onSelect={handleDateSelect}
-              locale={it}
-              disabled={(date) => {
-                const d = startOfDay(date);
-                const day = d.getDay();
-                return d < today || day === 0 || day === 6;
-              }}
-              defaultMonth={calendarDate ?? firstAvailableDay}
-              fromDate={today}
-              toDate={addWeeks(today, 12)}
-              className="w-full"
-              classNames={{ root: "w-full min-w-0" }}
-            />
-          </div>
+          <Calendar
+            mode="single"
+            selected={calendarDate}
+            onSelect={handleDateSelect}
+            locale={it}
+            disabled={(date) => {
+              const d = startOfDay(date);
+              const day = d.getDay();
+              return d < today || day === 0 || day === 6;
+            }}
+            defaultMonth={calendarDate ?? firstAvailableDay}
+            fromDate={today}
+            toDate={addWeeks(today, 12)}
+            className="w-full rounded-lg border border-border bg-background p-3"
+          />
           {errors.date && (
             <p className="text-sm text-destructive">{errors.date.message}</p>
           )}
