@@ -259,6 +259,20 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
       <tbody>${rows}</tbody>
     </table>
 
+    <div style="margin-top:28px; padding:14px 16px; border:1px solid #ddd; border-radius:4px; background:#fafafa;">
+      <div style="font-size:9px; color:#444; line-height:1.6; margin-bottom:10px; font-style:italic;">
+        Referto firmato digitalmente ai sensi del Decreto Legislativo 82/2005 S.M.I. e norme collegate, che sostituisce il documento cartaceo e la firma autografa.
+      </div>
+      <div style="display:flex; justify-content:flex-end; align-items:flex-end; gap:20px;">
+        <div style="text-align:right;">
+          <div style="font-size:9px; color:#888; margin-bottom:4px;">Medico refertante</div>
+          <div style="font-size:10px; font-weight:700; color:#1a1a1a;">Dott. Ligabue Enrico</div>
+          <div style="font-size:8.5px; color:#555;">Specialista in oncologia e traumatologia</div>
+          <div style="margin-top:14px; border-top:1px solid #aaa; width:180px; margin-left:auto; padding-top:3px; font-size:8px; color:#999; text-align:center;">Firma digitale</div>
+        </div>
+      </div>
+    </div>
+
     <div class="footer">
       ${LAB_INFO.name} &nbsp;|&nbsp; P.IVA ${LAB_INFO.piva} &nbsp;|&nbsp; ${LAB_INFO.address}<br>
       Documento generato il ${todayFormatted()} — Uso interno / consegna al paziente.
