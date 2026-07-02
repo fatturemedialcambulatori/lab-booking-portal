@@ -1,10 +1,9 @@
 import React from "react";
 import { useFormContext } from "react-hook-form";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
-import { it } from "date-fns/locale";
 import { format, startOfDay, addWeeks } from "date-fns";
 import { ArrowRight } from "lucide-react";
+import { CustomCalendar } from "./CustomCalendar";
 import type { BookingFormValues } from "../../pages/Home";
 
 function getNextWeekday(from: Date): Date {
@@ -22,16 +21,13 @@ export function DateSelection({ onNext, onPrev }: { onNext: () => void; onPrev: 
   const today = startOfDay(new Date());
   const firstAvailableDay = getNextWeekday(today);
 
-  const [calendarDate, setCalendarDate] = React.useState<Date | undefined>(() => {
-    if (selectedDate) {
-      const [y, m, d] = selectedDate.split("-").map(Number);
-      return new Date(y, m - 1, d);
-    }
-    return undefined;
-  });
+  const selectedDateObj = React.useMemo(() => {
+    if (!selectedDate) return undefined;
+    const [y, m, d] = selectedDate.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }, [selectedDate]);
 
   const handleDateSelect = (date: Date | undefined) => {
-    setCalendarDate(date);
     if (date) {
       setValue("date", format(date, "yyyy-MM-dd"), { shouldValidate: true });
       setValue("time", "", { shouldValidate: false });
@@ -48,24 +44,21 @@ export function DateSelection({ onNext, onPrev }: { onNext: () => void; onPrev: 
       </div>
 
       <div className="flex justify-center">
-        <div className="space-y-2 w-full max-w-sm">
-          <Calendar
-            mode="single"
-            selected={calendarDate}
+        <div className="w-full max-w-sm">
+          <CustomCalendar
+            selected={selectedDateObj}
             onSelect={handleDateSelect}
-            locale={it}
             disabled={(date) => {
               const d = startOfDay(date);
               const day = d.getDay();
               return d < today || day === 0 || day === 6;
             }}
-            defaultMonth={calendarDate ?? firstAvailableDay}
+            defaultMonth={selectedDateObj ?? firstAvailableDay}
             fromDate={today}
             toDate={addWeeks(today, 12)}
-            className="w-full rounded-lg border border-border bg-background p-3"
           />
           {errors.date && (
-            <p className="text-sm text-destructive">{errors.date.message}</p>
+            <p className="text-sm text-destructive mt-2">{errors.date.message}</p>
           )}
         </div>
       </div>
