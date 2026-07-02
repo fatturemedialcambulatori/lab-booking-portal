@@ -623,6 +623,18 @@ function VisitCard({
             )}
             {visit.status === "accepted" && (
               <>
+                {role === "segreteria" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-muted-foreground"
+                    disabled={isLoading}
+                    onClick={() => onUpdateStatus(visit, "confirmed")}
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    In attesa
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   className={`gap-1.5 transition-all ${
@@ -694,6 +706,18 @@ function VisitCard({
                 onClick={() => onUpdateStatus(visit, "cancelled")}
               >
                 <XCircle className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            {visit.status === "cancelled" && role === "segreteria" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-muted-foreground"
+                disabled={isLoading}
+                onClick={() => onUpdateStatus(visit, "confirmed")}
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+                Ripristina
               </Button>
             )}
           </div>
