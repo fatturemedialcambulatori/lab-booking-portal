@@ -58,10 +58,10 @@ export function DateTimeSelection({ onNext, onPrev }: { onNext: () => void; onPr
         <p className="text-muted-foreground text-sm">Seleziona il giorno e l'orario preferito per l'esame. Il laboratorio è aperto dal lunedì al venerdì.</p>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="space-y-2">
+      <div className="grid md:grid-cols-2 gap-6 min-w-0">
+        <div className="space-y-2 min-w-0 overflow-hidden">
           <p className="text-sm font-medium text-foreground">Data</p>
-          <div className="border border-border rounded-lg p-3 bg-background">
+          <div className="border border-border rounded-lg p-3 bg-background overflow-hidden w-full">
             <Calendar
               mode="single"
               selected={calendarDate}
@@ -76,6 +76,7 @@ export function DateTimeSelection({ onNext, onPrev }: { onNext: () => void; onPr
               fromDate={today}
               toDate={addWeeks(today, 12)}
               className="w-full"
+              classNames={{ root: "w-full min-w-0" }}
             />
           </div>
           {errors.date && (
@@ -83,7 +84,7 @@ export function DateTimeSelection({ onNext, onPrev }: { onNext: () => void; onPr
           )}
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2 min-w-0">
           <p className="text-sm font-medium text-foreground">Orario disponibile</p>
 
           {!selectedDate ? (
