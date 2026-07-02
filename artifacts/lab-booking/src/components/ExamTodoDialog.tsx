@@ -62,7 +62,6 @@ export function ExamTodoDialog({ visit, doneIds, onToggle, onClose, onCompleted,
   const doneCount = exams.filter((e) => doneIds.has(e.id)).length;
   const total = exams.length;
   const allDone = total > 0 && doneCount === total;
-  const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
   const handleComplete = async () => {
     setCompleting(true);
@@ -134,24 +133,6 @@ export function ExamTodoDialog({ visit, doneIds, onToggle, onClose, onCompleted,
             </div>
           </div>
         </DialogHeader>
-
-        {/* Progress bar */}
-        <div className="px-5 py-3 border-b border-border/60 shrink-0 bg-muted/30">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-              Avanzamento esami
-            </span>
-            <span className={`text-xs font-bold ${allDone ? "text-green-600" : "text-primary"}`}>
-              {doneCount} / {total}
-            </span>
-          </div>
-          <div className="h-2 rounded-full bg-border overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-300 ${allDone ? "bg-green-500" : "bg-primary"}`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        </div>
 
         {/* Exam checklist */}
         <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
