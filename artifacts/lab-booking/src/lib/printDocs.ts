@@ -205,7 +205,14 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
     </tr>
   `;}).join("");
 
-  const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>Referto – ${patient.firstName} ${patient.lastName}</title><style>
+  const now = new Date();
+  const signedAt = now.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" })
+    + " " + now.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+  const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>Referto – ${patient.firstName} ${patient.lastName}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+  <style>
     ${BASE_CSS}
     table { font-size: 9px; }
     th { font-size: 7.5px; }
@@ -265,9 +272,13 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
       </div>
       <div style="display:flex; justify-content:flex-end; align-items:flex-end; gap:20px;">
         <div style="text-align:right;">
-          <div style="font-size:9px; color:#888; margin-bottom:4px;">Medico refertante</div>
+          <div style="font-size:9px; color:#888; margin-bottom:6px;">Medico refertante</div>
           <div style="font-size:10px; font-weight:700; color:#1a1a1a;">Dott. Ligabue Enrico</div>
-          <div style="font-size:8.5px; color:#555;">Specialista in oncologia e traumatologia</div>
+          <div style="font-size:8.5px; color:#555; margin-bottom:10px;">Specialista in oncologia e traumatologia</div>
+          <div style="font-family:'Dancing Script', cursive; font-size:22px; font-weight:700; color:#1a1a1a; line-height:1; margin-bottom:4px;">Ligabue Enrico</div>
+          <div style="border-top:1px solid #555; width:200px; margin-left:auto; margin-bottom:5px;"></div>
+          <div style="font-size:7.5px; color:#666;">Firmato digitalmente da Ligabue Enrico</div>
+          <div style="font-size:7.5px; color:#666;">in data ${signedAt}</div>
         </div>
       </div>
     </div>
