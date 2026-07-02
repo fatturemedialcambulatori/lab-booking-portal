@@ -1,4 +1,5 @@
 import { displayRefValue, isOutOfRange } from "./refValue";
+import { FIRMA_BASE64 } from "./firma-base64";
 
 export type PrintExam = {
   codiceAnalisi: string;
@@ -47,9 +48,6 @@ function logoUrl(): string {
   return `${window.location.origin}${import.meta.env.BASE_URL}logo-lab.png`;
 }
 
-function firmaUrl(): string {
-  return `${window.location.origin}${import.meta.env.BASE_URL}firma-ligabue.png`;
-}
 
 function todayFormatted(): string {
   return new Date().toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -276,7 +274,7 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
           <div style="font-size:9px; color:#888; margin-bottom:6px;">Medico refertante</div>
           <div style="font-size:10px; font-weight:700; color:#1a1a1a;">Dott. Ligabue Enrico</div>
           <div style="font-size:8.5px; color:#555; margin-bottom:10px;">Specialista in oncologia e traumatologia</div>
-          <img src="${firmaUrl()}" alt="Firma" style="height:52px; display:block; margin-left:auto; margin-bottom:0;" />
+          <img src="${FIRMA_BASE64}" alt="Firma" style="height:80px; display:block; margin-left:auto; margin-bottom:0;" />
           <div style="border-top:1px solid #555; width:200px; margin-left:auto; margin-bottom:5px;"></div>
           <div style="font-size:7.5px; color:#666;">Firmato digitalmente da Ligabue Enrico</div>
           <div style="font-size:7.5px; color:#666;">in data ${signedAt}</div>
