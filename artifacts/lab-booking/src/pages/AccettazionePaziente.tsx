@@ -110,7 +110,6 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
   const [billingVisit, setBillingVisit] = React.useState<Visit | null>(null);
   const [todoVisit, setTodoVisit] = React.useState<Visit | null>(null);
   const [refertaVisit, setRefertaVisit] = React.useState<Visit | null>(null);
-  const [doneMap, setDoneMap] = React.useState<Map<string, Set<number>>>(new Map());
 
   const handlePrintReferto = async (visit: Visit) => {
     try {
@@ -159,16 +158,6 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
     }
   };
 
-  const toggleExamDone = (visitKey: string, examId: number) => {
-    setDoneMap((prev) => {
-      const next = new Map(prev);
-      const set = new Set(next.get(visitKey) ?? []);
-      if (set.has(examId)) set.delete(examId);
-      else set.add(examId);
-      next.set(visitKey, set);
-      return next;
-    });
-  };
 
   const todayStr = formatDate(new Date(), "yyyy-MM-dd");
 
@@ -399,8 +388,6 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
       {todoVisit && (
         <ExamTodoDialog
           visit={todoVisit as TodoVisit}
-          doneIds={doneMap.get(todoVisit.key) ?? new Set()}
-          onToggle={(examId) => toggleExamDone(todoVisit.key, examId)}
           onClose={() => setTodoVisit(null)}
           onCompleted={() => {
             setTodoVisit(null);

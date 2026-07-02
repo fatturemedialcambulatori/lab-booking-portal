@@ -12,9 +12,7 @@ import { it } from "date-fns/locale";
 import {
   CalendarDays,
   Clock,
-  FlaskConical,
   CheckCircle2,
-  Circle,
   Printer,
   User2,
 } from "lucide-react";
@@ -39,14 +37,12 @@ export type TodoVisit = {
 
 interface Props {
   visit: TodoVisit;
-  doneIds: Set<number>;
-  onToggle: (examId: number) => void;
   onClose: () => void;
   onCompleted: () => void;
   role?: string;
 }
 
-export function ExamTodoDialog({ visit, doneIds, onToggle, onClose, onCompleted, role = "segreteria" }: Props) {
+export function ExamTodoDialog({ visit, onClose, onCompleted, role = "segreteria" }: Props) {
   const { data: allExams } = useListExams();
   const { data: patients } = useListPatients({ search: visit.email });
   const updateStatus = useUpdateBookingStatus();
@@ -58,10 +54,6 @@ export function ExamTodoDialog({ visit, doneIds, onToggle, onClose, onCompleted,
     () => (allExams ?? []).filter((e) => visit.examIds.includes(e.id)),
     [allExams, visit.examIds]
   );
-
-  const doneCount = exams.filter((e) => doneIds.has(e.id)).length;
-  const total = exams.length;
-  const allDone = total > 0 && doneCount === total;
 
   const handleComplete = async () => {
     setCompleting(true);
@@ -134,61 +126,6 @@ export function ExamTodoDialog({ visit, doneIds, onToggle, onClose, onCompleted,
           </div>
         </DialogHeader>
 
-        {/* Exam checklist */}
-        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
-          {exams.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">Caricamento esami...</p>
-          ) : (
-            exams.map((exam) => {
-              const done = doneIds.has(exam.id);
-              return (
-                <button
-                  key={exam.id}
-                  onClick={() => onToggle(exam.id)}
-                  className={`w-full text-left rounded-xl border px-4 py-3 flex items-center gap-3 transition-all ${
-                    done
-                      ? "border-green-300 bg-green-50"
-                      : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
-                  }`}
-                >
-                  {/* Checkbox icon */}
-                  <div className="flex-shrink-0">
-                    {done ? (
-                      <CheckCircle2 className="h-5 w-5 text-green-500" />
-                    ) : (
-                      <Circle className="h-5 w-5 text-muted-foreground/40" />
-                    )}
-                  </div>
-
-                  {/* Exam info */}
-                  <div className="min-w-0 flex-1">
-                    <p className={`text-sm font-medium leading-snug ${done ? "line-through text-muted-foreground" : "text-foreground"}`}>
-                      {exam.descrizione}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                      <span className="text-xs text-muted-foreground font-mono">{exam.codiceAnalisi}</span>
-                      {exam.colorProvetta && (
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <FlaskConical className="h-2.5 w-2.5" />
-                          {exam.colorProvetta}
-                        </span>
-                      )}
-                      {exam.metodo && (
-                        <span className="text-xs text-muted-foreground">{exam.metodo}</span>
-                      )}
-                    </div>
-                    {exam.preparationInstructions && (
-                      <p className="text-xs text-amber-700 bg-amber-50 rounded px-1.5 py-0.5 mt-1 inline-block">
-                        {exam.preparationInstructions}
-                      </p>
-                    )}
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-
         {/* Footer actions */}
         <div className="px-5 py-4 border-t border-border shrink-0 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -211,12 +148,12 @@ export function ExamTodoDialog({ visit, doneIds, onToggle, onClose, onCompleted,
             {visit.status === "accepted" && (
               <Button
                 size="sm"
-                className={`gap-2 ${allDone ? "bg-green-600 hover:bg-green-700" : ""}`}
-                disabled={!allDone || completing}
+                className="gap-2 bg-green-600 hover:bg-green-700"
+                disabled={completing}
                 onClick={handleComplete}
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                {completing ? "Completamento..." : allDone ? "Segna come Completata" : `Completa (${doneCount}/${total})`}
+                {completing ? "Completamento..." : "Segna come Completata"}
               </Button>
             )}
           </div>
