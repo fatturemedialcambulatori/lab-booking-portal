@@ -9,6 +9,14 @@ export interface HealthStatus {
   status: string;
 }
 
+export type ExamInputTipo = typeof ExamInputTipo[keyof typeof ExamInputTipo];
+
+
+export const ExamInputTipo = {
+  singolo: 'singolo',
+  pacchetto: 'pacchetto',
+} as const;
+
 export interface ExamInput {
   codiceAnalisi: string;
   descrizione: string;
@@ -32,7 +40,18 @@ export interface ExamInput {
      */
   valoreRiferimento?: string | null;
   preparationInstructions?: string;
+  tipo?: ExamInputTipo;
+  /** IDs of single exams that compose this package (only for tipo=pacchetto) */
+  componentIds?: number[];
 }
+
+export type ExamTipo = typeof ExamTipo[keyof typeof ExamTipo];
+
+
+export const ExamTipo = {
+  singolo: 'singolo',
+  pacchetto: 'pacchetto',
+} as const;
 
 export interface Exam {
   id: number;
@@ -58,6 +77,17 @@ export interface Exam {
      */
   valoreRiferimento?: string | null;
   preparationInstructions?: string;
+  tipo: ExamTipo;
+  /** Sub-exams for pacchetto type (empty for singolo) */
+  components?: ExamComponentItem[];
+}
+
+export interface ExamComponentItem {
+  id: number;
+  packageExamId: number;
+  componentExamId: number;
+  ordinamento: number;
+  componentExam: Exam;
 }
 
 export interface TimeSlot {
@@ -138,6 +168,8 @@ export interface Booking {
   createdAt: string;
   /** Number of exam results submitted for this booking */
   refertiCount?: number;
+  /** Total number of results expected (1 per single exam, N per package) */
+  expectedRefertiCount?: number;
 }
 
 export type BookingStatusUpdateStatus = typeof BookingStatusUpdateStatus[keyof typeof BookingStatusUpdateStatus];
@@ -227,6 +259,11 @@ export interface Referto {
   id: number;
   bookingId: number;
   examId: number;
+  /**
+     * Package exam ID when this is a sub-exam result
+     * @nullable
+     */
+  parentExamId?: number | null;
   valore: string;
   /** @nullable */
   note?: string | null;
@@ -236,6 +273,11 @@ export interface Referto {
 export interface RefertaInput {
   bookingId: number;
   examId: number;
+  /**
+     * Package exam ID when saving a sub-exam result
+     * @nullable
+     */
+  parentExamId?: number | null;
   valore: string;
   /** @nullable */
   note?: string | null;

@@ -9,6 +9,11 @@
 export interface RefertaInput {
   bookingId: number;
   examId: number;
+  /**
+     * Package exam ID when saving a sub-exam result
+     * @nullable
+     */
+  parentExamId?: number | null;
   valore: string;
   /** @nullable */
   note?: string | null;

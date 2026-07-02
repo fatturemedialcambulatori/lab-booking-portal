@@ -57,6 +57,7 @@ type Visit = {
   examNames: string[];
   status: BookingStatus;
   refertiCount: number;
+  expectedRefertiCount: number;
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -118,13 +119,43 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
         fetch(`/api/referti?bookingId=${visit.id}`),
         fetch(`/api/patients?search=${encodeURIComponent(visit.email)}`),
       ]);
-      const referti: Array<{ examId: number; valore: string; note?: string | null }> = await refertiRes.json();
+      const referti: Array<{ examId: number; parentExamId?: number | null; valore: string; note?: string | null }> = await refertiRes.json();
       const patientList = await patientRes.json();
       const patientData = patientList?.[0];
 
       const examsWithResults: PrintExamWithResult[] = visit.examIds.map((id) => {
         const exam = allExams?.find((e) => e.id === id);
-        const referto = referti.find((r) => r.examId === id);
+        const examAny = exam as any;
+        if (examAny?.tipo === "pacchetto") {
+          const subResults = (examAny.components ?? []).map((c: any) => {
+            const sub = c.componentExam;
+            const subReferto = referti.find((r) => r.examId === c.componentExamId && r.parentExamId === id);
+            return {
+              codiceAnalisi: sub?.codiceAnalisi ?? String(c.componentExamId),
+              descrizione: sub?.descrizione ?? "—",
+              um: sub?.um ?? null,
+              metodo: sub?.metodo ?? null,
+              valoreRiferimento: sub?.valoreRiferimento ?? null,
+              valore: subReferto?.valore ?? null,
+              refertaNote: subReferto?.note ?? null,
+            };
+          });
+          return {
+            codiceAnalisi: exam?.codiceAnalisi ?? String(id),
+            descrizione: exam?.descrizione ?? "—",
+            colorProvetta: exam?.colorProvetta,
+            um: exam?.um,
+            metodo: exam?.metodo,
+            regola: exam?.regola,
+            valoreRiferimento: exam?.valoreRiferimento,
+            preparationInstructions: exam?.preparationInstructions,
+            tipo: "pacchetto",
+            valore: null,
+            refertaNote: null,
+            subResults,
+          };
+        }
+        const referto = referti.find((r) => r.examId === id && !r.parentExamId);
         return {
           codiceAnalisi: exam?.codiceAnalisi ?? String(id),
           descrizione: exam?.descrizione ?? "—",
@@ -190,6 +221,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
         examNames: b.examNames,
         status: b.status as BookingStatus,
         refertiCount: b.refertiCount ?? 0,
+        expectedRefertiCount: (b as any).expectedRefertiCount ?? b.examIds.length,
       }));
   }, [dayBookings]);
 
@@ -361,7 +393,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
               }
               onPrintReferto={visit.status === "completed" ? () => handlePrintReferto(visit) : undefined}
               onEditReferto={role === "laboratorio" && visit.status === "completed" ? () => setRefertaVisit(visit) : undefined}
-              canComplete={visit.refertiCount >= visit.examIds.length && visit.examIds.length > 0}
+              canComplete={visit.refertiCount >= visit.expectedRefertiCount && visit.examIds.length > 0}
             />
           ))}
         </div>
@@ -392,7 +424,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
             refetch();
           }}
           role={role}
-          onPrintReferto={todoVisit.status === "completed" ? () => handlePrintReferto(todoVisit as TodoVisit) : undefined}
+          onPrintReferto={todoVisit.status === "completed" ? () => handlePrintReferto(todoVisit as Visit) : undefined}
         />
       )}
 
@@ -645,14 +677,14 @@ function VisitCard({
                   disabled={isLoading || !canComplete}
                   title={
                     !canComplete
-                      ? `Referta tutti gli esami prima di completare (${visit.refertiCount}/${visit.examIds.length})`
+                      ? `Referta tutti gli esami prima di completare (${visit.refertiCount}/${visit.expectedRefertiCount})`
                       : undefined
                   }
                   onClick={() => canComplete && onUpdateStatus(visit, "completed")}
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   {!canComplete
-                    ? `Referti (${visit.refertiCount}/${visit.examIds.length})`
+                    ? `Referti (${visit.refertiCount}/${visit.expectedRefertiCount})`
                     : "Completa"}
                 </Button>
                 <Button

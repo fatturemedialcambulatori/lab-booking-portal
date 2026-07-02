@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { bookingsTable, bookingExamsTable, examsTable, patientsTable, refertiTable } from "@workspace/db";
+import { bookingsTable, bookingExamsTable, examsTable, patientsTable, refertiTable, examComponentsTable } from "@workspace/db";
 import { eq, desc, inArray, or, and, isNotNull, sql } from "drizzle-orm";
 import { CreateBookingBody, GetBookingParams } from "@workspace/api-zod";
 
@@ -60,15 +60,27 @@ router.get("/bookings", async (req, res) => {
         bookingId: bookingExamsTable.bookingId,
         examId: bookingExamsTable.examId,
         descrizione: examsTable.descrizione,
+        tipo: examsTable.tipo,
       })
       .from(bookingExamsTable)
       .leftJoin(examsTable, eq(bookingExamsTable.examId, examsTable.id))
       .where(inArray(bookingExamsTable.bookingId, bookingIds));
 
-    const examsByBooking = new Map<number, { examId: number; descrizione: string }[]>();
+    const examsByBooking = new Map<number, { examId: number; descrizione: string; tipo: string }[]>();
     for (const link of examLinks) {
       if (!examsByBooking.has(link.bookingId)) examsByBooking.set(link.bookingId, []);
-      examsByBooking.get(link.bookingId)!.push({ examId: link.examId, descrizione: link.descrizione ?? "Esame" });
+      examsByBooking.get(link.bookingId)!.push({ examId: link.examId, descrizione: link.descrizione ?? "Esame", tipo: link.tipo ?? "singolo" });
+    }
+
+    const packageExamIds = examLinks.filter((e) => e.tipo === "pacchetto").map((e) => e.examId);
+    const componentCounts = new Map<number, number>();
+    if (packageExamIds.length > 0) {
+      const counts = await db
+        .select({ packageExamId: examComponentsTable.packageExamId, count: sql<number>`cast(count(*) as int)` })
+        .from(examComponentsTable)
+        .where(inArray(examComponentsTable.packageExamId, packageExamIds))
+        .groupBy(examComponentsTable.packageExamId);
+      for (const c of counts) componentCounts.set(c.packageExamId, c.count);
     }
 
     const refertiCounts = await db
@@ -80,6 +92,10 @@ router.get("/bookings", async (req, res) => {
 
     const result = bookings.map((b) => {
       const exams = examsByBooking.get(b.id) ?? [];
+      const expectedRefertiCount = exams.reduce((sum, e) => {
+        if (e.tipo === "pacchetto") return sum + (componentCounts.get(e.examId) ?? 1);
+        return sum + 1;
+      }, 0);
       return {
         id: b.id,
         examIds: exams.map((e) => e.examId),
@@ -97,6 +113,7 @@ router.get("/bookings", async (req, res) => {
         status: b.status,
         createdAt: b.createdAt.toISOString(),
         refertiCount: refertiByBooking.get(b.id) ?? 0,
+        expectedRefertiCount,
       };
     });
 

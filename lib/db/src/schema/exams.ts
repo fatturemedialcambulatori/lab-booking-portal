@@ -14,6 +14,7 @@ export const examsTable = pgTable("exams", {
   importo: numeric("importo", { precision: 10, scale: 2 }),
   valoreRiferimento: text("valore_riferimento"),
   preparationInstructions: text("preparation_instructions").notNull().default(""),
+  tipo: text("tipo").notNull().default("singolo"),
 });
 
 export const insertExamSchema = createInsertSchema(examsTable).omit({ id: true });

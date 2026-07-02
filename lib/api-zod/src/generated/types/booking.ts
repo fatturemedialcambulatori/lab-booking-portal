@@ -29,4 +29,6 @@ export interface Booking {
   createdAt: Date;
   /** Number of exam results submitted for this booking */
   refertiCount?: number;
+  /** Total number of results expected (1 per single exam, N per package) */
+  expectedRefertiCount?: number;
 }

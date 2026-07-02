@@ -10,6 +10,11 @@ export interface Referto {
   id: number;
   bookingId: number;
   examId: number;
+  /**
+     * Package exam ID when this is a sub-exam result
+     * @nullable
+     */
+  parentExamId?: number | null;
   valore: string;
   /** @nullable */
   note?: string | null;

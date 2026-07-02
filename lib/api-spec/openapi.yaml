@@ -447,10 +447,34 @@ components:
         preparationInstructions:
           type: string
           default: ""
+        tipo:
+          type: string
+          enum: [singolo, pacchetto]
+          default: singolo
+        componentIds:
+          type: array
+          items:
+            type: integer
+          description: IDs of single exams that compose this package (only for tipo=pacchetto)
+
+    ExamComponentItem:
+      type: object
+      required: [id, packageExamId, componentExamId, ordinamento, componentExam]
+      properties:
+        id:
+          type: integer
+        packageExamId:
+          type: integer
+        componentExamId:
+          type: integer
+        ordinamento:
+          type: integer
+        componentExam:
+          $ref: "#/components/schemas/Exam"
 
     Exam:
       type: object
-      required: [id, codiceAnalisi, descrizione, synlab]
+      required: [id, codiceAnalisi, descrizione, synlab, tipo]
       properties:
         id:
           type: integer
@@ -476,6 +500,15 @@ components:
           description: Reference value range for the exam
         preparationInstructions:
           type: string
+        tipo:
+          type: string
+          enum: [singolo, pacchetto]
+          default: singolo
+        components:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExamComponentItem"
+          description: Sub-exams for pacchetto type (empty for singolo)
 
     TimeSlot:
       type: object
@@ -567,6 +600,9 @@ components:
         refertiCount:
           type: integer
           description: Number of exam results submitted for this booking
+        expectedRefertiCount:
+          type: integer
+          description: Total number of results expected (1 per single exam, N per package)
 
     BookingStatusUpdate:
       type: object
@@ -653,6 +689,9 @@ components:
           type: integer
         examId:
           type: integer
+        parentExamId:
+          type: ["integer", "null"]
+          description: Package exam ID when this is a sub-exam result
         valore:
           type: string
         note:
@@ -669,6 +708,9 @@ components:
           type: integer
         examId:
           type: integer
+        parentExamId:
+          type: ["integer", "null"]
+          description: Package exam ID when saving a sub-exam result
         valore:
           type: string
         note:

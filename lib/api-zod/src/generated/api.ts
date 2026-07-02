@@ -20,6 +20,8 @@ export const HealthCheckResponse = zod.object({
 /**
  * @summary List all available lab exams
  */
+export const listExamsResponseTipoDefault = `singolo`;
+
 export const ListExamsResponseItem = zod.object({
   "id": zod.number(),
   "codiceAnalisi": zod.string(),
@@ -31,7 +33,15 @@ export const ListExamsResponseItem = zod.object({
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
   "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
-  "preparationInstructions": zod.string().optional()
+  "preparationInstructions": zod.string().optional(),
+  "tipo": zod.enum(['singolo', 'pacchetto']).default(listExamsResponseTipoDefault),
+  "components": zod.array(zod.object({
+  "id": zod.number(),
+  "packageExamId": zod.number(),
+  "componentExamId": zod.number(),
+  "ordinamento": zod.number(),
+  "componentExam": zod.unknown()
+})).optional().describe('Sub-exams for pacchetto type (empty for singolo)')
 })
 export const ListExamsResponse = zod.array(ListExamsResponseItem)
 
@@ -41,6 +51,7 @@ export const ListExamsResponse = zod.array(ListExamsResponseItem)
  */
 export const createExamBodySynlabDefault = false;
 export const createExamBodyPreparationInstructionsDefault = ``;
+export const createExamBodyTipoDefault = `singolo`;
 
 export const CreateExamBody = zod.object({
   "codiceAnalisi": zod.string(),
@@ -52,8 +63,12 @@ export const CreateExamBody = zod.object({
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
   "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
-  "preparationInstructions": zod.string().default(createExamBodyPreparationInstructionsDefault)
+  "preparationInstructions": zod.string().default(createExamBodyPreparationInstructionsDefault),
+  "tipo": zod.enum(['singolo', 'pacchetto']).default(createExamBodyTipoDefault),
+  "componentIds": zod.array(zod.number()).optional().describe('IDs of single exams that compose this package (only for tipo=pacchetto)')
 })
+
+export const createExamResponseTipoDefault = `singolo`;
 
 export const CreateExamResponse = zod.object({
   "id": zod.number(),
@@ -66,7 +81,15 @@ export const CreateExamResponse = zod.object({
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
   "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
-  "preparationInstructions": zod.string().optional()
+  "preparationInstructions": zod.string().optional(),
+  "tipo": zod.enum(['singolo', 'pacchetto']).default(createExamResponseTipoDefault),
+  "components": zod.array(zod.object({
+  "id": zod.number(),
+  "packageExamId": zod.number(),
+  "componentExamId": zod.number(),
+  "ordinamento": zod.number(),
+  "componentExam": zod.unknown()
+})).optional().describe('Sub-exams for pacchetto type (empty for singolo)')
 })
 
 
@@ -79,6 +102,7 @@ export const UpdateExamParams = zod.object({
 
 export const updateExamBodySynlabDefault = false;
 export const updateExamBodyPreparationInstructionsDefault = ``;
+export const updateExamBodyTipoDefault = `singolo`;
 
 export const UpdateExamBody = zod.object({
   "codiceAnalisi": zod.string(),
@@ -90,8 +114,12 @@ export const UpdateExamBody = zod.object({
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
   "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
-  "preparationInstructions": zod.string().default(updateExamBodyPreparationInstructionsDefault)
+  "preparationInstructions": zod.string().default(updateExamBodyPreparationInstructionsDefault),
+  "tipo": zod.enum(['singolo', 'pacchetto']).default(updateExamBodyTipoDefault),
+  "componentIds": zod.array(zod.number()).optional().describe('IDs of single exams that compose this package (only for tipo=pacchetto)')
 })
+
+export const updateExamResponseTipoDefault = `singolo`;
 
 export const UpdateExamResponse = zod.object({
   "id": zod.number(),
@@ -104,7 +132,15 @@ export const UpdateExamResponse = zod.object({
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
   "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
-  "preparationInstructions": zod.string().optional()
+  "preparationInstructions": zod.string().optional(),
+  "tipo": zod.enum(['singolo', 'pacchetto']).default(updateExamResponseTipoDefault),
+  "components": zod.array(zod.object({
+  "id": zod.number(),
+  "packageExamId": zod.number(),
+  "componentExamId": zod.number(),
+  "ordinamento": zod.number(),
+  "componentExam": zod.unknown()
+})).optional().describe('Sub-exams for pacchetto type (empty for singolo)')
 })
 
 
@@ -157,7 +193,8 @@ export const ListBookingsResponseItem = zod.object({
   "notes": zod.string().nullish(),
   "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled']),
   "createdAt": zod.coerce.date(),
-  "refertiCount": zod.number().optional().describe('Number of exam results submitted for this booking')
+  "refertiCount": zod.number().optional().describe('Number of exam results submitted for this booking'),
+  "expectedRefertiCount": zod.number().optional().describe('Total number of results expected (1 per single exam, N per package)')
 })
 export const ListBookingsResponse = zod.array(ListBookingsResponseItem)
 
@@ -198,7 +235,8 @@ export const CreateBookingResponse = zod.object({
   "notes": zod.string().nullish(),
   "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled']),
   "createdAt": zod.coerce.date(),
-  "refertiCount": zod.number().optional().describe('Number of exam results submitted for this booking')
+  "refertiCount": zod.number().optional().describe('Number of exam results submitted for this booking'),
+  "expectedRefertiCount": zod.number().optional().describe('Total number of results expected (1 per single exam, N per package)')
 })
 
 
@@ -225,7 +263,8 @@ export const GetBookingResponse = zod.object({
   "notes": zod.string().nullish(),
   "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled']),
   "createdAt": zod.coerce.date(),
-  "refertiCount": zod.number().optional().describe('Number of exam results submitted for this booking')
+  "refertiCount": zod.number().optional().describe('Number of exam results submitted for this booking'),
+  "expectedRefertiCount": zod.number().optional().describe('Total number of results expected (1 per single exam, N per package)')
 })
 
 
@@ -256,7 +295,8 @@ export const UpdateBookingStatusResponse = zod.object({
   "notes": zod.string().nullish(),
   "status": zod.enum(['confirmed', 'pending', 'accepted', 'completed', 'cancelled']),
   "createdAt": zod.coerce.date(),
-  "refertiCount": zod.number().optional().describe('Number of exam results submitted for this booking')
+  "refertiCount": zod.number().optional().describe('Number of exam results submitted for this booking'),
+  "expectedRefertiCount": zod.number().optional().describe('Total number of results expected (1 per single exam, N per package)')
 })
 
 
@@ -383,6 +423,7 @@ export const ListRefertiResponseItem = zod.object({
   "id": zod.number(),
   "bookingId": zod.number(),
   "examId": zod.number(),
+  "parentExamId": zod.number().nullish().describe('Package exam ID when this is a sub-exam result'),
   "valore": zod.string(),
   "note": zod.string().nullish(),
   "refertataAt": zod.coerce.date()
@@ -396,6 +437,7 @@ export const ListRefertiResponse = zod.array(ListRefertiResponseItem)
 export const UpsertRefertoBody = zod.object({
   "bookingId": zod.number(),
   "examId": zod.number(),
+  "parentExamId": zod.number().nullish().describe('Package exam ID when saving a sub-exam result'),
   "valore": zod.string(),
   "note": zod.string().nullish()
 })
@@ -404,6 +446,7 @@ export const UpsertRefertoResponse = zod.object({
   "id": zod.number(),
   "bookingId": zod.number(),
   "examId": zod.number(),
+  "parentExamId": zod.number().nullish().describe('Package exam ID when this is a sub-exam result'),
   "valore": zod.string(),
   "note": zod.string().nullish(),
   "refertataAt": zod.coerce.date()

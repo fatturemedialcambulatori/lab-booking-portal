@@ -5,6 +5,7 @@
  * API specification for Lab Booking Portal
  * OpenAPI spec version: 0.1.0
  */
+import type { ExamInputTipo } from './examInputTipo';
 
 export interface ExamInput {
   codiceAnalisi: string;
@@ -29,4 +30,7 @@ export interface ExamInput {
      */
   valoreRiferimento?: string | null;
   preparationInstructions?: string;
+  tipo?: ExamInputTipo;
+  /** IDs of single exams that compose this package (only for tipo=pacchetto) */
+  componentIds?: number[];
 }

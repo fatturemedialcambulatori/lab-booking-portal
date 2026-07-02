@@ -46,7 +46,7 @@ router.get("/slots", (req, res) => {
     return { time, available };
   });
 
-  res.json(slots);
+  return res.json(slots);
 });
 
 export default router;

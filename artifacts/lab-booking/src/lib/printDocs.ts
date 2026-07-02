@@ -14,9 +14,21 @@ export type PrintExam = {
   preparationInstructions?: string;
 };
 
+export type PrintExamSubResult = {
+  codiceAnalisi: string;
+  descrizione: string;
+  um?: string | null;
+  metodo?: string | null;
+  valoreRiferimento?: string | null;
+  valore?: string | null;
+  refertaNote?: string | null;
+};
+
 export type PrintExamWithResult = PrintExam & {
   valore?: string | null;
   refertaNote?: string | null;
+  tipo?: string;
+  subResults?: PrintExamSubResult[];
 };
 
 export type PrintPatient = {
@@ -189,11 +201,43 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
     [patient.billingCap, patient.billingCity, patient.billingProvincia ? `(${patient.billingProvincia})` : ""].filter(Boolean).join(" "),
   ].filter(Boolean);
 
-  const rows = exams.map((e, i) => {
+  let rowIndex = 0;
+  const rows = exams.map((e) => {
+    if (e.tipo === "pacchetto" && e.subResults?.length) {
+      rowIndex++;
+      const headerRow = `
+        <tr style="background:#eff6ff !important;">
+          <td style="font-weight:700;color:#1e40af">${rowIndex}</td>
+          <td style="font-weight:700;color:#1e40af">${e.codiceAnalisi}</td>
+          <td colspan="7" style="font-weight:700;color:#1e40af">
+            ${e.descrizione}
+            <span style="display:inline-block;margin-left:6px;background:#dbeafe;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:8px;font-size:8px;font-weight:700;padding:1px 7px;">PACCHETTO</span>
+          </td>
+        </tr>`;
+      const subRows = e.subResults.map((sub) => {
+        const oor = isOutOfRange(sub.valoreRiferimento, sub.valore);
+        return `
+          <tr>
+            <td style="color:#aaa;font-size:9px"></td>
+            <td style="color:#888;font-size:9px">${sub.codiceAnalisi}</td>
+            <td style="padding-left:18px">↳ ${sub.descrizione}</td>
+            <td>${sub.um ?? "—"}</td>
+            <td>${sub.metodo ?? "—"}</td>
+            <td>—</td>
+            <td>${displayRefValue(sub.valoreRiferimento)}</td>
+            <td style="font-weight:700;color:${oor ? "#c62828" : sub.valore ? "#1a1a1a" : "#999"}">
+              ${sub.valore ?? "—"}${oor ? ' <span style="color:#c62828;font-weight:900">!</span>' : ""}
+            </td>
+            <td style="font-style:italic;color:#555">${sub.refertaNote ?? ""}</td>
+          </tr>`;
+      }).join("");
+      return headerRow + subRows;
+    }
     const oor = isOutOfRange(e.valoreRiferimento, e.valore);
+    rowIndex++;
     return `
     <tr>
-      <td>${i + 1}</td>
+      <td>${rowIndex}</td>
       <td style="font-weight:600">${e.codiceAnalisi}</td>
       <td>${e.descrizione}</td>
       <td>${e.um ?? "—"}</td>
