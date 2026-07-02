@@ -194,7 +194,6 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
       <td>${i + 1}</td>
       <td style="font-weight:600">${e.codiceAnalisi}</td>
       <td>${e.descrizione}</td>
-      <td>${provettaColor(e.colorProvetta)}</td>
       <td>${e.um ?? "—"}</td>
       <td>${e.metodo ?? "—"}</td>
       <td>${e.regola ?? "—"}</td>
@@ -249,7 +248,6 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
           <th style="width:20px">#</th>
           <th style="width:72px">Codice</th>
           <th style="min-width:120px">Descrizione</th>
-          <th style="width:64px">Provetta</th>
           <th style="width:34px">UM</th>
           <th style="width:72px">Metodo</th>
           <th style="width:60px">Regola</th>
