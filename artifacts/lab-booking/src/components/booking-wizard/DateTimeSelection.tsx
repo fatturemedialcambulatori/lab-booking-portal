@@ -59,9 +59,9 @@ export function DateTimeSelection({ onNext, onPrev }: { onNext: () => void; onPr
       </div>
 
       <div className="grid md:grid-cols-2 gap-6 min-w-0">
-        <div className="space-y-2 min-w-0 overflow-hidden">
+        <div className="space-y-2 min-w-0">
           <p className="text-sm font-medium text-foreground">Data</p>
-          <div className="border border-border rounded-lg p-3 bg-background overflow-hidden w-full">
+          <div className="border border-border rounded-lg p-3 bg-background w-full">
             <Calendar
               mode="single"
               selected={calendarDate}
