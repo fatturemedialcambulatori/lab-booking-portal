@@ -361,11 +361,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
               }
               onPrintReferto={visit.status === "completed" ? () => handlePrintReferto(visit) : undefined}
               onEditReferto={role === "laboratorio" && visit.status === "completed" ? () => setRefertaVisit(visit) : undefined}
-              canComplete={
-                role === "laboratorio"
-                  ? visit.refertiCount >= visit.examIds.length && visit.examIds.length > 0
-                  : true
-              }
+              canComplete={visit.refertiCount >= visit.examIds.length && visit.examIds.length > 0}
             />
           ))}
         </div>
@@ -643,8 +639,8 @@ function VisitCard({
                   onClick={() => canComplete && onUpdateStatus(visit, "completed")}
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  {role === "laboratorio" && !canComplete
-                    ? `Referta (${visit.refertiCount}/${visit.examIds.length})`
+                  {!canComplete
+                    ? `Referti (${visit.refertiCount}/${visit.examIds.length})`
                     : "Completa"}
                 </Button>
                 <Button
