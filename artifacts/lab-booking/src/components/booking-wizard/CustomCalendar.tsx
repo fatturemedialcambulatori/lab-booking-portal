@@ -87,7 +87,7 @@ export function CustomCalendar({
             {DAYS_SHORT.map((d) => (
               <th
                 key={d}
-                style={{ textAlign: "center", padding: "0 0 8px 0", fontSize: "12px", fontWeight: 400, color: "var(--muted-foreground)" }}
+                style={{ textAlign: "center", padding: "0 0 8px 0", fontSize: "12px", fontWeight: 400, color: "hsl(var(--muted-foreground))" }}
               >
                 {d}
               </th>
@@ -107,8 +107,8 @@ export function CustomCalendar({
                 let color = "inherit";
                 let opacity = inMonth ? 1 : 0.3;
                 if (isOff) opacity = 0.3;
-                if (isToday && !isSelected) bg = "var(--accent)";
-                if (isSelected) { bg = "var(--primary)"; color = "white"; opacity = 1; }
+                if (isToday && !isSelected) bg = "hsl(var(--accent))";
+                if (isSelected) { bg = "hsl(var(--primary))"; color = "hsl(var(--primary-foreground))"; opacity = 1; }
 
                 return (
                   <td key={day.toISOString()} style={{ padding: "2px", textAlign: "center" }}>
