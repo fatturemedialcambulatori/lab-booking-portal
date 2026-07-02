@@ -31,6 +31,7 @@ import {
   Plus,
   MapPin,
   FileDown,
+  Pencil,
 } from "lucide-react";
 import { format as formatDate, addDays, subDays } from "date-fns";
 import { NuovaPrenotazioneDialog } from "@/components/NuovaPrenotazioneDialog";
@@ -359,6 +360,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
                 role === "laboratorio" && visit.status === "accepted" ? setRefertaVisit(visit) : setTodoVisit(visit)
               }
               onPrintReferto={role === "laboratorio" && visit.status === "completed" ? () => handlePrintReferto(visit) : undefined}
+              onEditReferto={role === "laboratorio" && visit.status === "completed" ? () => setRefertaVisit(visit) : undefined}
               canComplete={
                 role === "laboratorio"
                   ? visit.refertiCount >= visit.examIds.length && visit.examIds.length > 0
@@ -520,6 +522,7 @@ function VisitCard({
   onOpenTodo,
   canComplete = true,
   onPrintReferto,
+  onEditReferto,
 }: {
   visit: Visit;
   role?: string;
@@ -530,6 +533,7 @@ function VisitCard({
   onOpenTodo?: () => void;
   canComplete?: boolean;
   onPrintReferto?: () => void;
+  onEditReferto?: () => void;
 }) {
   const totalPrice = 0; // could sum from exam data if available
 
@@ -660,6 +664,17 @@ function VisitCard({
                   <CheckCircle2 className="h-4 w-4" />
                   Esami eseguiti
                 </span>
+                {role === "laboratorio" && onEditReferto && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 h-7 text-xs"
+                    onClick={onEditReferto}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Modifica Referto
+                  </Button>
+                )}
                 {role === "laboratorio" && onPrintReferto && (
                   <Button
                     size="sm"

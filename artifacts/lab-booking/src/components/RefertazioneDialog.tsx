@@ -377,18 +377,20 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
             <Button variant="outline" onClick={onClose} disabled={completing}>
               Chiudi
             </Button>
-            <Button
-              className={`gap-1.5 transition-all ${
-                allDone
-                  ? "bg-green-600 hover:bg-green-700 text-white shadow-md"
-                  : "bg-muted text-muted-foreground cursor-not-allowed"
-              }`}
-              disabled={!allDone || completing}
-              onClick={handleComplete}
-            >
-              <CheckCircle2 className="h-4 w-4" />
-              {completing ? "Salvo…" : `Completa (${doneCount}/${exams.length})`}
-            </Button>
+            {visit.status !== "completed" && (
+              <Button
+                className={`gap-1.5 transition-all ${
+                  allDone
+                    ? "bg-green-600 hover:bg-green-700 text-white shadow-md"
+                    : "bg-muted text-muted-foreground cursor-not-allowed"
+                }`}
+                disabled={!allDone || completing}
+                onClick={handleComplete}
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {completing ? "Salvo…" : `Completa (${doneCount}/${exams.length})`}
+              </Button>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>
