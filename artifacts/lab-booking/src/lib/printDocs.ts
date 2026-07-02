@@ -268,7 +268,6 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
           <div style="font-size:9px; color:#888; margin-bottom:4px;">Medico refertante</div>
           <div style="font-size:10px; font-weight:700; color:#1a1a1a;">Dott. Ligabue Enrico</div>
           <div style="font-size:8.5px; color:#555;">Specialista in oncologia e traumatologia</div>
-          <div style="margin-top:14px; border-top:1px solid #aaa; width:180px; margin-left:auto; padding-top:3px; font-size:8px; color:#999; text-align:center;">Firma digitale</div>
         </div>
       </div>
     </div>
