@@ -6,7 +6,8 @@ import { Form } from "@/components/ui/form";
 import { Card } from "@/components/ui/card";
 import { StepIndicator } from "@/components/booking-wizard/StepIndicator";
 import { ExamSelection } from "@/components/booking-wizard/ExamSelection";
-import { DateTimeSelection } from "@/components/booking-wizard/DateTimeSelection";
+import { DateSelection } from "@/components/booking-wizard/DateSelection";
+import { TimeSelection } from "@/components/booking-wizard/TimeSelection";
 import { PersonalData } from "@/components/booking-wizard/PersonalData";
 import { Confirmation } from "@/components/booking-wizard/Confirmation";
 import { SuccessView } from "@/components/booking-wizard/SuccessView";
@@ -52,13 +53,15 @@ export default function Home() {
     if (step === 1) {
       isValid = await form.trigger(["examIds"]);
     } else if (step === 2) {
-      isValid = await form.trigger(["date", "time"]);
+      isValid = await form.trigger(["date"]);
     } else if (step === 3) {
+      isValid = await form.trigger(["time"]);
+    } else if (step === 4) {
       isValid = await form.trigger(["firstName", "lastName", "dateOfBirth", "email", "phone"]);
     }
 
     if (isValid) {
-      setStep((s) => Math.min(s + 1, 4));
+      setStep((s) => Math.min(s + 1, 5));
     }
   };
 
@@ -108,12 +111,15 @@ export default function Home() {
                   <ExamSelection onNext={nextStep} />
                 </div>
                 <div className={step === 2 ? "block" : "hidden"}>
-                  <DateTimeSelection onNext={nextStep} onPrev={prevStep} />
+                  <DateSelection onNext={nextStep} onPrev={prevStep} />
                 </div>
                 <div className={step === 3 ? "block" : "hidden"}>
-                  <PersonalData onNext={nextStep} onPrev={prevStep} />
+                  <TimeSelection onNext={nextStep} onPrev={prevStep} />
                 </div>
                 <div className={step === 4 ? "block" : "hidden"}>
+                  <PersonalData onNext={nextStep} onPrev={prevStep} />
+                </div>
+                <div className={step === 5 ? "block" : "hidden"}>
                   <Confirmation
                     onPrev={prevStep}
                     onSuccess={(id) => setConfirmedBookingId(id)}
