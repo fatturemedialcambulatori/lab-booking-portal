@@ -30,6 +30,7 @@ import {
   ChevronDown,
   ChevronUp,
   AlertTriangle,
+  Pencil,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
@@ -285,13 +286,14 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
                               </span>
                             )}
                             <Button
-                              variant="ghost"
+                              variant="outline"
                               size="sm"
-                              className="h-5 px-1.5 text-xs text-muted-foreground"
+                              className="h-6 px-2 text-xs gap-1 border-primary/40 text-primary hover:bg-primary/5"
                               onClick={() => {
                                 setSavedIds((s) => { const n = new Set(s); n.delete(exam.id); return n; });
                               }}
                             >
+                              <Pencil className="h-3 w-3" />
                               Modifica
                             </Button>
                           </div>
