@@ -1,5 +1,5 @@
 import React from "react";
-import { useListExams, useUpdateBookingStatus, useListPatients } from "@workspace/api-client-react";
+import { useListExams, useListPatients } from "@workspace/api-client-react";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,6 @@ import { it } from "date-fns/locale";
 import {
   CalendarDays,
   Clock,
-  CheckCircle2,
   Printer,
   User2,
   FileDown,
@@ -44,11 +43,9 @@ interface Props {
   onPrintReferto?: () => void;
 }
 
-export function ExamTodoDialog({ visit, onClose, onCompleted, role = "segreteria", onPrintReferto }: Props) {
+export function ExamTodoDialog({ visit, onClose, role = "segreteria", onPrintReferto }: Props) {
   const { data: allExams } = useListExams();
   const { data: patients } = useListPatients({ search: visit.email });
-  const updateStatus = useUpdateBookingStatus();
-  const [completing, setCompleting] = React.useState(false);
 
   const patient = patients?.[0];
 
@@ -56,16 +53,6 @@ export function ExamTodoDialog({ visit, onClose, onCompleted, role = "segreteria
     () => (allExams ?? []).filter((e) => visit.examIds.includes(e.id)),
     [allExams, visit.examIds]
   );
-
-  const handleComplete = async () => {
-    setCompleting(true);
-    try {
-      await updateStatus.mutateAsync({ id: visit.id, data: { status: "completed" } });
-      onCompleted();
-    } finally {
-      setCompleting(false);
-    }
-  };
 
   const fullPatient = () => ({
     firstName: visit.firstName,
@@ -153,17 +140,6 @@ export function ExamTodoDialog({ visit, onClose, onCompleted, role = "segreteria
             <Button variant="outline" size="sm" onClick={onClose}>
               Chiudi
             </Button>
-            {visit.status === "accepted" && (
-              <Button
-                size="sm"
-                className="gap-2 bg-green-600 hover:bg-green-700"
-                disabled={completing}
-                onClick={handleComplete}
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                {completing ? "Completamento..." : "Segna come Completata"}
-              </Button>
-            )}
           </div>
         </div>
       </DialogContent>
