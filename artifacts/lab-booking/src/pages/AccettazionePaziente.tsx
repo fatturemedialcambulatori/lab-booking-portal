@@ -359,7 +359,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
               onOpenTodo={() =>
                 role === "laboratorio" && visit.status === "accepted" ? setRefertaVisit(visit) : setTodoVisit(visit)
               }
-              onPrintReferto={role === "laboratorio" && visit.status === "completed" ? () => handlePrintReferto(visit) : undefined}
+              onPrintReferto={visit.status === "completed" ? () => handlePrintReferto(visit) : undefined}
               onEditReferto={role === "laboratorio" && visit.status === "completed" ? () => setRefertaVisit(visit) : undefined}
               canComplete={
                 role === "laboratorio"
@@ -396,6 +396,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
             refetch();
           }}
           role={role}
+          onPrintReferto={todoVisit.status === "completed" ? () => handlePrintReferto(todoVisit as TodoVisit) : undefined}
         />
       )}
 
@@ -675,7 +676,7 @@ function VisitCard({
                     Modifica Referto
                   </Button>
                 )}
-                {role === "laboratorio" && onPrintReferto && (
+                {onPrintReferto && (
                   <Button
                     size="sm"
                     variant="outline"

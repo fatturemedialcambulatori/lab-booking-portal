@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Printer,
   User2,
+  FileDown,
 } from "lucide-react";
 import { printSchedaLaboratorio, printPreventivo } from "@/lib/printDocs";
 
@@ -40,9 +41,10 @@ interface Props {
   onClose: () => void;
   onCompleted: () => void;
   role?: string;
+  onPrintReferto?: () => void;
 }
 
-export function ExamTodoDialog({ visit, onClose, onCompleted, role = "segreteria" }: Props) {
+export function ExamTodoDialog({ visit, onClose, onCompleted, role = "segreteria", onPrintReferto }: Props) {
   const { data: allExams } = useListExams();
   const { data: patients } = useListPatients({ search: visit.email });
   const updateStatus = useUpdateBookingStatus();
@@ -137,6 +139,12 @@ export function ExamTodoDialog({ visit, onClose, onCompleted, role = "segreteria
               <Button variant="outline" size="sm" className="gap-2" onClick={handlePrintPreventivo}>
                 <Printer className="h-3.5 w-3.5" />
                 Preventivo
+              </Button>
+            )}
+            {onPrintReferto && (
+              <Button variant="outline" size="sm" className="gap-2" onClick={onPrintReferto}>
+                <FileDown className="h-3.5 w-3.5" />
+                Referto PDF
               </Button>
             )}
           </div>
