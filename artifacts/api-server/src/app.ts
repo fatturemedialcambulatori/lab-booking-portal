@@ -26,6 +26,7 @@ app.use(
   }),
 );
 app.use(cors());
+app.use("/api/ocr", express.json({ limit: "20mb" }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
