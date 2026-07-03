@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ExamComponentItem } from './examComponentItem';
+import type { ExamReferenceRange } from './examReferenceRange';
 import type { ExamTipo } from './examTipo';
 
 export interface Exam {
@@ -27,7 +28,7 @@ export interface Exam {
      */
   importo?: string | null;
   /**
-     * Reference value range for the exam
+     * Legacy reference value range (JSON string)
      * @nullable
      */
   valoreRiferimento?: string | null;
@@ -35,4 +36,6 @@ export interface Exam {
   tipo: ExamTipo;
   /** Sub-exams for pacchetto type (empty for singolo) */
   components?: ExamComponentItem[];
+  /** Structured reference ranges (by gender/age/state) */
+  referenceRanges?: ExamReferenceRange[];
 }

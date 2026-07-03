@@ -27,7 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, Search, FlaskConical, Package } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, FlaskConical, Package, Ruler } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { type RefType, buildRefString, parseRefValue, REF_TYPE_LABELS } from "@/lib/refValue";
+import { AdminExamReferenceRanges } from "@/components/AdminExamReferenceRanges";
 
 type ExamComponentItem = {
   id: number;
@@ -277,6 +278,7 @@ export function AdminExams() {
   const [deleteTarget, setDeleteTarget] = React.useState<Exam | null>(null);
   const [formValues, setFormValues] = React.useState(EMPTY_FORM);
   const [formError, setFormError] = React.useState("");
+  const [refRangesExam, setRefRangesExam] = React.useState<Exam | null>(null);
 
   const singleExams: SimplExam[] = React.useMemo(
     () => (exams ?? []).filter((e) => (e as any).tipo !== "pacchetto").map((e) => ({ id: e.id, codiceAnalisi: e.codiceAnalisi, descrizione: e.descrizione })),
@@ -514,6 +516,15 @@ export function AdminExams() {
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center justify-end gap-1">
+                      {activeTab === "singolo" && (
+                        <button
+                          onClick={() => setRefRangesExam(exam as Exam)}
+                          className="p-1.5 rounded hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition-colors"
+                          title="Valori di riferimento"
+                        >
+                          <Ruler className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                       <button
                         onClick={() => openEdit(exam as Exam)}
                         className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
@@ -573,6 +584,15 @@ export function AdminExams() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Reference ranges dialog */}
+      {refRangesExam && (
+        <AdminExamReferenceRanges
+          examId={refRangesExam.id}
+          examName={refRangesExam.descrizione}
+          onClose={() => setRefRangesExam(null)}
+        />
+      )}
 
       {/* Delete confirm */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>

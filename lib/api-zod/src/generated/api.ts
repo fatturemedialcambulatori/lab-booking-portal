@@ -32,7 +32,7 @@ export const ListExamsResponseItem = zod.object({
   "metodo": zod.string().nullish(),
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
-  "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
+  "valoreRiferimento": zod.string().nullish().describe('Legacy reference value range (JSON string)'),
   "preparationInstructions": zod.string().optional(),
   "tipo": zod.enum(['singolo', 'pacchetto']).default(listExamsResponseTipoDefault),
   "components": zod.array(zod.object({
@@ -41,7 +41,29 @@ export const ListExamsResponseItem = zod.object({
   "componentExamId": zod.number(),
   "ordinamento": zod.number(),
   "componentExam": zod.unknown()
-})).optional().describe('Sub-exams for pacchetto type (empty for singolo)')
+})).optional().describe('Sub-exams for pacchetto type (empty for singolo)'),
+  "referenceRanges": zod.array(zod.object({
+  "id": zod.number(),
+  "examId": zod.number(),
+  "gender": zod.string().nullish(),
+  "ageMin": zod.number().nullish(),
+  "ageMax": zod.number().nullish(),
+  "statoFisiologico": zod.string().nullish(),
+  "tipo": zod.enum(['range', 'qualitative', 'fasce']),
+  "valoreMin": zod.number().nullish(),
+  "valoreMax": zod.number().nullish(),
+  "valoriAccettabili": zod.string().nullish(),
+  "fasce": zod.array(zod.object({
+  "label": zod.string(),
+  "min": zod.number().nullish(),
+  "max": zod.number().nullish(),
+  "color": zod.string().nullish(),
+  "nota": zod.string().nullish()
+})).nullish(),
+  "unita": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "ordinamento": zod.number()
+})).optional().describe('Structured reference ranges (by gender\/age\/state)')
 })
 export const ListExamsResponse = zod.array(ListExamsResponseItem)
 
@@ -80,7 +102,7 @@ export const CreateExamResponse = zod.object({
   "metodo": zod.string().nullish(),
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
-  "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
+  "valoreRiferimento": zod.string().nullish().describe('Legacy reference value range (JSON string)'),
   "preparationInstructions": zod.string().optional(),
   "tipo": zod.enum(['singolo', 'pacchetto']).default(createExamResponseTipoDefault),
   "components": zod.array(zod.object({
@@ -89,7 +111,29 @@ export const CreateExamResponse = zod.object({
   "componentExamId": zod.number(),
   "ordinamento": zod.number(),
   "componentExam": zod.unknown()
-})).optional().describe('Sub-exams for pacchetto type (empty for singolo)')
+})).optional().describe('Sub-exams for pacchetto type (empty for singolo)'),
+  "referenceRanges": zod.array(zod.object({
+  "id": zod.number(),
+  "examId": zod.number(),
+  "gender": zod.string().nullish(),
+  "ageMin": zod.number().nullish(),
+  "ageMax": zod.number().nullish(),
+  "statoFisiologico": zod.string().nullish(),
+  "tipo": zod.enum(['range', 'qualitative', 'fasce']),
+  "valoreMin": zod.number().nullish(),
+  "valoreMax": zod.number().nullish(),
+  "valoriAccettabili": zod.string().nullish(),
+  "fasce": zod.array(zod.object({
+  "label": zod.string(),
+  "min": zod.number().nullish(),
+  "max": zod.number().nullish(),
+  "color": zod.string().nullish(),
+  "nota": zod.string().nullish()
+})).nullish(),
+  "unita": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "ordinamento": zod.number()
+})).optional().describe('Structured reference ranges (by gender\/age\/state)')
 })
 
 
@@ -131,7 +175,7 @@ export const UpdateExamResponse = zod.object({
   "metodo": zod.string().nullish(),
   "regola": zod.string().nullish(),
   "importo": zod.string().nullish().describe('Price as decimal string'),
-  "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
+  "valoreRiferimento": zod.string().nullish().describe('Legacy reference value range (JSON string)'),
   "preparationInstructions": zod.string().optional(),
   "tipo": zod.enum(['singolo', 'pacchetto']).default(updateExamResponseTipoDefault),
   "components": zod.array(zod.object({
@@ -140,7 +184,29 @@ export const UpdateExamResponse = zod.object({
   "componentExamId": zod.number(),
   "ordinamento": zod.number(),
   "componentExam": zod.unknown()
-})).optional().describe('Sub-exams for pacchetto type (empty for singolo)')
+})).optional().describe('Sub-exams for pacchetto type (empty for singolo)'),
+  "referenceRanges": zod.array(zod.object({
+  "id": zod.number(),
+  "examId": zod.number(),
+  "gender": zod.string().nullish(),
+  "ageMin": zod.number().nullish(),
+  "ageMax": zod.number().nullish(),
+  "statoFisiologico": zod.string().nullish(),
+  "tipo": zod.enum(['range', 'qualitative', 'fasce']),
+  "valoreMin": zod.number().nullish(),
+  "valoreMax": zod.number().nullish(),
+  "valoriAccettabili": zod.string().nullish(),
+  "fasce": zod.array(zod.object({
+  "label": zod.string(),
+  "min": zod.number().nullish(),
+  "max": zod.number().nullish(),
+  "color": zod.string().nullish(),
+  "nota": zod.string().nullish()
+})).nullish(),
+  "unita": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "ordinamento": zod.number()
+})).optional().describe('Structured reference ranges (by gender\/age\/state)')
 })
 
 
@@ -451,6 +517,158 @@ export const UpsertRefertoResponse = zod.object({
   "note": zod.string().nullish(),
   "refertataAt": zod.coerce.date()
 })
+
+
+/**
+ * @summary List reference ranges for an exam
+ */
+export const ListExamReferenceRangesParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListExamReferenceRangesResponseItem = zod.object({
+  "id": zod.number(),
+  "examId": zod.number(),
+  "gender": zod.string().nullish(),
+  "ageMin": zod.number().nullish(),
+  "ageMax": zod.number().nullish(),
+  "statoFisiologico": zod.string().nullish(),
+  "tipo": zod.enum(['range', 'qualitative', 'fasce']),
+  "valoreMin": zod.number().nullish(),
+  "valoreMax": zod.number().nullish(),
+  "valoriAccettabili": zod.string().nullish(),
+  "fasce": zod.array(zod.object({
+  "label": zod.string(),
+  "min": zod.number().nullish(),
+  "max": zod.number().nullish(),
+  "color": zod.string().nullish(),
+  "nota": zod.string().nullish()
+})).nullish(),
+  "unita": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "ordinamento": zod.number()
+})
+export const ListExamReferenceRangesResponse = zod.array(ListExamReferenceRangesResponseItem)
+
+
+/**
+ * @summary Create a reference range for an exam
+ */
+export const CreateExamReferenceRangeParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const createExamReferenceRangeBodyOrdinamentoDefault = 0;
+
+export const CreateExamReferenceRangeBody = zod.object({
+  "gender": zod.string().nullish(),
+  "ageMin": zod.number().nullish(),
+  "ageMax": zod.number().nullish(),
+  "statoFisiologico": zod.string().nullish(),
+  "tipo": zod.enum(['range', 'qualitative', 'fasce']),
+  "valoreMin": zod.number().nullish(),
+  "valoreMax": zod.number().nullish(),
+  "valoriAccettabili": zod.string().nullish(),
+  "fasce": zod.array(zod.object({
+  "label": zod.string(),
+  "min": zod.number().nullish(),
+  "max": zod.number().nullish(),
+  "color": zod.string().nullish(),
+  "nota": zod.string().nullish()
+})).nullish(),
+  "unita": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "ordinamento": zod.number().default(createExamReferenceRangeBodyOrdinamentoDefault)
+})
+
+export const CreateExamReferenceRangeResponse = zod.object({
+  "id": zod.number(),
+  "examId": zod.number(),
+  "gender": zod.string().nullish(),
+  "ageMin": zod.number().nullish(),
+  "ageMax": zod.number().nullish(),
+  "statoFisiologico": zod.string().nullish(),
+  "tipo": zod.enum(['range', 'qualitative', 'fasce']),
+  "valoreMin": zod.number().nullish(),
+  "valoreMax": zod.number().nullish(),
+  "valoriAccettabili": zod.string().nullish(),
+  "fasce": zod.array(zod.object({
+  "label": zod.string(),
+  "min": zod.number().nullish(),
+  "max": zod.number().nullish(),
+  "color": zod.string().nullish(),
+  "nota": zod.string().nullish()
+})).nullish(),
+  "unita": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "ordinamento": zod.number()
+})
+
+
+/**
+ * @summary Update a reference range
+ */
+export const UpdateExamReferenceRangeParams = zod.object({
+  "id": zod.coerce.number(),
+  "rangeId": zod.coerce.number()
+})
+
+export const updateExamReferenceRangeBodyOrdinamentoDefault = 0;
+
+export const UpdateExamReferenceRangeBody = zod.object({
+  "gender": zod.string().nullish(),
+  "ageMin": zod.number().nullish(),
+  "ageMax": zod.number().nullish(),
+  "statoFisiologico": zod.string().nullish(),
+  "tipo": zod.enum(['range', 'qualitative', 'fasce']),
+  "valoreMin": zod.number().nullish(),
+  "valoreMax": zod.number().nullish(),
+  "valoriAccettabili": zod.string().nullish(),
+  "fasce": zod.array(zod.object({
+  "label": zod.string(),
+  "min": zod.number().nullish(),
+  "max": zod.number().nullish(),
+  "color": zod.string().nullish(),
+  "nota": zod.string().nullish()
+})).nullish(),
+  "unita": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "ordinamento": zod.number().default(updateExamReferenceRangeBodyOrdinamentoDefault)
+})
+
+export const UpdateExamReferenceRangeResponse = zod.object({
+  "id": zod.number(),
+  "examId": zod.number(),
+  "gender": zod.string().nullish(),
+  "ageMin": zod.number().nullish(),
+  "ageMax": zod.number().nullish(),
+  "statoFisiologico": zod.string().nullish(),
+  "tipo": zod.enum(['range', 'qualitative', 'fasce']),
+  "valoreMin": zod.number().nullish(),
+  "valoreMax": zod.number().nullish(),
+  "valoriAccettabili": zod.string().nullish(),
+  "fasce": zod.array(zod.object({
+  "label": zod.string(),
+  "min": zod.number().nullish(),
+  "max": zod.number().nullish(),
+  "color": zod.string().nullish(),
+  "nota": zod.string().nullish()
+})).nullish(),
+  "unita": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "ordinamento": zod.number()
+})
+
+
+/**
+ * @summary Delete a reference range
+ */
+export const DeleteExamReferenceRangeParams = zod.object({
+  "id": zod.coerce.number(),
+  "rangeId": zod.coerce.number()
+})
+
+export const DeleteExamReferenceRangeResponse = zod.void()
 
 
 /**

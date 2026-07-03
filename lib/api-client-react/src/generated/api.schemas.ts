@@ -53,6 +53,54 @@ export const ExamTipo = {
   pacchetto: 'pacchetto',
 } as const;
 
+export type ExamReferenceRangeTipo = typeof ExamReferenceRangeTipo[keyof typeof ExamReferenceRangeTipo];
+
+
+export const ExamReferenceRangeTipo = {
+  range: 'range',
+  qualitative: 'qualitative',
+  fasce: 'fasce',
+} as const;
+
+export interface Fascia {
+  label: string;
+  /** @nullable */
+  min?: number | null;
+  /** @nullable */
+  max?: number | null;
+  /** @nullable */
+  color?: string | null;
+  /** @nullable */
+  nota?: string | null;
+}
+
+export interface ExamReferenceRange {
+  id: number;
+  examId: number;
+  /** @nullable */
+  gender?: string | null;
+  /** @nullable */
+  ageMin?: number | null;
+  /** @nullable */
+  ageMax?: number | null;
+  /** @nullable */
+  statoFisiologico?: string | null;
+  tipo: ExamReferenceRangeTipo;
+  /** @nullable */
+  valoreMin?: number | null;
+  /** @nullable */
+  valoreMax?: number | null;
+  /** @nullable */
+  valoriAccettabili?: string | null;
+  /** @nullable */
+  fasce?: Fascia[] | null;
+  /** @nullable */
+  unita?: string | null;
+  /** @nullable */
+  note?: string | null;
+  ordinamento: number;
+}
+
 export interface Exam {
   id: number;
   codiceAnalisi: string;
@@ -72,7 +120,7 @@ export interface Exam {
      */
   importo?: string | null;
   /**
-     * Reference value range for the exam
+     * Legacy reference value range (JSON string)
      * @nullable
      */
   valoreRiferimento?: string | null;
@@ -80,6 +128,8 @@ export interface Exam {
   tipo: ExamTipo;
   /** Sub-exams for pacchetto type (empty for singolo) */
   components?: ExamComponentItem[];
+  /** Structured reference ranges (by gender/age/state) */
+  referenceRanges?: ExamReferenceRange[];
 }
 
 export interface ExamComponentItem {
@@ -281,6 +331,40 @@ export interface RefertaInput {
   valore: string;
   /** @nullable */
   note?: string | null;
+}
+
+export type ExamReferenceRangeInputTipo = typeof ExamReferenceRangeInputTipo[keyof typeof ExamReferenceRangeInputTipo];
+
+
+export const ExamReferenceRangeInputTipo = {
+  range: 'range',
+  qualitative: 'qualitative',
+  fasce: 'fasce',
+} as const;
+
+export interface ExamReferenceRangeInput {
+  /** @nullable */
+  gender?: string | null;
+  /** @nullable */
+  ageMin?: number | null;
+  /** @nullable */
+  ageMax?: number | null;
+  /** @nullable */
+  statoFisiologico?: string | null;
+  tipo: ExamReferenceRangeInputTipo;
+  /** @nullable */
+  valoreMin?: number | null;
+  /** @nullable */
+  valoreMax?: number | null;
+  /** @nullable */
+  valoriAccettabili?: string | null;
+  /** @nullable */
+  fasce?: Fascia[] | null;
+  /** @nullable */
+  unita?: string | null;
+  /** @nullable */
+  note?: string | null;
+  ordinamento?: number;
 }
 
 export interface OcrPrescriptionInput {

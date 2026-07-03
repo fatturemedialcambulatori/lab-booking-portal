@@ -26,6 +26,8 @@ import type {
   ErrorResponse,
   Exam,
   ExamInput,
+  ExamReferenceRange,
+  ExamReferenceRangeInput,
   HealthStatus,
   ListBookingsParams,
   ListPatientsParams,
@@ -1266,6 +1268,299 @@ export const useUpsertReferto = <TError = ErrorType<ErrorResponse>,
         TContext
       > => {
       return useMutation(getUpsertRefertoMutationOptions(options));
+    }
+
+export const getListExamReferenceRangesUrl = (id: number,) => {
+
+
+
+
+  return `/api/exams/${id}/reference-ranges`
+}
+
+/**
+ * @summary List reference ranges for an exam
+ */
+export const listExamReferenceRanges = async (id: number, options?: RequestInit): Promise<ExamReferenceRange[]> => {
+
+  return customFetch<ExamReferenceRange[]>(getListExamReferenceRangesUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListExamReferenceRangesQueryKey = (id: number,) => {
+    return [
+    `/api/exams/${id}/reference-ranges`
+    ] as const;
+    }
+
+
+export const getListExamReferenceRangesQueryOptions = <TData = Awaited<ReturnType<typeof listExamReferenceRanges>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExamReferenceRanges>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListExamReferenceRangesQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listExamReferenceRanges>>> = ({ signal }) => listExamReferenceRanges(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listExamReferenceRanges>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListExamReferenceRangesQueryResult = NonNullable<Awaited<ReturnType<typeof listExamReferenceRanges>>>
+export type ListExamReferenceRangesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List reference ranges for an exam
+ */
+
+export function useListExamReferenceRanges<TData = Awaited<ReturnType<typeof listExamReferenceRanges>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExamReferenceRanges>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListExamReferenceRangesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateExamReferenceRangeUrl = (id: number,) => {
+
+
+
+
+  return `/api/exams/${id}/reference-ranges`
+}
+
+/**
+ * @summary Create a reference range for an exam
+ */
+export const createExamReferenceRange = async (id: number,
+    examReferenceRangeInput: ExamReferenceRangeInput, options?: RequestInit): Promise<ExamReferenceRange> => {
+
+  return customFetch<ExamReferenceRange>(getCreateExamReferenceRangeUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(examReferenceRangeInput)
+  }
+);}
+
+
+
+
+export const getCreateExamReferenceRangeMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExamReferenceRange>>, TError,{id: number;data: BodyType<ExamReferenceRangeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createExamReferenceRange>>, TError,{id: number;data: BodyType<ExamReferenceRangeInput>}, TContext> => {
+
+const mutationKey = ['createExamReferenceRange'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createExamReferenceRange>>, {id: number;data: BodyType<ExamReferenceRangeInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createExamReferenceRange(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateExamReferenceRangeMutationResult = NonNullable<Awaited<ReturnType<typeof createExamReferenceRange>>>
+    export type CreateExamReferenceRangeMutationBody = BodyType<ExamReferenceRangeInput>
+    export type CreateExamReferenceRangeMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Create a reference range for an exam
+ */
+export const useCreateExamReferenceRange = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExamReferenceRange>>, TError,{id: number;data: BodyType<ExamReferenceRangeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createExamReferenceRange>>,
+        TError,
+        {id: number;data: BodyType<ExamReferenceRangeInput>},
+        TContext
+      > => {
+      return useMutation(getCreateExamReferenceRangeMutationOptions(options));
+    }
+
+export const getUpdateExamReferenceRangeUrl = (id: number,
+    rangeId: number,) => {
+
+
+
+
+  return `/api/exams/${id}/reference-ranges/${rangeId}`
+}
+
+/**
+ * @summary Update a reference range
+ */
+export const updateExamReferenceRange = async (id: number,
+    rangeId: number,
+    examReferenceRangeInput: ExamReferenceRangeInput, options?: RequestInit): Promise<ExamReferenceRange> => {
+
+  return customFetch<ExamReferenceRange>(getUpdateExamReferenceRangeUrl(id,rangeId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(examReferenceRangeInput)
+  }
+);}
+
+
+
+
+export const getUpdateExamReferenceRangeMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateExamReferenceRange>>, TError,{id: number;rangeId: number;data: BodyType<ExamReferenceRangeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateExamReferenceRange>>, TError,{id: number;rangeId: number;data: BodyType<ExamReferenceRangeInput>}, TContext> => {
+
+const mutationKey = ['updateExamReferenceRange'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateExamReferenceRange>>, {id: number;rangeId: number;data: BodyType<ExamReferenceRangeInput>}> = (props) => {
+          const {id,rangeId,data} = props ?? {};
+
+          return  updateExamReferenceRange(id,rangeId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateExamReferenceRangeMutationResult = NonNullable<Awaited<ReturnType<typeof updateExamReferenceRange>>>
+    export type UpdateExamReferenceRangeMutationBody = BodyType<ExamReferenceRangeInput>
+    export type UpdateExamReferenceRangeMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Update a reference range
+ */
+export const useUpdateExamReferenceRange = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateExamReferenceRange>>, TError,{id: number;rangeId: number;data: BodyType<ExamReferenceRangeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateExamReferenceRange>>,
+        TError,
+        {id: number;rangeId: number;data: BodyType<ExamReferenceRangeInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateExamReferenceRangeMutationOptions(options));
+    }
+
+export const getDeleteExamReferenceRangeUrl = (id: number,
+    rangeId: number,) => {
+
+
+
+
+  return `/api/exams/${id}/reference-ranges/${rangeId}`
+}
+
+/**
+ * @summary Delete a reference range
+ */
+export const deleteExamReferenceRange = async (id: number,
+    rangeId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteExamReferenceRangeUrl(id,rangeId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteExamReferenceRangeMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteExamReferenceRange>>, TError,{id: number;rangeId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteExamReferenceRange>>, TError,{id: number;rangeId: number}, TContext> => {
+
+const mutationKey = ['deleteExamReferenceRange'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteExamReferenceRange>>, {id: number;rangeId: number}> = (props) => {
+          const {id,rangeId} = props ?? {};
+
+          return  deleteExamReferenceRange(id,rangeId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteExamReferenceRangeMutationResult = NonNullable<Awaited<ReturnType<typeof deleteExamReferenceRange>>>
+
+    export type DeleteExamReferenceRangeMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Delete a reference range
+ */
+export const useDeleteExamReferenceRange = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteExamReferenceRange>>, TError,{id: number;rangeId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteExamReferenceRange>>,
+        TError,
+        {id: number;rangeId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteExamReferenceRangeMutationOptions(options));
     }
 
 export const getOcrPrescriptionUrl = () => {

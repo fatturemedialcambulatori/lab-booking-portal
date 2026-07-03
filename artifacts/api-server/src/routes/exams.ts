@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { examsTable, examComponentsTable } from "@workspace/db";
+import { examsTable, examComponentsTable, examReferenceRangesTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import { CreateExamBody, UpdateExamBody } from "@workspace/api-zod";
 
@@ -40,10 +40,22 @@ router.get("/exams", async (req, res) => {
       }
     }
 
+    const allRanges = await db
+      .select()
+      .from(examReferenceRangesTable)
+      .orderBy(examReferenceRangesTable.ordinamento);
+
+    const rangesByExam = new Map<number, typeof allRanges>();
+    for (const r of allRanges) {
+      if (!rangesByExam.has(r.examId)) rangesByExam.set(r.examId, []);
+      rangesByExam.get(r.examId)!.push(r);
+    }
+
     const result = exams.map((e) => ({
       ...e,
       tipo: e.tipo ?? "singolo",
       components: componentsByPackage.get(e.id) ?? [],
+      referenceRanges: rangesByExam.get(e.id) ?? [],
     }));
 
     res.json(result);

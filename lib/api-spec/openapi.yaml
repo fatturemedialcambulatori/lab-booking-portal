@@ -411,6 +411,116 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /exams/{id}/reference-ranges:
+    get:
+      operationId: listExamReferenceRanges
+      tags: [exams]
+      summary: List reference ranges for an exam
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of reference ranges
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExamReferenceRange"
+    post:
+      operationId: createExamReferenceRange
+      tags: [exams]
+      summary: Create a reference range for an exam
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExamReferenceRangeInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExamReferenceRange"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /exams/{id}/reference-ranges/{rangeId}:
+    put:
+      operationId: updateExamReferenceRange
+      tags: [exams]
+      summary: Update a reference range
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: rangeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExamReferenceRangeInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExamReferenceRange"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteExamReferenceRange
+      tags: [exams]
+      summary: Delete a reference range
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: rangeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /ocr/prescription:
     post:
       operationId: ocrPrescription
@@ -530,7 +640,7 @@ components:
           description: Price as decimal string
         valoreRiferimento:
           type: ["string", "null"]
-          description: Reference value range for the exam
+          description: Legacy reference value range (JSON string)
         preparationInstructions:
           type: string
         tipo:
@@ -542,6 +652,11 @@ components:
           items:
             $ref: "#/components/schemas/ExamComponentItem"
           description: Sub-exams for pacchetto type (empty for singolo)
+        referenceRanges:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExamReferenceRange"
+          description: Structured reference ranges (by gender/age/state)
 
     TimeSlot:
       type: object
@@ -748,6 +863,90 @@ components:
           type: string
         note:
           type: ["string", "null"]
+
+    Fascia:
+      type: object
+      required: [label]
+      properties:
+        label:
+          type: string
+        min:
+          type: ["number", "null"]
+        max:
+          type: ["number", "null"]
+        color:
+          type: ["string", "null"]
+        nota:
+          type: ["string", "null"]
+
+    ExamReferenceRange:
+      type: object
+      required: [id, examId, tipo, ordinamento]
+      properties:
+        id:
+          type: integer
+        examId:
+          type: integer
+        gender:
+          type: ["string", "null"]
+        ageMin:
+          type: ["integer", "null"]
+        ageMax:
+          type: ["integer", "null"]
+        statoFisiologico:
+          type: ["string", "null"]
+        tipo:
+          type: string
+          enum: [range, qualitative, fasce]
+        valoreMin:
+          type: ["number", "null"]
+        valoreMax:
+          type: ["number", "null"]
+        valoriAccettabili:
+          type: ["string", "null"]
+        fasce:
+          type: ["array", "null"]
+          items:
+            $ref: "#/components/schemas/Fascia"
+        unita:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+        ordinamento:
+          type: integer
+
+    ExamReferenceRangeInput:
+      type: object
+      required: [tipo]
+      properties:
+        gender:
+          type: ["string", "null"]
+        ageMin:
+          type: ["integer", "null"]
+        ageMax:
+          type: ["integer", "null"]
+        statoFisiologico:
+          type: ["string", "null"]
+        tipo:
+          type: string
+          enum: [range, qualitative, fasce]
+        valoreMin:
+          type: ["number", "null"]
+        valoreMax:
+          type: ["number", "null"]
+        valoriAccettabili:
+          type: ["string", "null"]
+        fasce:
+          type: ["array", "null"]
+          items:
+            $ref: "#/components/schemas/Fascia"
+        unita:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+        ordinamento:
+          type: integer
+          default: 0
 
     OcrPrescriptionInput:
       type: object
