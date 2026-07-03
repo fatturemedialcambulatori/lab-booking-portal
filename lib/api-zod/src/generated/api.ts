@@ -453,3 +453,17 @@ export const UpsertRefertoResponse = zod.object({
 })
 
 
+/**
+ * @summary Extract exams from a prescription image via OCR
+ */
+export const OcrPrescriptionBody = zod.object({
+  "imageBase64": zod.string().describe('Base64-encoded image of the prescription'),
+  "mimeType": zod.string().describe('MIME type of the image (e.g. image\/jpeg, image\/png)')
+})
+
+export const OcrPrescriptionResponse = zod.object({
+  "matchedExamIds": zod.array(zod.number()).describe('IDs of exams matched from the prescription'),
+  "extractedTerms": zod.array(zod.string()).describe('Raw exam terms extracted from the image by OCR')
+})
+
+

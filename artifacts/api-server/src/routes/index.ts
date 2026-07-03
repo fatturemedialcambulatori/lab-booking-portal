@@ -5,6 +5,7 @@ import slotsRouter from "./slots";
 import bookingsRouter from "./bookings";
 import patientsRouter from "./patients";
 import refertiRouter from "./referti";
+import ocrRouter from "./ocr";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(slotsRouter);
 router.use(bookingsRouter);
 router.use(patientsRouter);
 router.use(refertiRouter);
+router.use(ocrRouter);
 
 export default router;

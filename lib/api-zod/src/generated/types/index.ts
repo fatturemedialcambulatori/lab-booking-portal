@@ -25,6 +25,8 @@ export * from './listBookingsStatus';
 export * from './listPatientsParams';
 export * from './listRefertiParams';
 export * from './listSlotsParams';
+export * from './ocrPrescriptionInput';
+export * from './ocrPrescriptionResult';
 export * from './patient';
 export * from './patientGender';
 export * from './patientInput';

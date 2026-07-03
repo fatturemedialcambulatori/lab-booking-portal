@@ -283,6 +283,20 @@ export interface RefertaInput {
   note?: string | null;
 }
 
+export interface OcrPrescriptionInput {
+  /** Base64-encoded image of the prescription */
+  imageBase64: string;
+  /** MIME type of the image (e.g. image/jpeg, image/png) */
+  mimeType: string;
+}
+
+export interface OcrPrescriptionResult {
+  /** IDs of exams matched from the prescription */
+  matchedExamIds: number[];
+  /** Raw exam terms extracted from the image by OCR */
+  extractedTerms: string[];
+}
+
 export interface ErrorResponse {
   error: string;
 }

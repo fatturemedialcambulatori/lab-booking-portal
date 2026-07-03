@@ -20,6 +20,8 @@ tags:
     description: Patient anagrafica operations
   - name: referti
     description: Exam results (refertazione)
+  - name: ocr
+    description: OCR prescription scanning
 paths:
   /healthz:
     get:
@@ -409,6 +411,37 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /ocr/prescription:
+    post:
+      operationId: ocrPrescription
+      tags: [ocr]
+      summary: Extract exams from a prescription image via OCR
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OcrPrescriptionInput"
+      responses:
+        "200":
+          description: Matched exams from the prescription
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OcrPrescriptionResult"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: OCR error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -715,6 +748,32 @@ components:
           type: string
         note:
           type: ["string", "null"]
+
+    OcrPrescriptionInput:
+      type: object
+      required: [imageBase64, mimeType]
+      properties:
+        imageBase64:
+          type: string
+          description: Base64-encoded image of the prescription
+        mimeType:
+          type: string
+          description: MIME type of the image (e.g. image/jpeg, image/png)
+
+    OcrPrescriptionResult:
+      type: object
+      required: [matchedExamIds, extractedTerms]
+      properties:
+        matchedExamIds:
+          type: array
+          items:
+            type: integer
+          description: IDs of exams matched from the prescription
+        extractedTerms:
+          type: array
+          items:
+            type: string
+          description: Raw exam terms extracted from the image by OCR
 
     ErrorResponse:
       type: object

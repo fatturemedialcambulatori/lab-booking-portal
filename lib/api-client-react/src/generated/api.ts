@@ -31,6 +31,8 @@ import type {
   ListPatientsParams,
   ListRefertiParams,
   ListSlotsParams,
+  OcrPrescriptionInput,
+  OcrPrescriptionResult,
   Patient,
   PatientInput,
   RefertaInput,
@@ -1264,5 +1266,75 @@ export const useUpsertReferto = <TError = ErrorType<ErrorResponse>,
         TContext
       > => {
       return useMutation(getUpsertRefertoMutationOptions(options));
+    }
+
+export const getOcrPrescriptionUrl = () => {
+
+
+
+
+  return `/api/ocr/prescription`
+}
+
+/**
+ * @summary Extract exams from a prescription image via OCR
+ */
+export const ocrPrescription = async (ocrPrescriptionInput: OcrPrescriptionInput, options?: RequestInit): Promise<OcrPrescriptionResult> => {
+
+  return customFetch<OcrPrescriptionResult>(getOcrPrescriptionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(ocrPrescriptionInput)
+  }
+);}
+
+
+
+
+export const getOcrPrescriptionMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof ocrPrescription>>, TError,{data: BodyType<OcrPrescriptionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof ocrPrescription>>, TError,{data: BodyType<OcrPrescriptionInput>}, TContext> => {
+
+const mutationKey = ['ocrPrescription'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof ocrPrescription>>, {data: BodyType<OcrPrescriptionInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  ocrPrescription(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type OcrPrescriptionMutationResult = NonNullable<Awaited<ReturnType<typeof ocrPrescription>>>
+    export type OcrPrescriptionMutationBody = BodyType<OcrPrescriptionInput>
+    export type OcrPrescriptionMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Extract exams from a prescription image via OCR
+ */
+export const useOcrPrescription = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof ocrPrescription>>, TError,{data: BodyType<OcrPrescriptionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof ocrPrescription>>,
+        TError,
+        {data: BodyType<OcrPrescriptionInput>},
+        TContext
+      > => {
+      return useMutation(getOcrPrescriptionMutationOptions(options));
     }
 
