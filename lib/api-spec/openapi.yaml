@@ -897,7 +897,7 @@ components:
           type: ["string", "null"]
         tipo:
           type: string
-          enum: [range, qualitative, fasce]
+          enum: [range, gt, gte, lt, lte, qualitative, fasce]
         valoreMin:
           type: ["number", "null"]
         valoreMax:
@@ -929,7 +929,7 @@ components:
           type: ["string", "null"]
         tipo:
           type: string
-          enum: [range, qualitative, fasce]
+          enum: [range, gt, gte, lt, lte, qualitative, fasce]
         valoreMin:
           type: ["number", "null"]
         valoreMax:

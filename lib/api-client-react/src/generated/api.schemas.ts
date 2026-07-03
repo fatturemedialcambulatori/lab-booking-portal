@@ -58,6 +58,10 @@ export type ExamReferenceRangeTipo = typeof ExamReferenceRangeTipo[keyof typeof 
 
 export const ExamReferenceRangeTipo = {
   range: 'range',
+  gt: 'gt',
+  gte: 'gte',
+  lt: 'lt',
+  lte: 'lte',
   qualitative: 'qualitative',
   fasce: 'fasce',
 } as const;
@@ -338,6 +342,10 @@ export type ExamReferenceRangeInputTipo = typeof ExamReferenceRangeInputTipo[key
 
 export const ExamReferenceRangeInputTipo = {
   range: 'range',
+  gt: 'gt',
+  gte: 'gte',
+  lt: 'lt',
+  lte: 'lte',
   qualitative: 'qualitative',
   fasce: 'fasce',
 } as const;

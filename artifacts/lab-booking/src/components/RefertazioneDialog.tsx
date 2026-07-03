@@ -36,7 +36,13 @@ import {
 import { format, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
 import { printSchedaLaboratorio } from "@/lib/printDocs";
-import { displayRefValue, isOutOfRange } from "@/lib/refValue";
+import {
+  displayRefValueAny,
+  isOutOfRangeAny,
+  matchFascia,
+  getApplicableRange,
+  type StructuredRefRange,
+} from "@/lib/refValue";
 import type { TodoVisit } from "./ExamTodoDialog";
 
 interface Props {
@@ -55,6 +61,7 @@ type ExamRow = {
   metodo?: string | null;
   valoreRiferimento?: string | null;
   tipo?: string;
+  referenceRanges?: StructuredRefRange[] | null;
   components?: Array<{
     id: number;
     componentExamId: number;
@@ -66,9 +73,31 @@ type ExamRow = {
       um?: string | null;
       metodo?: string | null;
       valoreRiferimento?: string | null;
+      referenceRanges?: StructuredRefRange[] | null;
     };
   }>;
 };
+
+const FASCIA_COLOR_CLS: Record<string, string> = {
+  green:  "bg-green-100 text-green-800 border-green-200",
+  yellow: "bg-yellow-100 text-yellow-800 border-yellow-200",
+  orange: "bg-orange-100 text-orange-800 border-orange-200",
+  red:    "bg-red-100 text-red-800 border-red-200",
+};
+
+function fasciaChip(ranges: StructuredRefRange[] | null | undefined, valueStr: string, gender?: string | null, ageYears?: number | null) {
+  if (!ranges?.length) return null;
+  const applicable = getApplicableRange(ranges, gender, ageYears);
+  if (!applicable || applicable.tipo !== "fasce") return null;
+  const f = matchFascia(applicable, valueStr);
+  if (!f) return null;
+  const cls = FASCIA_COLOR_CLS[f.color ?? ""] ?? "bg-gray-100 text-gray-800 border-gray-200";
+  return (
+    <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${cls}`}>
+      {f.label}
+    </span>
+  );
+}
 
 function provettaChip(color: string | null | undefined) {
   if (!color) return null;
@@ -113,6 +142,15 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
   const [savedIds, setSavedIds] = React.useState<Set<string>>(new Set());
 
   const patient = patients?.[0];
+  const patientGender = patient?.gender ?? null;
+  const patientAgeYears = React.useMemo(() => {
+    if (!patient?.dateOfBirth) return null;
+    const birth = new Date(patient.dateOfBirth);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    if (today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) age--;
+    return age;
+  }, [patient?.dateOfBirth]);
 
   const exams = React.useMemo(
     () => (allExams ?? []).filter((e) => visit.examIds.includes(e.id)) as ExamRow[],
@@ -221,7 +259,7 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
     const saved = getReferto(sub.id, exam.id);
     const local = localValues[key] ?? { valore: "", note: "" };
     const noteExp = expandedNote.has(key);
-    const oor = isOutOfRange(sub.valoreRiferimento, saved?.valore ?? local.valore);
+    const oor = isOutOfRangeAny(sub.referenceRanges, sub.valoreRiferimento, saved?.valore ?? local.valore, patientGender, patientAgeYears);
 
     return (
       <div
@@ -253,8 +291,9 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
                       <AlertTriangle className="h-3 w-3" />Fuori range
                     </span>
                   )}
-                  {sub.valoreRiferimento && (
-                    <span className="text-xs text-muted-foreground">rif: {displayRefValue(sub.valoreRiferimento)}{sub.um ? ` ${sub.um}` : ""}</span>
+                  {fasciaChip(sub.referenceRanges, saved.valore, patientGender, patientAgeYears)}
+                  {(sub.referenceRanges?.length || sub.valoreRiferimento) && (
+                    <span className="text-xs text-muted-foreground">rif: {displayRefValueAny(sub.referenceRanges as StructuredRefRange[] | null, sub.valoreRiferimento, patientGender, patientAgeYears)}{sub.um ? ` ${sub.um}` : ""}</span>
                   )}
                   <Button
                     variant="outline"
@@ -269,8 +308,8 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
               </div>
             ) : (
               <div className="mt-1.5 space-y-2">
-                {sub.valoreRiferimento && (
-                  <p className="text-xs text-muted-foreground">Val. riferimento: <span className="font-medium">{displayRefValue(sub.valoreRiferimento)}{sub.um ? ` ${sub.um}` : ""}</span></p>
+                {(sub.referenceRanges?.length || sub.valoreRiferimento) && (
+                  <p className="text-xs text-muted-foreground">Val. riferimento: <span className="font-medium">{displayRefValueAny(sub.referenceRanges as StructuredRefRange[] | null, sub.valoreRiferimento, patientGender, patientAgeYears)}{sub.um ? ` ${sub.um}` : ""}</span></p>
                 )}
                 <div className="flex gap-2">
                   <Input
@@ -357,7 +396,7 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
     const saved = getReferto(exam.id);
     const local = localValues[key] ?? { valore: "", note: "" };
     const noteExpanded = expandedNote.has(key);
-    const outOfRange = isOutOfRange(exam.valoreRiferimento, saved?.valore ?? local.valore);
+    const outOfRange = isOutOfRangeAny(exam.referenceRanges, exam.valoreRiferimento, saved?.valore ?? local.valore, patientGender, patientAgeYears);
 
     return (
       <div
@@ -388,8 +427,9 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
                       <AlertTriangle className="h-3 w-3" />Fuori range
                     </span>
                   )}
-                  {exam.valoreRiferimento && (
-                    <span className="text-xs text-muted-foreground">rif: {displayRefValue(exam.valoreRiferimento)}{exam.um ? ` ${exam.um}` : ""}</span>
+                  {fasciaChip(exam.referenceRanges, saved.valore, patientGender, patientAgeYears)}
+                  {(exam.referenceRanges?.length || exam.valoreRiferimento) && (
+                    <span className="text-xs text-muted-foreground">rif: {displayRefValueAny(exam.referenceRanges as StructuredRefRange[] | null, exam.valoreRiferimento, patientGender, patientAgeYears)}{exam.um ? ` ${exam.um}` : ""}</span>
                   )}
                   <Button
                     variant="outline"
@@ -404,9 +444,9 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
               </div>
             ) : (
               <div className="mt-2 space-y-2">
-                {exam.valoreRiferimento && (
+                {(exam.referenceRanges?.length || exam.valoreRiferimento) && (
                   <p className="text-xs text-muted-foreground">
-                    Val. riferimento: <span className="font-medium">{displayRefValue(exam.valoreRiferimento)}{exam.um ? ` ${exam.um}` : ""}</span>
+                    Val. riferimento: <span className="font-medium">{displayRefValueAny(exam.referenceRanges as StructuredRefRange[] | null, exam.valoreRiferimento, patientGender, patientAgeYears)}{exam.um ? ` ${exam.um}` : ""}</span>
                   </p>
                 )}
                 <div className="flex gap-2">

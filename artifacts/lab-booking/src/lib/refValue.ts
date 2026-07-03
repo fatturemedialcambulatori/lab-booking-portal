@@ -206,6 +206,37 @@ export function displayStructuredRange(r: StructuredRefRange): string {
   return "—";
 }
 
+/**
+ * For fasce: returns the fascia that matches a numeric value, or null if none matches.
+ * Matching rules:
+ *   - min only → value >= min
+ *   - max only → value < max
+ *   - min + max → min <= value < max
+ *   - neither → catch-all (always matches)
+ * Returns the first matching fascia in order.
+ */
+export function matchFascia(r: StructuredRefRange, valueStr: string | null | undefined): Fascia | null {
+  if (!r.fasce?.length || !valueStr) return null;
+  const value = parseFloat(String(valueStr).replace(",", "."));
+  if (isNaN(value)) return null;
+
+  for (const f of r.fasce) {
+    const hasMin = f.min != null;
+    const hasMax = f.max != null;
+    if (!hasMin && !hasMax) return f; // catch-all
+    if (hasMin && hasMax) {
+      if (value >= f.min! && value < f.max!) return f;
+    } else if (hasMin) {
+      if (value >= f.min!) return f;
+    } else {
+      if (value < f.max!) return f;
+    }
+  }
+  return null;
+}
+
+const OUT_OF_RANGE_COLORS = new Set(["red", "orange"]);
+
 /** Check if a result is out of range for a structured range entry. */
 export function isOutOfRangeStructured(
   r: StructuredRefRange,
@@ -231,6 +262,12 @@ export function isOutOfRangeStructured(
   if (r.tipo === "qualitative" && r.valoriAccettabili) {
     const acceptable = r.valoriAccettabili.split(",").map((v) => v.trim().toLowerCase());
     return !acceptable.includes(resultStr.trim().toLowerCase());
+  }
+
+  if (r.tipo === "fasce") {
+    const fascia = matchFascia(r, resultStr);
+    if (!fascia) return false;
+    return OUT_OF_RANGE_COLORS.has(fascia.color ?? "");
   }
 
   return false;
