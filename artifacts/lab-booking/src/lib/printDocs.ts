@@ -1,4 +1,4 @@
-import { displayRefValue, isOutOfRange } from "./refValue";
+import { displayRefValueAny, isOutOfRangeAny, type StructuredRefRange } from "./refValue";
 import { FIRMA_BASE64 } from "./firma-base64";
 
 export type PrintExam = {
@@ -20,6 +20,7 @@ export type PrintExamSubResult = {
   um?: string | null;
   metodo?: string | null;
   valoreRiferimento?: string | null;
+  referenceRanges?: StructuredRefRange[] | null;
   valore?: string | null;
   refertaNote?: string | null;
 };
@@ -28,6 +29,7 @@ export type PrintExamWithResult = PrintExam & {
   valore?: string | null;
   refertaNote?: string | null;
   tipo?: string;
+  referenceRanges?: StructuredRefRange[] | null;
   subResults?: PrintExamSubResult[];
 };
 
@@ -195,7 +197,19 @@ export function printPreventivo(patient: PrintPatient, exams: PrintExam[]) {
   printWindow(html);
 }
 
+function calcAgeYears(dateOfBirth?: string): number | null {
+  if (!dateOfBirth) return null;
+  const birth = new Date(dateOfBirth);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  if (today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) age--;
+  return age;
+}
+
 export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]) {
+  const patientGender = patient.gender ?? null;
+  const patientAge = calcAgeYears(patient.dateOfBirth);
+
   const billingLines = [
     patient.billingAddress,
     [patient.billingCap, patient.billingCity, patient.billingProvincia ? `(${patient.billingProvincia})` : ""].filter(Boolean).join(" "),
@@ -215,7 +229,8 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
           </td>
         </tr>`;
       const subRows = e.subResults.map((sub) => {
-        const oor = isOutOfRange(sub.valoreRiferimento, sub.valore);
+        const oor = isOutOfRangeAny(sub.referenceRanges, sub.valoreRiferimento, sub.valore, patientGender, patientAge);
+        const refDisplay = displayRefValueAny(sub.referenceRanges ?? null, sub.valoreRiferimento, patientGender, patientAge);
         return `
           <tr>
             <td style="color:#aaa;font-size:9px"></td>
@@ -224,7 +239,7 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
             <td>${sub.um ?? "—"}</td>
             <td>${sub.metodo ?? "—"}</td>
             <td>—</td>
-            <td>${displayRefValue(sub.valoreRiferimento)}</td>
+            <td>${refDisplay}</td>
             <td style="font-weight:700;color:${oor ? "#c62828" : sub.valore ? "#1a1a1a" : "#999"}">
               ${sub.valore ?? "—"}${oor ? ' <span style="color:#c62828;font-weight:900">!</span>' : ""}
             </td>
@@ -233,7 +248,8 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
       }).join("");
       return headerRow + subRows;
     }
-    const oor = isOutOfRange(e.valoreRiferimento, e.valore);
+    const oor = isOutOfRangeAny(e.referenceRanges, e.valoreRiferimento, e.valore, patientGender, patientAge);
+    const refDisplay = displayRefValueAny(e.referenceRanges ?? null, e.valoreRiferimento, patientGender, patientAge);
     rowIndex++;
     return `
     <tr>
@@ -243,7 +259,7 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
       <td>${e.um ?? "—"}</td>
       <td>${e.metodo ?? "—"}</td>
       <td>${e.regola ?? "—"}</td>
-      <td>${displayRefValue(e.valoreRiferimento)}</td>
+      <td>${refDisplay}</td>
       <td style="font-weight:700;color:${oor ? "#c62828" : e.valore ? "#1a1a1a" : "#999"}">
         ${e.valore ?? "—"}${oor ? ' <span style="color:#c62828;font-weight:900">!</span>' : ""}
       </td>
