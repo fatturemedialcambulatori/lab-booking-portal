@@ -188,6 +188,10 @@ export function displayStructuredRange(r: StructuredRefRange): string {
     if (max) return `≤ ${max}`;
     return "—";
   }
+  if (r.tipo === "gte") return r.valoreMin != null ? `≥ ${r.valoreMin}` : "—";
+  if (r.tipo === "gt")  return r.valoreMin != null ? `> ${r.valoreMin}` : "—";
+  if (r.tipo === "lte") return r.valoreMax != null ? `≤ ${r.valoreMax}` : "—";
+  if (r.tipo === "lt")  return r.valoreMax != null ? `< ${r.valoreMax}` : "—";
   if (r.tipo === "qualitative") {
     return r.valoriAccettabili ?? "—";
   }
@@ -209,12 +213,19 @@ export function isOutOfRangeStructured(
 ): boolean {
   if (!resultStr) return false;
 
-  if (r.tipo === "range") {
+  const numericTipos = ["range", "gt", "gte", "lt", "lte"];
+  if (numericTipos.includes(r.tipo)) {
     const value = parseFloat(String(resultStr).replace(",", "."));
     if (isNaN(value)) return false;
-    if (r.valoreMin != null && value < Number(r.valoreMin)) return true;
-    if (r.valoreMax != null && value > Number(r.valoreMax)) return true;
-    return false;
+    if (r.tipo === "range") {
+      if (r.valoreMin != null && value < Number(r.valoreMin)) return true;
+      if (r.valoreMax != null && value > Number(r.valoreMax)) return true;
+      return false;
+    }
+    if (r.tipo === "gte") return r.valoreMin != null && value < Number(r.valoreMin);
+    if (r.tipo === "gt")  return r.valoreMin != null && value <= Number(r.valoreMin);
+    if (r.tipo === "lte") return r.valoreMax != null && value > Number(r.valoreMax);
+    if (r.tipo === "lt")  return r.valoreMax != null && value >= Number(r.valoreMax);
   }
 
   if (r.tipo === "qualitative" && r.valoriAccettabili) {

@@ -56,16 +56,28 @@ export async function migrateRefValues(log: Logger): Promise<void> {
         continue;
       }
 
+      let tipo: string;
       let valoreMin: string | null = null;
       let valoreMax: string | null = null;
 
       if (ref.type === "range") {
+        tipo = "range";
         valoreMin = ref.min != null ? String(ref.min) : null;
         valoreMax = ref.max != null ? String(ref.max) : null;
-      } else if (ref.type === ">" || ref.type === ">=") {
+      } else if (ref.type === ">") {
+        tipo = "gt";
         valoreMin = ref.value != null ? String(ref.value) : null;
-      } else if (ref.type === "<" || ref.type === "<=") {
+      } else if (ref.type === ">=") {
+        tipo = "gte";
+        valoreMin = ref.value != null ? String(ref.value) : null;
+      } else if (ref.type === "<") {
+        tipo = "lt";
         valoreMax = ref.value != null ? String(ref.value) : null;
+      } else if (ref.type === "<=") {
+        tipo = "lte";
+        valoreMax = ref.value != null ? String(ref.value) : null;
+      } else {
+        tipo = "range";
       }
 
       await db.insert(examReferenceRangesTable).values({
@@ -74,7 +86,7 @@ export async function migrateRefValues(log: Logger): Promise<void> {
         ageMin: null,
         ageMax: null,
         statoFisiologico: null,
-        tipo: "range",
+        tipo,
         valoreMin,
         valoreMax,
         valoriAccettabili: null,

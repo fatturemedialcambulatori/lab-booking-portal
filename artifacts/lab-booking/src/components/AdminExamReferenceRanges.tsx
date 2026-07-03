@@ -30,7 +30,7 @@ type RangeFormState = {
   ageMin: string;
   ageMax: string;
   statoFisiologico: string;
-  tipo: "range" | "qualitative" | "fasce";
+  tipo: "range" | "gt" | "gte" | "lt" | "lte" | "qualitative" | "fasce";
   valoreMin: string;
   valoreMax: string;
   valoriAccettabili: string;
@@ -66,15 +66,25 @@ function colorClass(color?: string | null) {
   return COLORI_FASCIA.find((c) => c.value === color)?.cls ?? "bg-gray-100 text-gray-800 border-gray-200";
 }
 
+const SINGLE_VALUE_TIPOS = ["gt", "gte", "lt", "lte"] as const;
+type SingleValueTipo = (typeof SINGLE_VALUE_TIPOS)[number];
+
+function isSingleValue(tipo: string): tipo is SingleValueTipo {
+  return SINGLE_VALUE_TIPOS.includes(tipo as SingleValueTipo);
+}
+
 function formToBody(f: RangeFormState) {
+  const isRange = f.tipo === "range";
+  const isMin = f.tipo === "gt" || f.tipo === "gte";
+  const isMax = f.tipo === "lt" || f.tipo === "lte";
   return {
     gender: f.gender || null,
     ageMin: f.ageMin ? parseInt(f.ageMin) : null,
     ageMax: f.ageMax ? parseInt(f.ageMax) : null,
     statoFisiologico: f.statoFisiologico || null,
     tipo: f.tipo,
-    valoreMin: f.tipo === "range" && f.valoreMin ? parseFloat(f.valoreMin) : null,
-    valoreMax: f.tipo === "range" && f.valoreMax ? parseFloat(f.valoreMax) : null,
+    valoreMin: (isRange && f.valoreMin) || isMin ? parseFloat(f.valoreMin) || null : null,
+    valoreMax: (isRange && f.valoreMax) || isMax ? parseFloat(f.valoreMax) || null : null,
     valoriAccettabili: f.tipo === "qualitative" ? f.valoriAccettabili || null : null,
     fasce: f.tipo === "fasce" ? f.fasce : null,
     unita: f.unita || null,
@@ -84,14 +94,21 @@ function formToBody(f: RangeFormState) {
 }
 
 function rangeToForm(r: StructuredRefRange): RangeFormState {
+  const tipo = (r.tipo as RangeFormState["tipo"]) ?? "range";
+  const isMin = tipo === "gt" || tipo === "gte";
+  const isMax = tipo === "lt" || tipo === "lte";
   return {
     gender: r.gender ?? "",
     ageMin: r.ageMin != null ? String(r.ageMin) : "",
     ageMax: r.ageMax != null ? String(r.ageMax) : "",
     statoFisiologico: r.statoFisiologico ?? "",
-    tipo: (r.tipo as RangeFormState["tipo"]) ?? "range",
-    valoreMin: r.valoreMin != null ? String(r.valoreMin) : "",
-    valoreMax: r.valoreMax != null ? String(r.valoreMax) : "",
+    tipo,
+    valoreMin: isMin
+      ? (r.valoreMin != null ? String(r.valoreMin) : "")
+      : (r.valoreMin != null ? String(r.valoreMin) : ""),
+    valoreMax: isMax
+      ? (r.valoreMax != null ? String(r.valoreMax) : "")
+      : (r.valoreMax != null ? String(r.valoreMax) : ""),
     valoriAccettabili: r.valoriAccettabili ?? "",
     fasce: (r.fasce as Fascia[]) ?? [],
     unita: r.unita ?? "",
@@ -174,6 +191,10 @@ function RangeForm({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="range">Range numerico (min – max)</SelectItem>
+            <SelectItem value="gte">≥ Maggiore o uguale a</SelectItem>
+            <SelectItem value="gt">&gt; Maggiore di (stretto)</SelectItem>
+            <SelectItem value="lte">≤ Minore o uguale a</SelectItem>
+            <SelectItem value="lt">&lt; Minore di (stretto)</SelectItem>
             <SelectItem value="qualitative">Qualitativo (es. Negativo, Assente)</SelectItem>
             <SelectItem value="fasce">Fasce condizionali (es. Ottimale / Borderline / Alto rischio)</SelectItem>
           </SelectContent>
@@ -191,6 +212,31 @@ function RangeForm({
             <Label className="text-xs">Valore massimo</Label>
             <Input className="h-8 text-xs" type="number" step="any" value={value.valoreMax} onChange={(e) => set("valoreMax", e.target.value)} placeholder="es. 100" />
           </div>
+        </div>
+      )}
+
+      {isSingleValue(value.tipo) && (
+        <div className="space-y-1">
+          <Label className="text-xs">
+            {value.tipo === "gt" ? "Valore (il risultato deve essere > di)" :
+             value.tipo === "gte" ? "Valore (il risultato deve essere ≥ di)" :
+             value.tipo === "lt" ? "Valore (il risultato deve essere < di)" :
+             "Valore (il risultato deve essere ≤ di)"}
+          </Label>
+          <Input
+            className="h-8 text-xs"
+            type="number"
+            step="any"
+            value={value.tipo === "gt" || value.tipo === "gte" ? value.valoreMin : value.valoreMax}
+            onChange={(e) => {
+              if (value.tipo === "gt" || value.tipo === "gte") {
+                set("valoreMin", e.target.value);
+              } else {
+                set("valoreMax", e.target.value);
+              }
+            }}
+            placeholder="es. 0.5"
+          />
         </div>
       )}
 
