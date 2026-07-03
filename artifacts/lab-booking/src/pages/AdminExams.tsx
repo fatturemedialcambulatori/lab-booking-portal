@@ -35,7 +35,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { type RefType, buildRefString, parseRefValue, REF_TYPE_LABELS } from "@/lib/refValue";
 import { AdminExamReferenceRanges } from "@/components/AdminExamReferenceRanges";
 
 type ExamComponentItem = {
@@ -77,10 +76,6 @@ const EMPTY_FORM = {
   metodo: "",
   regola: "",
   importo: "",
-  refType: "" as RefType,
-  refMin: "",
-  refMax: "",
-  refSingle: "",
   preparationInstructions: "",
   tipo: "singolo" as "singolo" | "pacchetto",
   componentIds: [] as number[],
@@ -208,40 +203,6 @@ function ExamForm({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Valore di riferimento</Label>
-            <Select
-              value={value.refType || "__none__"}
-              onValueChange={(v) => set("refType", (v === "__none__" ? "" : v) as RefType)}
-            >
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="Nessuno" />
-              </SelectTrigger>
-              <SelectContent>
-                {REF_TYPE_LABELS.map((r) => (
-                  <SelectItem key={r.value || "__none__"} value={r.value || "__none__"}>
-                    {r.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {value.refType === "range" && (
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Minimo</Label>
-                  <Input value={value.refMin} onChange={(e) => set("refMin", e.target.value)} placeholder="es. 70" type="number" step="any" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Massimo</Label>
-                  <Input value={value.refMax} onChange={(e) => set("refMax", e.target.value)} placeholder="es. 100" type="number" step="any" />
-                </div>
-              </div>
-            )}
-            {value.refType && value.refType !== "range" && (
-              <Input value={value.refSingle} onChange={(e) => set("refSingle", e.target.value)} placeholder="Valore numerico" type="number" step="any" />
-            )}
-          </div>
-
           <div className="space-y-1">
             <Label>Istruzioni preparazione</Label>
             <Input value={value.preparationInstructions} onChange={(e) => set("preparationInstructions", e.target.value)} placeholder="es. Digiuno di 8 ore" />
@@ -309,7 +270,6 @@ export function AdminExams() {
   };
 
   const openEdit = (exam: Exam) => {
-    const ref = parseRefValue(exam.valoreRiferimento);
     setFormValues({
       codiceAnalisi: exam.codiceAnalisi,
       descrizione: exam.descrizione,
@@ -319,10 +279,6 @@ export function AdminExams() {
       metodo: exam.metodo ?? "",
       regola: exam.regola ?? "",
       importo: exam.importo ?? "",
-      refType: ref.type,
-      refMin: ref.min != null ? String(ref.min) : "",
-      refMax: ref.max != null ? String(ref.max) : "",
-      refSingle: ref.value != null ? String(ref.value) : "",
       preparationInstructions: exam.preparationInstructions,
       tipo: (exam.tipo ?? "singolo") as "singolo" | "pacchetto",
       componentIds: (exam.components ?? []).map((c) => c.componentExamId),
@@ -350,7 +306,7 @@ export function AdminExams() {
           metodo: isPacchetto ? null : toNull(formValues.metodo),
           regola: isPacchetto ? null : toNull(formValues.regola),
           importo: toNull(formValues.importo),
-          valoreRiferimento: isPacchetto ? null : buildRefString(formValues.refType, formValues.refMin, formValues.refMax, formValues.refSingle),
+          valoreRiferimento: null,
           preparationInstructions: formValues.preparationInstructions.trim(),
           tipo: formValues.tipo,
           componentIds: isPacchetto ? formValues.componentIds : [],
@@ -382,7 +338,7 @@ export function AdminExams() {
           metodo: isPacchetto ? null : toNull(formValues.metodo),
           regola: isPacchetto ? null : toNull(formValues.regola),
           importo: toNull(formValues.importo),
-          valoreRiferimento: isPacchetto ? null : buildRefString(formValues.refType, formValues.refMin, formValues.refMax, formValues.refSingle),
+          valoreRiferimento: null,
           preparationInstructions: formValues.preparationInstructions.trim(),
           tipo: formValues.tipo,
           componentIds: isPacchetto ? formValues.componentIds : [],
