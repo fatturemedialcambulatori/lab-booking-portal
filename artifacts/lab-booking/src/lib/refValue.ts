@@ -198,7 +198,7 @@ export function displayStructuredRange(r: StructuredRefRange): string {
   if (r.tipo === "fasce" && r.fasce?.length) {
     return r.fasce.map((f) => {
       if (f.min != null && f.max != null) return `${f.label}: ${f.min}–${f.max}`;
-      if (f.min != null) return `${f.label}: ≥ ${f.min}`;
+      if (f.min != null) return `${f.label}: > ${f.min}`;
       if (f.max != null) return `${f.label}: < ${f.max}`;
       return f.label;
     }).join(" / ");
@@ -209,9 +209,9 @@ export function displayStructuredRange(r: StructuredRefRange): string {
 /**
  * For fasce: returns the fascia that matches a numeric value, or null if none matches.
  * Matching rules:
- *   - min only → value >= min
- *   - max only → value < max
- *   - min + max → min <= value < max
+ *   - min only → value > min  (strictly greater)
+ *   - max only → value < max  (strictly less)
+ *   - min + max → min <= value <= max  (inclusive on both ends)
  *   - neither → catch-all (always matches)
  * Returns the first matching fascia in order.
  */
@@ -225,9 +225,9 @@ export function matchFascia(r: StructuredRefRange, valueStr: string | null | und
     const hasMax = f.max != null;
     if (!hasMin && !hasMax) return f; // catch-all
     if (hasMin && hasMax) {
-      if (value >= f.min! && value < f.max!) return f;
+      if (value >= f.min! && value <= f.max!) return f;
     } else if (hasMin) {
-      if (value >= f.min!) return f;
+      if (value > f.min!) return f;
     } else {
       if (value < f.max!) return f;
     }
