@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, X, Check, ChevronDown, ChevronUp } from "lucide-react";
-import { describeRangeConditions, displayStructuredRange, type StructuredRefRange, type Fascia } from "@/lib/refValue";
+import { describeRangeConditions, displayStructuredRange, parseMedicalNumber, type StructuredRefRange, type Fascia } from "@/lib/refValue";
 
 type RangeFormState = {
   gender: string;
@@ -83,8 +83,8 @@ function formToBody(f: RangeFormState) {
     ageMax: f.ageMax ? parseInt(f.ageMax) : null,
     statoFisiologico: f.statoFisiologico || null,
     tipo: f.tipo,
-    valoreMin: (isRange && f.valoreMin) || isMin ? parseFloat(f.valoreMin) || null : null,
-    valoreMax: (isRange && f.valoreMax) || isMax ? parseFloat(f.valoreMax) || null : null,
+    valoreMin: (isRange && f.valoreMin) || isMin ? parseMedicalNumber(f.valoreMin) : null,
+    valoreMax: (isRange && f.valoreMax) || isMax ? parseMedicalNumber(f.valoreMax) : null,
     valoriAccettabili: f.tipo === "qualitative" ? f.valoriAccettabili || null : null,
     fasce: f.tipo === "fasce" ? f.fasce : null,
     unita: f.unita || null,
@@ -206,11 +206,11 @@ function RangeForm({
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
             <Label className="text-xs">Valore minimo</Label>
-            <Input className="h-8 text-xs" type="number" step="any" value={value.valoreMin} onChange={(e) => set("valoreMin", e.target.value)} placeholder="es. 70" />
+            <Input className="h-8 text-xs" value={value.valoreMin} onChange={(e) => set("valoreMin", e.target.value)} placeholder="es. 70 o 1/80" />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Valore massimo</Label>
-            <Input className="h-8 text-xs" type="number" step="any" value={value.valoreMax} onChange={(e) => set("valoreMax", e.target.value)} placeholder="es. 100" />
+            <Input className="h-8 text-xs" value={value.valoreMax} onChange={(e) => set("valoreMax", e.target.value)} placeholder="es. 100 o 1/40" />
           </div>
         </div>
       )}
@@ -225,8 +225,6 @@ function RangeForm({
           </Label>
           <Input
             className="h-8 text-xs"
-            type="number"
-            step="any"
             value={value.tipo === "gt" || value.tipo === "gte" ? value.valoreMin : value.valoreMax}
             onChange={(e) => {
               if (value.tipo === "gt" || value.tipo === "gte") {
@@ -235,7 +233,7 @@ function RangeForm({
                 set("valoreMax", e.target.value);
               }
             }}
-            placeholder="es. 0.5"
+            placeholder="es. 0.5 o 1/80"
           />
         </div>
       )}
@@ -299,10 +297,8 @@ function RangeForm({
                       </button>
                       <Input
                         className="h-7 text-xs min-w-0"
-                        type="number"
-                        step="any"
                         value={f.min ?? ""}
-                        onChange={(e) => updateFascia(i, { min: e.target.value ? parseFloat(e.target.value) : null })}
+                        onChange={(e) => updateFascia(i, { min: e.target.value || null })}
                         placeholder="—"
                       />
                     </div>
@@ -320,10 +316,8 @@ function RangeForm({
                       </button>
                       <Input
                         className="h-7 text-xs min-w-0"
-                        type="number"
-                        step="any"
                         value={f.max ?? ""}
-                        onChange={(e) => updateFascia(i, { max: e.target.value ? parseFloat(e.target.value) : null })}
+                        onChange={(e) => updateFascia(i, { max: e.target.value || null })}
                         placeholder="—"
                       />
                     </div>

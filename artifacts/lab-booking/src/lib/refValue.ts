@@ -1,3 +1,19 @@
+// ─── Numeric parser (handles decimals with . or , and fractions like 1/80) ───
+
+export function parseMedicalNumber(val: number | string | null | undefined): number | null {
+  if (val == null) return null;
+  if (typeof val === "number") return isNaN(val) ? null : val;
+  const s = String(val).trim().replace(",", ".");
+  const frac = s.match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)$/);
+  if (frac) {
+    const den = parseFloat(frac[2]);
+    if (den === 0) return null;
+    return parseFloat(frac[1]) / den;
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
 // ─── Legacy (JSON string) ref value ──────────────────────────────────────────
 
 export type RefType = "" | "range" | ">" | "<" | ">=" | "<=";
@@ -99,9 +115,9 @@ export function isOutOfRange(
 
 export type Fascia = {
   label: string;
-  min?: number | null;
+  min?: number | string | null;
   minOp?: ">=" | ">" | null;
-  max?: number | null;
+  max?: number | string | null;
   maxOp?: "<" | "<=" | null;
   color?: string | null;
   nota?: string | null;
@@ -231,11 +247,13 @@ export function matchFascia(r: StructuredRefRange, valueStr: string | null | und
 
     const minOp = f.minOp ?? (hasMin && hasMax ? ">=" : ">");
     const maxOp = f.maxOp ?? "<";
+    const minNum = parseMedicalNumber(f.min);
+    const maxNum = parseMedicalNumber(f.max);
 
     let minOk = true;
     let maxOk = true;
-    if (hasMin) minOk = minOp === ">=" ? value >= f.min! : value > f.min!;
-    if (hasMax) maxOk = maxOp === "<=" ? value <= f.max! : value < f.max!;
+    if (hasMin && minNum != null) minOk = minOp === ">=" ? value >= minNum : value > minNum;
+    if (hasMax && maxNum != null) maxOk = maxOp === "<=" ? value <= maxNum : value < maxNum;
     if (minOk && maxOk) return f;
   }
   return null;
