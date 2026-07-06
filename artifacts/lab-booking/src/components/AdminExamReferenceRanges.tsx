@@ -258,38 +258,80 @@ function RangeForm({
           {value.fasce.length === 0 && (
             <p className="text-xs text-muted-foreground text-center py-2">Nessuna fascia configurata.</p>
           )}
-          {value.fasce.map((f, i) => (
-            <div key={i} className="grid grid-cols-[1fr_80px_80px_90px_24px] gap-1.5 items-end">
-              <div className="space-y-0.5">
-                <Label className="text-[10px] text-muted-foreground">Label</Label>
-                <Input className="h-7 text-xs" value={f.label} onChange={(e) => updateFascia(i, { label: e.target.value })} placeholder="es. Ottimale" />
+          {value.fasce.map((f, i) => {
+            const effectiveMinOp: ">=" | ">" = f.minOp ?? (f.min != null && f.max != null ? ">=" : ">");
+            const effectiveMaxOp: "<" | "<=" = f.maxOp ?? "<";
+            return (
+              <div key={i} className="space-y-1 border border-border/50 rounded-md p-2">
+                <div className="grid grid-cols-[1fr_90px_28px] gap-1.5 items-end">
+                  <div className="space-y-0.5">
+                    <Label className="text-[10px] text-muted-foreground">Label</Label>
+                    <Input className="h-7 text-xs" value={f.label} onChange={(e) => updateFascia(i, { label: e.target.value })} placeholder="es. Ottimale" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-[10px] text-muted-foreground">Colore</Label>
+                    <Select value={f.color ?? "green"} onValueChange={(v) => updateFascia(i, { color: v as Fascia["color"] })}>
+                      <SelectTrigger className="h-7 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COLORI_FASCIA.map((c) => (
+                          <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <button type="button" onClick={() => removeFascia(i)} className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-destructive mb-0.5">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="space-y-0.5">
+                    <Label className="text-[10px] text-muted-foreground">Min</Label>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        title="Clicca per alternare ≥ / >"
+                        onClick={() => updateFascia(i, { minOp: effectiveMinOp === ">=" ? ">" : ">=" })}
+                        className="h-7 px-1.5 font-mono text-xs border border-border rounded bg-muted hover:bg-muted/60 flex-shrink-0 select-none"
+                      >
+                        {effectiveMinOp === ">=" ? "≥" : ">"}
+                      </button>
+                      <Input
+                        className="h-7 text-xs min-w-0"
+                        type="number"
+                        step="any"
+                        value={f.min ?? ""}
+                        onChange={(e) => updateFascia(i, { min: e.target.value ? parseFloat(e.target.value) : null })}
+                        placeholder="—"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-[10px] text-muted-foreground">Max</Label>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        title="Clicca per alternare < / ≤"
+                        onClick={() => updateFascia(i, { maxOp: effectiveMaxOp === "<" ? "<=" : "<" })}
+                        className="h-7 px-1.5 font-mono text-xs border border-border rounded bg-muted hover:bg-muted/60 flex-shrink-0 select-none"
+                      >
+                        {effectiveMaxOp === "<=" ? "≤" : "<"}
+                      </button>
+                      <Input
+                        className="h-7 text-xs min-w-0"
+                        type="number"
+                        step="any"
+                        value={f.max ?? ""}
+                        onChange={(e) => updateFascia(i, { max: e.target.value ? parseFloat(e.target.value) : null })}
+                        placeholder="—"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-0.5">
-                <Label className="text-[10px] text-muted-foreground">Min</Label>
-                <Input className="h-7 text-xs" type="number" step="any" value={f.min ?? ""} onChange={(e) => updateFascia(i, { min: e.target.value ? parseFloat(e.target.value) : null })} placeholder="—" />
-              </div>
-              <div className="space-y-0.5">
-                <Label className="text-[10px] text-muted-foreground">Max</Label>
-                <Input className="h-7 text-xs" type="number" step="any" value={f.max ?? ""} onChange={(e) => updateFascia(i, { max: e.target.value ? parseFloat(e.target.value) : null })} placeholder="—" />
-              </div>
-              <div className="space-y-0.5">
-                <Label className="text-[10px] text-muted-foreground">Colore</Label>
-                <Select value={f.color ?? "green"} onValueChange={(v) => updateFascia(i, { color: v as Fascia["color"] })}>
-                  <SelectTrigger className="h-7 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {COLORI_FASCIA.map((c) => (
-                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <button type="button" onClick={() => removeFascia(i)} className="h-7 w-6 flex items-center justify-center text-muted-foreground hover:text-destructive">
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -435,14 +477,21 @@ export function AdminExamReferenceRanges({
                       </>
                     ) : (
                       <div className="pt-1 space-y-1">
-                        {rTyped.tipo === "fasce" && rTyped.fasce?.map((f, i) => (
-                          <div key={i} className="flex items-center gap-2">
-                            <span className={`text-[10px] font-semibold border rounded-full px-2 py-0.5 ${colorClass(f.color)}`}>{f.label}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {f.min != null && f.max != null ? `${f.min} – ${f.max}` : f.min != null ? `≥ ${f.min}` : f.max != null ? `< ${f.max}` : "—"}
-                            </span>
-                          </div>
-                        ))}
+                        {rTyped.tipo === "fasce" && rTyped.fasce?.map((f, i) => {
+                          const minOp = f.minOp ?? (f.min != null && f.max != null ? ">=" : ">");
+                          const maxOp = f.maxOp ?? "<";
+                          const range = f.min != null && f.max != null
+                            ? `${minOp} ${f.min} e ${maxOp} ${f.max}`
+                            : f.min != null ? `${minOp} ${f.min}`
+                            : f.max != null ? `${maxOp} ${f.max}`
+                            : "—";
+                          return (
+                            <div key={i} className="flex items-center gap-2">
+                              <span className={`text-[10px] font-semibold border rounded-full px-2 py-0.5 ${colorClass(f.color)}`}>{f.label}</span>
+                              <span className="text-xs font-mono text-muted-foreground">{range}</span>
+                            </div>
+                          );
+                        })}
                         {rTyped.note && <p className="text-xs text-muted-foreground italic">{rTyped.note}</p>}
                       </div>
                     )}

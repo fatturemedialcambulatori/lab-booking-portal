@@ -100,7 +100,9 @@ export function isOutOfRange(
 export type Fascia = {
   label: string;
   min?: number | null;
+  minOp?: ">=" | ">" | null;
   max?: number | null;
+  maxOp?: "<" | "<=" | null;
   color?: string | null;
   nota?: string | null;
 };
@@ -197,9 +199,11 @@ export function displayStructuredRange(r: StructuredRefRange): string {
   }
   if (r.tipo === "fasce" && r.fasce?.length) {
     return r.fasce.map((f) => {
-      if (f.min != null && f.max != null) return `${f.label}: ${f.min}–${f.max}`;
-      if (f.min != null) return `${f.label}: > ${f.min}`;
-      if (f.max != null) return `${f.label}: < ${f.max}`;
+      const minOp = f.minOp ?? (f.min != null && f.max != null ? ">=" : ">");
+      const maxOp = f.maxOp ?? "<";
+      if (f.min != null && f.max != null) return `${f.label}: ${minOp} ${f.min} e ${maxOp} ${f.max}`;
+      if (f.min != null) return `${f.label}: ${minOp} ${f.min}`;
+      if (f.max != null) return `${f.label}: ${maxOp} ${f.max}`;
       return f.label;
     }).join(" / ");
   }
@@ -208,10 +212,10 @@ export function displayStructuredRange(r: StructuredRefRange): string {
 
 /**
  * For fasce: returns the fascia that matches a numeric value, or null if none matches.
- * Matching rules:
- *   - min only → value > min  (strictly greater)
- *   - max only → value < max  (strictly less)
- *   - min + max → min <= value <= max  (inclusive on both ends)
+ * Matching rules per fascia (uses minOp/maxOp if set, otherwise sensible defaults):
+ *   - min only: default ">"  (strictly greater)
+ *   - max only: default "<"  (strictly less)
+ *   - min + max: default ">=" for min, "<" for max
  *   - neither → catch-all (always matches)
  * Returns the first matching fascia in order.
  */
@@ -224,13 +228,15 @@ export function matchFascia(r: StructuredRefRange, valueStr: string | null | und
     const hasMin = f.min != null;
     const hasMax = f.max != null;
     if (!hasMin && !hasMax) return f; // catch-all
-    if (hasMin && hasMax) {
-      if (value >= f.min! && value <= f.max!) return f;
-    } else if (hasMin) {
-      if (value > f.min!) return f;
-    } else {
-      if (value < f.max!) return f;
-    }
+
+    const minOp = f.minOp ?? (hasMin && hasMax ? ">=" : ">");
+    const maxOp = f.maxOp ?? "<";
+
+    let minOk = true;
+    let maxOk = true;
+    if (hasMin) minOk = minOp === ">=" ? value >= f.min! : value > f.min!;
+    if (hasMax) maxOk = maxOp === "<=" ? value <= f.max! : value < f.max!;
+    if (minOk && maxOk) return f;
   }
   return null;
 }
