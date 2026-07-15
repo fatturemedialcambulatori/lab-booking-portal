@@ -1,8 +1,18 @@
 import React from "react";
-import { KeyRound, Plus, ShieldCheck, UserCog } from "lucide-react";
+import { KeyRound, Pencil, Plus, ShieldCheck, Trash2, UserCog } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -62,10 +72,13 @@ export function AdminUsers() {
   const [roleDialogOpen, setRoleDialogOpen] = React.useState(false);
   const [accountDialogOpen, setAccountDialogOpen] = React.useState(false);
   const [editingRoleId, setEditingRoleId] = React.useState<string | null>(null);
+  const [editingAccountId, setEditingAccountId] = React.useState<string | null>(null);
+  const [accountDaEliminareId, setAccountDaEliminareId] = React.useState<string | null>(null);
   const [roleForm, setRoleForm] = React.useState<AdminRole>(ruoloVuoto);
   const [accountForm, setAccountForm] = React.useState<AdminAccount>(() =>
     accountVuoto(config.ruoli[0]?.id ?? ""),
   );
+  const accountDaEliminare = config.account.find((account) => account.id === accountDaEliminareId) ?? null;
 
   const salvaConfig = (updater: (corrente: AdminAccessConfig) => AdminAccessConfig) => {
     setConfig((corrente) => {
@@ -108,7 +121,14 @@ export function AdminUsers() {
   };
 
   const apriNuovoAccount = () => {
+    setEditingAccountId(null);
     setAccountForm(accountVuoto(config.ruoli[0]?.id ?? ""));
+    setAccountDialogOpen(true);
+  };
+
+  const apriModificaAccount = (account: AdminAccount) => {
+    setEditingAccountId(account.id);
+    setAccountForm({ ...account });
     setAccountDialogOpen(true);
   };
 
@@ -120,7 +140,7 @@ export function AdminUsers() {
 
     const nuovoAccount: AdminAccount = {
       ...accountForm,
-      id: `account-${slugAccessId(username)}`,
+      id: editingAccountId ?? `account-${slugAccessId(username)}`,
       nome,
       username,
       email: accountForm.email.trim(),
@@ -129,9 +149,21 @@ export function AdminUsers() {
 
     salvaConfig((corrente) => ({
       ...corrente,
-      account: [...corrente.account.filter((item) => item.username !== username), nuovoAccount],
+      account: editingAccountId
+        ? corrente.account.map((item) => (item.id === editingAccountId ? nuovoAccount : item))
+        : [...corrente.account.filter((item) => item.username !== username), nuovoAccount],
     }));
+    setEditingAccountId(null);
     setAccountDialogOpen(false);
+  };
+
+  const eliminaAccount = () => {
+    if (!accountDaEliminare) return;
+    salvaConfig((corrente) => ({
+      ...corrente,
+      account: corrente.account.filter((account) => account.id !== accountDaEliminare.id),
+    }));
+    setAccountDaEliminareId(null);
   };
 
   const togglePermesso = (permesso: PermissionId, checked: boolean) => {
@@ -228,6 +260,7 @@ export function AdminUsers() {
               <TableHead>Username</TableHead>
               <TableHead>Ruolo</TableHead>
               <TableHead>Stato</TableHead>
+              <TableHead className="w-24">Azioni</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -280,6 +313,31 @@ export function AdminUsers() {
                   >
                     {account.stato === "attivo" ? "Attivo" : "Sospeso"}
                   </Button>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => apriModificaAccount(account)}
+                      title="Modifica account"
+                      aria-label={`Modifica ${account.nome}`}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setAccountDaEliminareId(account.id)}
+                      className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      title="Elimina account"
+                      aria-label={`Elimina ${account.nome}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -362,12 +420,20 @@ export function AdminUsers() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
+      <Dialog
+        open={accountDialogOpen}
+        onOpenChange={(open) => {
+          setAccountDialogOpen(open);
+          if (!open) setEditingAccountId(null);
+        }}
+      >
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Nuovo account</DialogTitle>
+            <DialogTitle>{editingAccountId ? "Modifica account" : "Nuovo account"}</DialogTitle>
             <DialogDescription>
-              Crea l'account e associa il ruolo che determina le sezioni visibili.
+              {editingAccountId
+                ? "Aggiorna dati, password, stato e ruolo associato all'account."
+                : "Crea l'account e associa il ruolo che determina le sezioni visibili."}
             </DialogDescription>
           </DialogHeader>
 
@@ -434,11 +500,35 @@ export function AdminUsers() {
               Annulla
             </Button>
             <Button type="button" onClick={salvaAccount}>
-              Crea account
+              {editingAccountId ? "Salva account" : "Crea account"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={Boolean(accountDaEliminare)}
+        onOpenChange={(open) => {
+          if (!open) setAccountDaEliminareId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminare questo account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {accountDaEliminare
+                ? `${accountDaEliminare.nome} non potra piu accedere con username ${accountDaEliminare.username}.`
+                : "L'account selezionato verra eliminato."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction onClick={eliminaAccount} className="bg-destructive text-destructive-foreground">
+              Elimina account
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
