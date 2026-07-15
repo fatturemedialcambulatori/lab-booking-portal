@@ -52,6 +52,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 
 type Prestazione = {
@@ -62,12 +63,28 @@ type Prestazione = {
   attiva: boolean;
 };
 
+type DatiFatturazioneMedico = {
+  intestatario: string;
+  partitaIva: string;
+  codiceFiscale: string;
+  indirizzo: string;
+  cap: string;
+  citta: string;
+  provincia: string;
+  emailFatturazione: string;
+  pec: string;
+  codiceSdi: string;
+  regimeFiscale: string;
+  noteFatturazione: string;
+};
+
 type Medico = {
   id: string;
   nome: string;
   specialita: string;
   agendaAperta: boolean;
   disponibilita: string[];
+  datiFatturazione?: DatiFatturazioneMedico;
 };
 
 type CompensoTipo = "percentuale" | "fisso";
@@ -160,6 +177,21 @@ const dataItaliana = new Intl.DateTimeFormat("it-IT", {
   month: "2-digit",
   year: "numeric",
 });
+
+const DATI_FATTURAZIONE_MEDICO_VUOTI: DatiFatturazioneMedico = {
+  intestatario: "",
+  partitaIva: "",
+  codiceFiscale: "",
+  indirizzo: "",
+  cap: "",
+  citta: "",
+  provincia: "",
+  emailFatturazione: "",
+  pec: "",
+  codiceSdi: "",
+  regimeFiscale: "",
+  noteFatturazione: "",
+};
 
 const formattaData = (data: string) => dataItaliana.format(new Date(`${data}T12:00:00`));
 
@@ -519,6 +551,10 @@ export function AdminSettings() {
 
   const medicoSelezionato = medici.find((medico) => medico.id === selectedMedicoId) ?? medici[0];
   const medicoDaEliminare = medici.find((medico) => medico.id === medicoDaEliminareId) ?? null;
+  const datiFatturazioneMedicoSelezionato: DatiFatturazioneMedico = {
+    ...DATI_FATTURAZIONE_MEDICO_VUOTI,
+    ...medicoSelezionato?.datiFatturazione,
+  };
 
   const prestazioniDelMedico = React.useMemo(() => {
     if (!medicoSelezionato) return [];
@@ -673,6 +709,7 @@ export function AdminSettings() {
         specialita: specialitaMedico,
         agendaAperta: true,
         disponibilita: [],
+        datiFatturazione: DATI_FATTURAZIONE_MEDICO_VUOTI,
       },
     ]);
     setSelectedMedicoId(id);
@@ -713,6 +750,27 @@ export function AdminSettings() {
         const prestazione = prestazioni.find((item) => item.id === listino.prestazioneId);
         return prestazione ? stessaSpecialita(prestazione.specialita, nuovaSpecialitaMedico) : false;
       }),
+    );
+  };
+
+  const aggiornaDatiFatturazioneMedico = <K extends keyof DatiFatturazioneMedico>(
+    id: string,
+    campo: K,
+    valore: DatiFatturazioneMedico[K],
+  ) => {
+    setMedici((correnti) =>
+      correnti.map((medico) =>
+        medico.id === id
+          ? {
+              ...medico,
+              datiFatturazione: {
+                ...DATI_FATTURAZIONE_MEDICO_VUOTI,
+                ...medico.datiFatturazione,
+                [campo]: valore,
+              },
+            }
+          : medico,
+      ),
     );
   };
 
@@ -1240,13 +1298,32 @@ export function AdminSettings() {
         attiva: configurazione?.attiva ?? true,
       };
     });
-    const listaMedici = medici.map((medico) => ({
-      id: medico.id,
-      nome: medico.nome,
-      specialita: medico.specialita,
-      agendaAperta: medico.agendaAperta,
-      disponibilita: medico.disponibilita.join(", "),
-    }));
+    const listaMedici = medici.map((medico) => {
+      const datiFatturazione = {
+        ...DATI_FATTURAZIONE_MEDICO_VUOTI,
+        ...medico.datiFatturazione,
+      };
+
+      return {
+        id: medico.id,
+        nome: medico.nome,
+        specialita: medico.specialita,
+        agendaAperta: medico.agendaAperta,
+        disponibilita: medico.disponibilita.join(", "),
+        intestatarioFatturazione: datiFatturazione.intestatario,
+        partitaIva: datiFatturazione.partitaIva,
+        codiceFiscale: datiFatturazione.codiceFiscale,
+        indirizzoFatturazione: datiFatturazione.indirizzo,
+        cap: datiFatturazione.cap,
+        citta: datiFatturazione.citta,
+        provincia: datiFatturazione.provincia,
+        emailFatturazione: datiFatturazione.emailFatturazione,
+        pec: datiFatturazione.pec,
+        codiceSdi: datiFatturazione.codiceSdi,
+        regimeFiscale: datiFatturazione.regimeFiscale,
+        noteFatturazione: datiFatturazione.noteFatturazione,
+      };
+    });
     const listaPrestazioni = prestazioni.map((prestazione) => ({
       id: prestazione.id,
       nome: prestazione.nome,
@@ -1320,7 +1397,7 @@ export function AdminSettings() {
 
     const prossimiMedici = righeMedici
       ? righeMedici
-          .map((row, index) => {
+          .map((row, index): Medico | null => {
             const nome = leggiTesto(row, ["nome", "medico"]);
             if (!nome) return null;
             const disponibilita = leggiTesto(row, ["disponibilita", "disponibilità", "giorni"])
@@ -1333,6 +1410,29 @@ export function AdminSettings() {
               specialita: leggiTesto(row, ["specialita", "specialità"], "Generale"),
               agendaAperta: leggiBooleano(row, ["agendaAperta", "agenda aperta", "agenda"], true),
               disponibilita,
+              datiFatturazione: {
+                intestatario: leggiTesto(
+                  row,
+                  ["intestatarioFatturazione", "intestatario fatturazione", "ragione sociale", "intestatario"],
+                ),
+                partitaIva: leggiTesto(row, ["partitaIva", "partita iva", "p iva", "p.iva", "iva"]),
+                codiceFiscale: leggiTesto(row, ["codiceFiscale", "codice fiscale", "cf"]),
+                indirizzo: leggiTesto(row, ["indirizzoFatturazione", "indirizzo fatturazione", "indirizzo"]),
+                cap: leggiTesto(row, ["cap"]),
+                citta: leggiTesto(row, ["citta", "città", "comune"]),
+                provincia: leggiTesto(row, ["provincia", "prov"]),
+                emailFatturazione: leggiTesto(
+                  row,
+                  ["emailFatturazione", "email fatturazione", "email"],
+                ),
+                pec: leggiTesto(row, ["pec"]),
+                codiceSdi: leggiTesto(row, ["codiceSdi", "codice sdi", "sdi"]),
+                regimeFiscale: leggiTesto(row, ["regimeFiscale", "regime fiscale", "regime"]),
+                noteFatturazione: leggiTesto(
+                  row,
+                  ["noteFatturazione", "note fatturazione", "note"],
+                ),
+              },
             } satisfies Medico;
           })
           .filter((item): item is Medico => Boolean(item))
@@ -1956,6 +2056,166 @@ export function AdminSettings() {
                           </SelectContent>
                         </Select>
                       </Field>
+                    </div>
+
+                    <div className="mt-5 rounded-md border border-border bg-muted/20 p-4">
+                      <div className="mb-4">
+                        <h4 className="text-sm font-semibold text-foreground">Dati fatturazione</h4>
+                        <p className="text-xs text-muted-foreground">
+                          Profilo fiscale del medico per documenti e pagamenti.
+                        </p>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        <Field label="Ragione sociale / intestatario">
+                          <Input
+                            value={datiFatturazioneMedicoSelezionato.intestatario}
+                            onChange={(event) =>
+                              aggiornaDatiFatturazioneMedico(
+                                medicoSelezionato.id,
+                                "intestatario",
+                                event.target.value,
+                              )
+                            }
+                            placeholder={medicoSelezionato.nome}
+                          />
+                        </Field>
+                        <Field label="Partita IVA">
+                          <Input
+                            value={datiFatturazioneMedicoSelezionato.partitaIva}
+                            onChange={(event) =>
+                              aggiornaDatiFatturazioneMedico(
+                                medicoSelezionato.id,
+                                "partitaIva",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </Field>
+                        <Field label="Codice fiscale">
+                          <Input
+                            value={datiFatturazioneMedicoSelezionato.codiceFiscale}
+                            onChange={(event) =>
+                              aggiornaDatiFatturazioneMedico(
+                                medicoSelezionato.id,
+                                "codiceFiscale",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </Field>
+                        <Field label="Indirizzo">
+                          <Input
+                            value={datiFatturazioneMedicoSelezionato.indirizzo}
+                            onChange={(event) =>
+                              aggiornaDatiFatturazioneMedico(
+                                medicoSelezionato.id,
+                                "indirizzo",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </Field>
+                        <Field label="CAP">
+                          <Input
+                            value={datiFatturazioneMedicoSelezionato.cap}
+                            onChange={(event) =>
+                              aggiornaDatiFatturazioneMedico(
+                                medicoSelezionato.id,
+                                "cap",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </Field>
+                        <Field label="Citta">
+                          <Input
+                            value={datiFatturazioneMedicoSelezionato.citta}
+                            onChange={(event) =>
+                              aggiornaDatiFatturazioneMedico(
+                                medicoSelezionato.id,
+                                "citta",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </Field>
+                        <Field label="Provincia">
+                          <Input
+                            value={datiFatturazioneMedicoSelezionato.provincia}
+                            onChange={(event) =>
+                              aggiornaDatiFatturazioneMedico(
+                                medicoSelezionato.id,
+                                "provincia",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </Field>
+                        <Field label="Email fatturazione">
+                          <Input
+                            type="email"
+                            value={datiFatturazioneMedicoSelezionato.emailFatturazione}
+                            onChange={(event) =>
+                              aggiornaDatiFatturazioneMedico(
+                                medicoSelezionato.id,
+                                "emailFatturazione",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </Field>
+                        <Field label="PEC">
+                          <Input
+                            type="email"
+                            value={datiFatturazioneMedicoSelezionato.pec}
+                            onChange={(event) =>
+                              aggiornaDatiFatturazioneMedico(
+                                medicoSelezionato.id,
+                                "pec",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </Field>
+                        <Field label="Codice SDI">
+                          <Input
+                            value={datiFatturazioneMedicoSelezionato.codiceSdi}
+                            onChange={(event) =>
+                              aggiornaDatiFatturazioneMedico(
+                                medicoSelezionato.id,
+                                "codiceSdi",
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </Field>
+                        <Field label="Regime fiscale">
+                          <Input
+                            value={datiFatturazioneMedicoSelezionato.regimeFiscale}
+                            onChange={(event) =>
+                              aggiornaDatiFatturazioneMedico(
+                                medicoSelezionato.id,
+                                "regimeFiscale",
+                                event.target.value,
+                              )
+                            }
+                            placeholder="Es. forfettario, ordinario"
+                          />
+                        </Field>
+                        <Field label="Note fatturazione">
+                          <Textarea
+                            value={datiFatturazioneMedicoSelezionato.noteFatturazione}
+                            onChange={(event) =>
+                              aggiornaDatiFatturazioneMedico(
+                                medicoSelezionato.id,
+                                "noteFatturazione",
+                                event.target.value,
+                              )
+                            }
+                            className="min-h-10 resize-y xl:col-span-1"
+                          />
+                        </Field>
+                      </div>
                     </div>
 
                     <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
