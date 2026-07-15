@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
   CalendarDays,
+  Car,
   FlaskConical,
   LogOut,
   Settings,
@@ -20,6 +21,7 @@ import { AdminAnagrafiche } from "./AdminAnagrafiche";
 import { AdminBookingCalendar } from "./AdminBookingCalendar";
 import { AdminSettings } from "./AdminSettings";
 import { AdminUsers } from "./AdminUsers";
+import { AdminInfortunistica } from "./AdminInfortunistica";
 import {
   getRoleById,
   readAdminAccessConfig,
@@ -67,7 +69,14 @@ export default function Admin() {
   );
 }
 
-type TabId = "prenotazioni" | "accettazione" | "listino" | "anagrafiche" | "impostazioni" | "utenti";
+type TabId =
+  | "prenotazioni"
+  | "accettazione"
+  | "listino"
+  | "anagrafiche"
+  | "infortunistica"
+  | "impostazioni"
+  | "utenti";
 type AreaId = "laboratorio" | "ambulatorio";
 
 type MenuItem = {
@@ -95,6 +104,7 @@ const AMBULATORIO_ITEMS: MenuItem[] = WORKFLOW_ITEMS.map((item) =>
 );
 
 const ANAGRAFICHE_ITEM: MenuItem = { id: "anagrafiche", label: "Anagrafiche", Icon: Users };
+const INFORTUNISTICA_ITEM: MenuItem = { id: "infortunistica", label: "Infortunistica stradale", Icon: Car };
 const SETTINGS_ITEM: MenuItem = { id: "impostazioni", label: "Impostazioni", Icon: Settings };
 const UTENTI_ITEM: MenuItem = { id: "utenti", label: "Utenti", Icon: KeyRound };
 
@@ -127,6 +137,7 @@ const permessoVoce = (area: AreaId, tab: TabId): PermissionId | null => {
     if (tab === "listino") return "ambulatorio.prestazioni";
   }
   if (tab === "anagrafiche") return "anagrafiche";
+  if (tab === "infortunistica") return "infortunistica";
   if (tab === "impostazioni") return "impostazioni";
   if (tab === "utenti") return "utenti";
   return null;
@@ -169,6 +180,7 @@ function AdminDashboard({
     const firstGroup = visibleMenuGroups[0];
     if (firstGroup?.items[0]) return { area: firstGroup.id, tab: firstGroup.items[0].id };
     if (can("anagrafiche")) return { area: activeArea, tab: "anagrafiche" as TabId };
+    if (can("infortunistica")) return { area: activeArea, tab: "infortunistica" as TabId };
     if (can("impostazioni")) return { area: activeArea, tab: "impostazioni" as TabId };
     if (can("utenti")) return { area: activeArea, tab: "utenti" as TabId };
     return null;
@@ -178,6 +190,7 @@ function AdminDashboard({
     const permission = permessoVoce(activeArea, activeTab);
     if (permission && can(permission)) return;
     if (!permission && activeTab === "anagrafiche" && can("anagrafiche")) return;
+    if (!permission && activeTab === "infortunistica" && can("infortunistica")) return;
     if (!permission && activeTab === "impostazioni" && can("impostazioni")) return;
     if (!permission && activeTab === "utenti" && can("utenti")) return;
     if (!firstAllowedTarget) return;
@@ -187,11 +200,17 @@ function AdminDashboard({
 
   const activeGroup =
     visibleMenuGroups.find((group) => group.id === activeArea) ?? visibleMenuGroups[0] ?? MENU_GROUPS[0];
-  const isAreaScopedTab = activeTab !== "impostazioni" && activeTab !== "anagrafiche" && activeTab !== "utenti";
+  const isAreaScopedTab =
+    activeTab !== "impostazioni" &&
+    activeTab !== "anagrafiche" &&
+    activeTab !== "infortunistica" &&
+    activeTab !== "utenti";
   const activeItem = activeTab === "impostazioni"
     ? SETTINGS_ITEM
     : activeTab === "utenti"
       ? UTENTI_ITEM
+    : activeTab === "infortunistica"
+      ? INFORTUNISTICA_ITEM
     : activeTab === "anagrafiche"
       ? ANAGRAFICHE_ITEM
       : activeGroup.items.find((item) => item.id === activeTab) ?? activeGroup.items[0];
@@ -199,6 +218,8 @@ function AdminDashboard({
     ? "Segreteria"
     : activeTab === "utenti"
       ? "Segreteria"
+    : activeTab === "infortunistica"
+      ? "Studio"
     : activeTab === "anagrafiche"
       ? "Studio"
       : activeGroup.label;
@@ -291,6 +312,21 @@ function AdminDashboard({
                 <span>Anagrafiche</span>
               </button>
             )}
+            {can("infortunistica") && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("infortunistica")}
+                aria-current={activeTab === "infortunistica" ? "page" : undefined}
+                className={`mb-2 flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
+                  activeTab === "infortunistica"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <Car className="h-4 w-4 shrink-0" />
+                <span>Infortunistica stradale</span>
+              </button>
+            )}
             {(can("impostazioni") || can("utenti")) && (
               <div className="mb-4 space-y-2">
                 {can("impostazioni") && (
@@ -367,6 +403,8 @@ function AdminDashboard({
             {activeTab === "accettazione" && <AccettazionePaziente role={role} />}
 
             {activeTab === "anagrafiche" && <AdminAnagrafiche />}
+
+            {activeTab === "infortunistica" && <AdminInfortunistica />}
 
             {activeTab === "impostazioni" && <AdminSettings />}
 

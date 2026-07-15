@@ -6,6 +6,7 @@ export type PermissionId =
   | "ambulatorio.agenda"
   | "ambulatorio.prestazioni"
   | "anagrafiche"
+  | "infortunistica"
   | "impostazioni"
   | "utenti";
 
@@ -57,6 +58,7 @@ export const PERMESSI_GRUPPI: Array<{
     titolo: "Studio",
     permessi: [
       { id: "anagrafiche", label: "Anagrafiche" },
+      { id: "infortunistica", label: "Infortunistica stradale" },
       { id: "impostazioni", label: "Impostazioni" },
       { id: "utenti", label: "Utenti e permessi" },
     ],
@@ -91,13 +93,13 @@ const DEFAULT_ACCESS_CONFIG: AdminAccessConfig = {
       id: "avvocato",
       nome: "Avvocato",
       descrizione: "Consultazione anagrafiche e dati essenziali.",
-      permessi: ["anagrafiche"],
+      permessi: ["anagrafiche", "infortunistica"],
     },
     {
       id: "amministrazione",
       nome: "Amministrazione",
       descrizione: "Gestione amministrativa e impostazioni.",
-      permessi: ["anagrafiche", "impostazioni"],
+      permessi: ["anagrafiche", "infortunistica", "impostazioni"],
     },
     {
       id: "admin",
@@ -142,7 +144,15 @@ export const slugAccessId = (value: string, fallback = Date.now()) => {
 const mergeDefaultRuoli = (config: AdminAccessConfig): AdminAccessConfig => {
   const ruoli = [...config.ruoli];
   DEFAULT_ACCESS_CONFIG.ruoli.forEach((ruoloDefault) => {
-    if (!ruoli.some((ruolo) => ruolo.id === ruoloDefault.id)) ruoli.push(ruoloDefault);
+    const existingIndex = ruoli.findIndex((ruolo) => ruolo.id === ruoloDefault.id);
+    if (existingIndex === -1) {
+      ruoli.push(ruoloDefault);
+      return;
+    }
+    ruoli[existingIndex] = {
+      ...ruoli[existingIndex],
+      permessi: Array.from(new Set([...ruoli[existingIndex].permessi, ...ruoloDefault.permessi])),
+    };
   });
   return { ...config, ruoli };
 };

@@ -8,3 +8,6 @@ change.
 
 Frontend account-management changes should include a small project-root change
 when the Vercel project is configured with this directory as its root.
+
+Frontend infortunistica changes also need this root marker updated for Vercel's
+affected-project detection.
