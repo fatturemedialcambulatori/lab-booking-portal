@@ -23,3 +23,6 @@ API-root Vercel project rebuilds with the updated frontend bundle.
 
 Latest Supabase Storage certificate upload routes and frontend integration are
 reflected here for the same Vercel affected-project detection.
+
+Latest lawyer-only infortunistica account access changes are reflected here so
+the API-root deployment rebuilds the admin frontend.

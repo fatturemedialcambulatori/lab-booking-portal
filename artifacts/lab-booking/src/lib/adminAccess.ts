@@ -92,8 +92,8 @@ const DEFAULT_ACCESS_CONFIG: AdminAccessConfig = {
     {
       id: "avvocato",
       nome: "Avvocato",
-      descrizione: "Consultazione anagrafiche e dati essenziali.",
-      permessi: ["anagrafiche", "infortunistica"],
+      descrizione: "Accesso limitato ai sinistri, clienti infortunistica e documenti.",
+      permessi: ["infortunistica"],
     },
     {
       id: "amministrazione",
@@ -127,6 +127,15 @@ const DEFAULT_ACCESS_CONFIG: AdminAccessConfig = {
       ruoloId: "laboratorio",
       stato: "attivo",
     },
+    {
+      id: "avvocato",
+      nome: "Avvocato",
+      email: "avvocato@mmedical.local",
+      username: "avvocato",
+      password: "Avvocato!26",
+      ruoloId: "avvocato",
+      stato: "attivo",
+    },
   ],
 };
 
@@ -141,7 +150,7 @@ export const slugAccessId = (value: string, fallback = Date.now()) => {
   return slug || String(fallback);
 };
 
-const mergeDefaultRuoli = (config: AdminAccessConfig): AdminAccessConfig => {
+const mergeDefaultAccessConfig = (config: AdminAccessConfig): AdminAccessConfig => {
   const ruoli = [...config.ruoli];
   DEFAULT_ACCESS_CONFIG.ruoli.forEach((ruoloDefault) => {
     const existingIndex = ruoli.findIndex((ruolo) => ruolo.id === ruoloDefault.id);
@@ -151,10 +160,39 @@ const mergeDefaultRuoli = (config: AdminAccessConfig): AdminAccessConfig => {
     }
     ruoli[existingIndex] = {
       ...ruoli[existingIndex],
-      permessi: Array.from(new Set([...ruoli[existingIndex].permessi, ...ruoloDefault.permessi])),
+      descrizione: ruoloDefault.id === "avvocato" ? ruoloDefault.descrizione : ruoli[existingIndex].descrizione,
+      permessi:
+        ruoloDefault.id === "avvocato"
+          ? ruoloDefault.permessi
+          : Array.from(new Set([...ruoli[existingIndex].permessi, ...ruoloDefault.permessi])),
     };
   });
-  return { ...config, ruoli };
+
+  const account = [...config.account];
+  DEFAULT_ACCESS_CONFIG.account.forEach((accountDefault) => {
+    const existingIndex = account.findIndex(
+      (item) => item.id === accountDefault.id || item.username === accountDefault.username,
+    );
+
+    if (existingIndex === -1) {
+      account.push(accountDefault);
+      return;
+    }
+
+    if (accountDefault.id === "avvocato") {
+      account[existingIndex] = {
+        ...account[existingIndex],
+        nome: accountDefault.nome,
+        email: account[existingIndex].email || accountDefault.email,
+        username: accountDefault.username,
+        password: accountDefault.password,
+        ruoloId: accountDefault.ruoloId,
+        stato: "attivo",
+      };
+    }
+  });
+
+  return { ...config, ruoli, account };
 };
 
 export const readAdminAccessConfig = (): AdminAccessConfig => {
@@ -165,7 +203,7 @@ export const readAdminAccessConfig = (): AdminAccessConfig => {
     if (!raw) return DEFAULT_ACCESS_CONFIG;
     const parsed = JSON.parse(raw) as Partial<AdminAccessConfig>;
     if (!Array.isArray(parsed.ruoli) || !Array.isArray(parsed.account)) return DEFAULT_ACCESS_CONFIG;
-    return mergeDefaultRuoli({ ruoli: parsed.ruoli, account: parsed.account });
+    return mergeDefaultAccessConfig({ ruoli: parsed.ruoli, account: parsed.account });
   } catch {
     return DEFAULT_ACCESS_CONFIG;
   }
