@@ -5,3 +5,4 @@ export * from "./referti";
 export * from "./examComponents";
 export * from "./examReferenceRanges";
 export * from "./adminSettings";
+export * from "./infortunisticaFiles";

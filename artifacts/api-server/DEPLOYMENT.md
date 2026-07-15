@@ -20,3 +20,6 @@ reflected here for Vercel affected-project detection.
 
 Latest doctor price-list searchable dropdown changes are reflected here so the
 API-root Vercel project rebuilds with the updated frontend bundle.
+
+Latest Supabase Storage certificate upload routes and frontend integration are
+reflected here for the same Vercel affected-project detection.

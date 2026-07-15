@@ -8,6 +8,7 @@ import refertiRouter from "./referti";
 import ocrRouter from "./ocr";
 import referenceRangesRouter from "./referenceRanges";
 import adminSettingsRouter from "./adminSettings";
+import infortunisticaRouter from "./infortunistica";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(patientsRouter);
 router.use(refertiRouter);
 router.use(ocrRouter);
 router.use(adminSettingsRouter);
+router.use(infortunisticaRouter);
 
 export default router;

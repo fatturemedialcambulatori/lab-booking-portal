@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
 
 type StatoCertificato = "caricato" | "da-caricare" | "in-scadenza" | "scaduto";
 
@@ -63,7 +64,26 @@ type CertificatoSinistro = {
   stato: StatoCertificato;
   fileName?: string;
   fileUrl?: string;
+  storagePath?: string;
+  contentType?: string;
+  sizeBytes?: number;
+  uploadedAt?: string;
   note: string;
+};
+
+type InfortunisticaState = {
+  clienti: ClienteInfortunistica[];
+  pratiche: PraticaSinistro[];
+  certificati: CertificatoSinistro[];
+};
+
+type CertificatoFileMetadata = {
+  certificatoId: string;
+  storagePath: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
 };
 
 type PeriodoScoperto = {
@@ -230,6 +250,55 @@ const safeFileName = (value: string) =>
 
 const csvCell = (value: string | number | undefined) => `"${String(value ?? "").replace(/"/g, '""')}"`;
 
+const certFileUrl = (certificatoId: string) =>
+  `/api/infortunistica/certificati/${encodeURIComponent(certificatoId)}/file`;
+
+const isInfortunisticaState = (value: unknown): value is InfortunisticaState => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Partial<InfortunisticaState>;
+  return Array.isArray(candidate.clienti) && Array.isArray(candidate.pratiche) && Array.isArray(candidate.certificati);
+};
+
+const isCertificatoFileMetadata = (value: unknown): value is CertificatoFileMetadata => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Partial<CertificatoFileMetadata>;
+  return (
+    typeof candidate.certificatoId === "string" &&
+    typeof candidate.storagePath === "string" &&
+    typeof candidate.fileName === "string" &&
+    typeof candidate.contentType === "string" &&
+    typeof candidate.sizeBytes === "number" &&
+    typeof candidate.uploadedAt === "string"
+  );
+};
+
+const applicaFileMetadata = (
+  certificati: CertificatoSinistro[],
+  files: CertificatoFileMetadata[],
+): CertificatoSinistro[] => {
+  const filesByCertificato = new Map(files.map((file) => [file.certificatoId, file]));
+
+  return certificati.map((certificato) => {
+    const file = filesByCertificato.get(certificato.id);
+    if (!file) {
+      return certificato.storagePath
+        ? { ...certificato, fileUrl: certFileUrl(certificato.id), stato: "caricato" }
+        : certificato;
+    }
+
+    return {
+      ...certificato,
+      fileName: file.fileName,
+      fileUrl: certFileUrl(certificato.id),
+      storagePath: file.storagePath,
+      contentType: file.contentType,
+      sizeBytes: file.sizeBytes,
+      uploadedAt: file.uploadedAt,
+      stato: "caricato",
+    };
+  });
+};
+
 const scaricaBlob = (content: BlobPart, fileName: string, type = "text/plain") => {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -246,6 +315,7 @@ export function AdminInfortunistica() {
   const [clienti, setClienti] = React.useState(CLIENTI_INIZIALI);
   const [pratiche, setPratiche] = React.useState(PRATICHE_INIZIALI);
   const [certificati, setCertificati] = React.useState(CERTIFICATI_INIZIALI);
+  const [persistenzaAttiva, setPersistenzaAttiva] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [selectedClienteId, setSelectedClienteId] = React.useState(CLIENTI_INIZIALI[0]?.id ?? "");
   const [nuovoSinistro, setNuovoSinistro] = React.useState({
@@ -275,6 +345,102 @@ export function AdminInfortunistica() {
     stato: "da-caricare" as StatoCertificato,
     note: "",
   });
+  const saveTimerRef = React.useRef<number | null>(null);
+  const skipFirstSaveRef = React.useRef(true);
+
+  const mostraNotifica = React.useCallback((
+    description: string,
+    variant: "default" | "destructive" = "default",
+  ) => {
+    toast({
+      title: variant === "destructive" ? "Attenzione" : "Notifica",
+      description,
+      variant,
+    });
+  }, []);
+
+  React.useEffect(() => {
+    let active = true;
+
+    const caricaInfortunistica = async () => {
+      try {
+        const [stateResponse, filesResponse] = await Promise.all([
+          fetch("/api/infortunistica-state"),
+          fetch("/api/infortunistica/certificati/files"),
+        ]);
+
+        const stateData: unknown = stateResponse.ok ? await stateResponse.json() : null;
+        const filesData: unknown = filesResponse.ok ? await filesResponse.json() : [];
+
+        if (!active) return;
+
+        const prossimiClienti = isInfortunisticaState(stateData) ? stateData.clienti : CLIENTI_INIZIALI;
+        const prossimePratiche = isInfortunisticaState(stateData) ? stateData.pratiche : PRATICHE_INIZIALI;
+        const prossimiCertificatiBase = isInfortunisticaState(stateData)
+          ? stateData.certificati
+          : CERTIFICATI_INIZIALI;
+        const files = Array.isArray(filesData) ? filesData.filter(isCertificatoFileMetadata) : [];
+        const prossimiCertificati = applicaFileMetadata(prossimiCertificatiBase, files);
+
+        setClienti(prossimiClienti);
+        setPratiche(prossimePratiche);
+        setCertificati(prossimiCertificati);
+        setSelectedClienteId((current) =>
+          prossimiClienti.some((cliente) => cliente.id === current)
+            ? current
+            : prossimiClienti[0]?.id ?? "",
+        );
+      } catch {
+        if (!active) return;
+        mostraNotifica("Infortunistica non collegata al DB. Uso dati temporanei.", "destructive");
+      } finally {
+        if (active) setPersistenzaAttiva(true);
+      }
+    };
+
+    void caricaInfortunistica();
+
+    return () => {
+      active = false;
+    };
+  }, [mostraNotifica]);
+
+  React.useEffect(() => {
+    if (!persistenzaAttiva) return;
+
+    if (skipFirstSaveRef.current) {
+      skipFirstSaveRef.current = false;
+      return;
+    }
+
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+    }
+
+    const payload: InfortunisticaState = {
+      clienti,
+      pratiche,
+      certificati,
+    };
+
+    saveTimerRef.current = window.setTimeout(() => {
+      void fetch("/api/infortunistica-state", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      }).catch(() => {
+        mostraNotifica("Salvataggio infortunistica non riuscito. Verifica Supabase.", "destructive");
+      });
+    }, 700);
+
+    return () => {
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, [certificati, clienti, persistenzaAttiva, pratiche, mostraNotifica]);
 
   const clientiFiltrati = React.useMemo(() => {
     const search = query.trim().toLocaleLowerCase("it-IT");
@@ -366,16 +532,65 @@ export function AdminInfortunistica() {
     );
   };
 
-  const uploadCertificato = (id: string, file: File | undefined) => {
+  const uploadCertificato = async (id: string, file: File | undefined) => {
     if (!file) return;
-    const fileUrl = URL.createObjectURL(file);
-    setCertificati((current) =>
-      current.map((certificato) =>
-        certificato.id === id
-          ? { ...certificato, fileName: file.name, fileUrl, stato: "caricato" }
-          : certificato,
-      ),
-    );
+
+    if (file.size > 50 * 1024 * 1024) {
+      mostraNotifica("File troppo grande: sul piano Free il limite e 50 MB per file.", "destructive");
+      return;
+    }
+
+    const certificato = certificati.find((item) => item.id === id);
+    if (!certificato) return;
+
+    try {
+      const response = await fetch(`/api/infortunistica/certificati/${encodeURIComponent(id)}/file`, {
+        method: "POST",
+        headers: {
+          "Content-Type": file.type || "application/octet-stream",
+          "x-file-name": encodeURIComponent(file.name),
+          "x-cliente-id": certificato.clienteId,
+          "x-pratica-id": certificato.praticaId,
+        },
+        body: file,
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        const message = data && typeof data === "object" && "details" in data
+          ? String(data.details)
+          : "Upload certificato non riuscito.";
+        mostraNotifica(message, "destructive");
+        return;
+      }
+
+      const data: unknown = await response.json();
+      const fileData = isCertificatoFileMetadata(data) ? data : null;
+      const fileUrl =
+        data && typeof data === "object" && "fileUrl" in data && typeof data.fileUrl === "string"
+          ? data.fileUrl
+          : certFileUrl(id);
+
+      setCertificati((current) =>
+        current.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                fileName: fileData?.fileName ?? file.name,
+                fileUrl,
+                storagePath: fileData?.storagePath,
+                contentType: fileData?.contentType ?? file.type,
+                sizeBytes: fileData?.sizeBytes ?? file.size,
+                uploadedAt: fileData?.uploadedAt ?? new Date().toISOString(),
+                stato: "caricato",
+              }
+            : item,
+        ),
+      );
+      mostraNotifica("Certificato caricato su Supabase Storage.");
+    } catch {
+      mostraNotifica("Upload certificato non riuscito. Verifica la configurazione Storage.", "destructive");
+    }
   };
 
   const creaPraticaCliente = () => {
@@ -1124,7 +1339,7 @@ function CertificatiTable({
   certificati: CertificatoSinistro[];
   pratiche: PraticaSinistro[];
   onUpdate: <K extends keyof CertificatoSinistro>(id: string, field: K, value: CertificatoSinistro[K]) => void;
-  onUpload: (id: string, file: File | undefined) => void;
+  onUpload: (id: string, file: File | undefined) => void | Promise<void>;
   onDownload: (certificato: CertificatoSinistro) => void;
   onDownloadAll: () => void;
 }) {
@@ -1257,7 +1472,7 @@ function UploadButton({
   onUpload,
 }: {
   certificato: CertificatoSinistro;
-  onUpload: (id: string, file: File | undefined) => void;
+  onUpload: (id: string, file: File | undefined) => void | Promise<void>;
 }) {
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 

@@ -96,12 +96,51 @@ create table if not exists public.admin_settings (
   updated_at timestamp not null default now()
 );
 
+insert into storage.buckets (
+  id,
+  name,
+  public,
+  file_size_limit,
+  allowed_mime_types
+)
+values (
+  'certificati-infortunistica',
+  'certificati-infortunistica',
+  false,
+  52428800,
+  array[
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  ]::text[]
+)
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+create table if not exists public.infortunistica_certificati_files (
+  certificato_id text primary key,
+  cliente_id text not null,
+  pratica_id text not null,
+  bucket text not null default 'certificati-infortunistica',
+  storage_path text not null,
+  file_name text not null,
+  content_type text not null,
+  size_bytes integer not null,
+  uploaded_at timestamp not null default now()
+);
+
 create index if not exists patients_email_idx on public.patients(email);
 create index if not exists patients_codice_fiscale_idx on public.patients(codice_fiscale);
 create index if not exists bookings_date_idx on public.bookings(date);
 create index if not exists booking_exams_booking_id_idx on public.booking_exams(booking_id);
 create index if not exists referti_booking_id_idx on public.referti(booking_id);
 create index if not exists exam_reference_ranges_exam_id_idx on public.exam_reference_ranges(exam_id);
+create index if not exists infortunistica_certificati_files_cliente_id_idx on public.infortunistica_certificati_files(cliente_id);
+create index if not exists infortunistica_certificati_files_pratica_id_idx on public.infortunistica_certificati_files(pratica_id);
 
 alter table public.patients enable row level security;
 alter table public.exams enable row level security;
@@ -111,6 +150,7 @@ alter table public.referti enable row level security;
 alter table public.exam_components enable row level security;
 alter table public.exam_reference_ranges enable row level security;
 alter table public.admin_settings enable row level security;
+alter table public.infortunistica_certificati_files enable row level security;
 
 revoke all on all tables in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;
