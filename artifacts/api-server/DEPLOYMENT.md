@@ -26,3 +26,9 @@ reflected here for the same Vercel affected-project detection.
 
 Latest lawyer-only infortunistica account access changes are reflected here so
 the API-root deployment rebuilds the admin frontend.
+
+Latest active-only infortunistica practice filtering and delete-practice actions
+are reflected here for Vercel affected-project detection.
+
+Latest patient registry cache invalidation fixes are reflected here so new
+patients appear immediately after saving in the admin frontend.

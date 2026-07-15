@@ -5,6 +5,7 @@ import {
   useUpdateBookingStatus,
   useListPatients,
   useListExams,
+  getListBookingsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -197,7 +198,7 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
       });
       await refetchReferti();
       setSavedIds((s) => new Set([...s, key]));
-      await queryClient.invalidateQueries({ queryKey: ["listBookings"] });
+      await queryClient.invalidateQueries({ queryKey: getListBookingsQueryKey() });
     } finally {
       setSaving(null);
     }

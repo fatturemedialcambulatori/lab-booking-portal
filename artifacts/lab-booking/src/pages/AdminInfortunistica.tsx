@@ -6,6 +6,7 @@ import {
   FileText,
   Plus,
   Search,
+  Trash2,
   Upload,
   UserRound,
 } from "lucide-react";
@@ -50,7 +51,7 @@ type PraticaSinistro = {
   numeroSinistro: string;
   dataSinistro: string;
   referente: string;
-  stato: "aperta" | "in-attesa" | "chiusa";
+  stato: "aperta" | "chiusa";
 };
 
 type CertificatoSinistro = {
@@ -128,7 +129,7 @@ const PRATICHE_INIZIALI: PraticaSinistro[] = [
     numeroSinistro: "GEN-88921",
     dataSinistro: "2026-05-21",
     referente: "Avv. Riccardo Neri",
-    stato: "in-attesa",
+    stato: "chiusa",
   },
   {
     id: "sinistro-003",
@@ -249,6 +250,8 @@ const safeFileName = (value: string) =>
     .replace(/^-+|-+$/g, "") || "certificato";
 
 const csvCell = (value: string | number | undefined) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+const isPraticaAttiva = (pratica: PraticaSinistro) => pratica.stato === "aperta";
 
 const certFileUrl = (certificatoId: string) =>
   `/api/infortunistica/certificati/${encodeURIComponent(certificatoId)}/file`;
@@ -453,18 +456,27 @@ export function AdminInfortunistica() {
   }, [clienti, query]);
 
   const clienteSelezionato = clienti.find((cliente) => cliente.id === selectedClienteId) ?? clienti[0];
+  const praticheAttive = React.useMemo(() => pratiche.filter(isPraticaAttiva), [pratiche]);
+  const praticheAttiveIds = React.useMemo(
+    () => new Set(praticheAttive.map((pratica) => pratica.id)),
+    [praticheAttive],
+  );
   const praticheCliente = React.useMemo(
-    () => pratiche.filter((pratica) => pratica.clienteId === clienteSelezionato?.id),
-    [clienteSelezionato?.id, pratiche],
+    () => praticheAttive.filter((pratica) => pratica.clienteId === clienteSelezionato?.id),
+    [clienteSelezionato?.id, praticheAttive],
+  );
+  const certificatiPraticheAttive = React.useMemo(
+    () => certificati.filter((certificato) => praticheAttiveIds.has(certificato.praticaId)),
+    [certificati, praticheAttiveIds],
   );
   const certificatiCliente = React.useMemo(
-    () => certificati.filter((certificato) => certificato.clienteId === clienteSelezionato?.id),
-    [certificati, clienteSelezionato?.id],
+    () => certificatiPraticheAttive.filter((certificato) => certificato.clienteId === clienteSelezionato?.id),
+    [certificatiPraticheAttive, clienteSelezionato?.id],
   );
 
   const certificatiInScadenza = React.useMemo(
     () =>
-      certificati
+      certificatiPraticheAttive
         .map((certificato) => ({
           certificato,
           cliente: clienti.find((item) => item.id === certificato.clienteId),
@@ -472,33 +484,32 @@ export function AdminInfortunistica() {
           giorni: giorniAllaScadenza(certificato.scadenza),
         }))
         .sort((a, b) => a.giorni - b.giorni),
-    [certificati, clienti, pratiche],
+    [certificatiPraticheAttive, clienti, pratiche],
   );
 
   const periodiScoperti = React.useMemo(
-    () => (clienteSelezionato ? calcolaPeriodiScoperti(praticheCliente, certificati) : []),
-    [certificati, clienteSelezionato, praticheCliente],
+    () => (clienteSelezionato ? calcolaPeriodiScoperti(praticheCliente, certificatiPraticheAttive) : []),
+    [certificatiPraticheAttive, clienteSelezionato, praticheCliente],
   );
   const periodiScopertiGlobali = React.useMemo(
-    () => calcolaPeriodiScoperti(pratiche, certificati),
-    [certificati, pratiche],
+    () => calcolaPeriodiScoperti(praticheAttive, certificatiPraticheAttive),
+    [certificatiPraticheAttive, praticheAttive],
   );
   const sommarioCliente = React.useMemo(
     () => calcolaSommarioMalattie(certificatiCliente, periodiScoperti),
     [certificatiCliente, periodiScoperti],
   );
   const sommarioGlobale = React.useMemo(
-    () => calcolaSommarioMalattie(certificati, periodiScopertiGlobali),
-    [certificati, periodiScopertiGlobali],
+    () => calcolaSommarioMalattie(certificatiPraticheAttive, periodiScopertiGlobali),
+    [certificatiPraticheAttive, periodiScopertiGlobali],
   );
 
   React.useEffect(() => {
-    if (!praticheCliente[0]) return;
     setNuovoCertificato((current) => ({
       ...current,
       praticaId: current.praticaId && praticheCliente.some((pratica) => pratica.id === current.praticaId)
         ? current.praticaId
-        : praticheCliente[0].id,
+        : praticheCliente[0]?.id ?? "",
     }));
   }, [praticheCliente]);
 
@@ -519,6 +530,18 @@ export function AdminInfortunistica() {
   ) => {
     setPratiche((current) =>
       current.map((pratica) => (pratica.id === id ? { ...pratica, [field]: value } : pratica)),
+    );
+  };
+
+  const eliminaPratica = (id: string) => {
+    const pratica = pratiche.find((item) => item.id === id);
+    setPratiche((current) => current.filter((item) => item.id !== id));
+    setCertificati((current) => current.filter((certificato) => certificato.praticaId !== id));
+    setNuovoCertificato((current) => (current.praticaId === id ? { ...current, praticaId: "" } : current));
+    mostraNotifica(
+      pratica
+        ? `Pratica ${pratica.compagnia} ${pratica.numeroSinistro} eliminata.`
+        : "Pratica eliminata.",
     );
   };
 
@@ -606,7 +629,7 @@ export function AdminInfortunistica() {
         numeroSinistro: nuovaPratica.numeroSinistro.trim(),
         dataSinistro: nuovaPratica.dataSinistro || new Date().toISOString().slice(0, 10),
         referente: nuovaPratica.referente.trim(),
-        stato: nuovaPratica.stato,
+        stato: "aperta",
       },
     ]);
     setNuovaPratica({
@@ -882,13 +905,26 @@ export function AdminInfortunistica() {
                 </div>
 
                 <div className="rounded-md border border-border bg-white p-4">
-                  <h3 className="text-sm font-semibold text-foreground">Pratiche e sinistri</h3>
+                  <h3 className="text-sm font-semibold text-foreground">Pratiche attive e sinistri</h3>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    {praticheCliente.map((pratica) => (
+                    {praticheCliente.length > 0 ? praticheCliente.map((pratica) => (
                       <div key={pratica.id} className="rounded-md border border-border bg-muted/20 p-3">
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <p className="text-sm font-semibold text-foreground">Sinistro</p>
-                          <Badge variant="secondary">{pratica.stato}</Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary">Aperta</Badge>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              onClick={() => eliminaPratica(pratica.id)}
+                              title="Elimina pratica"
+                              aria-label={`Elimina pratica ${pratica.numeroSinistro}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                         <div className="grid gap-3 md:grid-cols-2">
                           <Field label="Compagnia">
@@ -922,7 +958,6 @@ export function AdminInfortunistica() {
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="aperta">Aperta</SelectItem>
-                                <SelectItem value="in-attesa">In attesa</SelectItem>
                                 <SelectItem value="chiusa">Chiusa</SelectItem>
                               </SelectContent>
                             </Select>
@@ -937,14 +972,18 @@ export function AdminInfortunistica() {
                           </div>
                         </div>
                       </div>
-                    ))}
+                    )) : (
+                      <div className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground md:col-span-2">
+                        Nessuna pratica attiva per questo cliente.
+                      </div>
+                    )}
                   </div>
                   <div className="mt-4 rounded-md border border-dashed border-border bg-muted/10 p-3">
                     <div className="mb-3 flex items-center gap-2">
                       <Plus className="h-4 w-4 text-primary" />
                       <h4 className="text-sm font-semibold text-foreground">Aggiungi pratica / sinistro</h4>
                     </div>
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <Field label="Compagnia">
                         <Input
                           value={nuovaPratica.compagnia}
@@ -970,30 +1009,13 @@ export function AdminInfortunistica() {
                           }
                         />
                       </Field>
-                      <Field label="Stato">
-                        <Select
-                          value={nuovaPratica.stato}
-                          onValueChange={(value: PraticaSinistro["stato"]) =>
-                            setNuovaPratica((current) => ({ ...current, stato: value }))
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="aperta">Aperta</SelectItem>
-                            <SelectItem value="in-attesa">In attesa</SelectItem>
-                            <SelectItem value="chiusa">Chiusa</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </Field>
                       <div className="flex items-end">
                         <Button type="button" onClick={creaPraticaCliente} className="w-full gap-2">
                           <Plus className="h-4 w-4" />
                           Aggiungi
                         </Button>
                       </div>
-                      <div className="md:col-span-2 xl:col-span-5">
+                      <div className="md:col-span-2 xl:col-span-4">
                         <Field label="Referente / legale">
                           <Input
                             value={nuovaPratica.referente}
@@ -1171,11 +1193,15 @@ export function AdminInfortunistica() {
                 <div>
                   <h2 className="text-lg font-semibold text-foreground">Scadenze certificati</h2>
                   <p className="text-sm text-muted-foreground">
-                    Tutti i certificati ordinati per scadenza, con upload e download rapidi.
+                    Certificati delle pratiche attive ordinati per scadenza, con upload e download rapidi.
                   </p>
                 </div>
               </div>
-              <Button type="button" variant="outline" onClick={() => scaricaCertificati(certificati, "tutti-certificati")}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => scaricaCertificati(certificatiPraticheAttive, "tutti-certificati-attivi")}
+              >
                 <Download className="mr-2 h-4 w-4" />
                 Scarica tutti
               </Button>
@@ -1205,7 +1231,7 @@ export function AdminInfortunistica() {
                         </SelectTrigger>
                         <SelectContent>
                           {pratiche
-                            .filter((item) => item.clienteId === certificato.clienteId)
+                            .filter((item) => item.clienteId === certificato.clienteId && isPraticaAttiva(item))
                             .map((item) => (
                               <SelectItem key={item.id} value={item.id}>
                                 {item.compagnia} · {item.numeroSinistro}
@@ -1371,7 +1397,9 @@ function CertificatiTable({
           </TableHeader>
           <TableBody>
             {certificati.map((certificato) => {
-              const praticheCliente = pratiche.filter((item) => item.clienteId === certificato.clienteId);
+              const praticheCliente = pratiche.filter(
+                (item) => item.clienteId === certificato.clienteId && isPraticaAttiva(item),
+              );
               const giorni = giorniAllaScadenza(certificato.scadenza);
               return (
                 <TableRow key={certificato.id}>

@@ -4,6 +4,8 @@ import {
   useCreatePatient,
   useUpdatePatient,
   useDeletePatient,
+  getListPatientsQueryKey,
+  type Patient,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -60,6 +62,10 @@ function isFormValid(f: PatientForm) {
 
 const today = new Date().toISOString().slice(0, 10);
 
+const byPatientName = (a: Patient, b: Patient) =>
+  a.lastName.localeCompare(b.lastName, "it", { sensitivity: "base" }) ||
+  a.firstName.localeCompare(b.firstName, "it", { sensitivity: "base" });
+
 export function AdminAnagrafiche() {
   const queryClient = useQueryClient();
   const [search, setSearch] = React.useState("");
@@ -92,7 +98,7 @@ export function AdminAnagrafiche() {
     setSaving(true);
     setFormError(null);
     try {
-      await createPatient.mutateAsync({
+      const created = await createPatient.mutateAsync({
         data: {
           firstName: form.firstName.trim(),
           lastName: form.lastName.trim(),
@@ -108,7 +114,10 @@ export function AdminAnagrafiche() {
           billingProvincia: form.billingProvincia.trim() || null,
         },
       });
-      await queryClient.invalidateQueries({ queryKey: ["listPatients"] });
+      queryClient.setQueryData<Patient[]>(getListPatientsQueryKey(), (current) =>
+        current ? [...current, created].sort(byPatientName) : current
+      );
+      await queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
       setShowCreate(false);
     } catch {
       setFormError("Errore durante il salvataggio. Riprova.");
@@ -121,7 +130,7 @@ export function AdminAnagrafiche() {
     setSaving(true);
     setFormError(null);
     try {
-      await updatePatient.mutateAsync({
+      const updated = await updatePatient.mutateAsync({
         id,
         data: {
           firstName: form.firstName.trim(),
@@ -138,7 +147,10 @@ export function AdminAnagrafiche() {
           billingProvincia: form.billingProvincia.trim() || null,
         },
       });
-      await queryClient.invalidateQueries({ queryKey: ["listPatients"] });
+      queryClient.setQueryData<Patient[]>(getListPatientsQueryKey(), (current) =>
+        current ? current.map((patient) => (patient.id === id ? updated : patient)).sort(byPatientName) : current
+      );
+      await queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
       setEditPatient(null);
     } catch {
       setFormError("Errore durante il salvataggio. Riprova.");
@@ -150,7 +162,10 @@ export function AdminAnagrafiche() {
   const handleDelete = async (id: number) => {
     try {
       await deletePatient.mutateAsync({ id });
-      await queryClient.invalidateQueries({ queryKey: ["listPatients"] });
+      queryClient.setQueryData<Patient[]>(getListPatientsQueryKey(), (current) =>
+        current ? current.filter((patient) => patient.id !== id) : current
+      );
+      await queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
       setDeleteConfirmId(null);
     } catch {
       // ignore

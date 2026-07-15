@@ -5,6 +5,8 @@ import {
   useCreateBooking,
   useListExams,
   useListSlots,
+  getListPatientsQueryKey,
+  getListBookingsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -191,7 +193,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
           billingCity: created.billingCity ?? undefined,
           billingProvincia: created.billingProvincia ?? undefined,
         };
-        await queryClient.invalidateQueries({ queryKey: ["listPatients"] });
+        await queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
       }
 
       await createBooking.mutateAsync({
@@ -210,7 +212,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
         },
       });
 
-      await queryClient.invalidateQueries({ queryKey: ["listBookings"] });
+      await queryClient.invalidateQueries({ queryKey: getListBookingsQueryKey() });
       handleClose();
     } catch {
       setError("Errore durante la creazione. Riprova.");

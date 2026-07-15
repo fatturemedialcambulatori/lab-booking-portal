@@ -1,5 +1,12 @@
 import React from "react";
-import { useListBookings, useUpdateBookingStatus, useListPatients, useUpdatePatient, useListExams } from "@workspace/api-client-react";
+import {
+  useListBookings,
+  useUpdateBookingStatus,
+  useListPatients,
+  useUpdatePatient,
+  useListExams,
+  getListPatientsQueryKey,
+} from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, parseISO, isToday, isTomorrow } from "date-fns";
 import { it } from "date-fns/locale";
@@ -491,7 +498,7 @@ function BillingDialog({ visit, onClose }: { visit: Visit; onClose: () => void }
           billingProvincia: form.billingProvincia.trim() || null,
         },
       });
-      await queryClient.invalidateQueries({ queryKey: ["listPatients"] });
+      await queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
       onClose();
     } finally {
       setSaving(false);
