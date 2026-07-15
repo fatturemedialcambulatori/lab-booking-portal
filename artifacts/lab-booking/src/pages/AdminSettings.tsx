@@ -2,6 +2,8 @@ import React from "react";
 import * as XLSX from "xlsx";
 import {
   CalendarDays,
+  Check,
+  ChevronsUpDown,
   Download,
   Euro,
   FileSpreadsheet,
@@ -34,8 +36,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -469,7 +483,7 @@ export function AdminSettings() {
   const [ricercaPrestazioni, setRicercaPrestazioni] = React.useState("");
   const [ricercaPrestazioniApplicata, setRicercaPrestazioniApplicata] = React.useState("");
   const [ricercaPrestazioniMedico, setRicercaPrestazioniMedico] = React.useState("");
-  const [ricercaPrestazioniMedicoApplicata, setRicercaPrestazioniMedicoApplicata] = React.useState("");
+  const [prestazioneListinoOpen, setPrestazioneListinoOpen] = React.useState(false);
   const [nuovaPrestazione, setNuovaPrestazione] = React.useState({
     nome: "",
     specialita: SPECIALITA_INIZIALI[0]?.nome ?? "",
@@ -638,26 +652,49 @@ export function AdminSettings() {
     );
   }, [medicoSelezionato, prestazioni]);
 
-  const prestazioniDelMedicoFiltrate = React.useMemo(
-    () => filtraPrestazioni(prestazioniDelMedico, ricercaPrestazioniMedicoApplicata),
-    [filtraPrestazioni, prestazioniDelMedico, ricercaPrestazioniMedicoApplicata],
+  const listinoMedico = React.useMemo(
+    () =>
+      medicoSelezionato
+        ? listini.filter(
+            (listino) =>
+              listino.medicoId === medicoSelezionato.id &&
+              prestazioniDelMedico.some((prestazione) => prestazione.id === listino.prestazioneId),
+          )
+        : [],
+    [listini, medicoSelezionato, prestazioniDelMedico],
   );
 
-  const listinoMedico = medicoSelezionato
-    ? listini.filter(
-        (listino) =>
-          listino.medicoId === medicoSelezionato.id &&
-          prestazioniDelMedico.some((prestazione) => prestazione.id === listino.prestazioneId),
-      )
-    : [];
+  const prestazioniDisponibiliListino = React.useMemo(() => {
+    const prestazioniGiaInListino = new Set(listinoMedico.map((listino) => listino.prestazioneId));
+    return prestazioniDelMedico.filter((prestazione) => !prestazioniGiaInListino.has(prestazione.id));
+  }, [listinoMedico, prestazioniDelMedico]);
+
+  const prestazioniDisponibiliListinoFiltrate = React.useMemo(
+    () => filtraPrestazioni(prestazioniDisponibiliListino, ricercaPrestazioniMedico),
+    [filtraPrestazioni, prestazioniDisponibiliListino, ricercaPrestazioniMedico],
+  );
+
+  const prestazioneNuovoListino = prestazioniDisponibiliListino.find(
+    (prestazione) => prestazione.id === nuovoListino.prestazioneId,
+  );
 
   React.useEffect(() => {
-    const primaPrestazione = prestazioniDelMedico[0];
-    if (!primaPrestazione) return;
+    const primaPrestazione = prestazioniDisponibiliListino[0];
 
-    const prestazioneAncoraValida = prestazioniDelMedico.some(
+    const prestazioneAncoraValida = prestazioniDisponibiliListino.some(
       (prestazione) => prestazione.id === nuovoListino.prestazioneId,
     );
+
+    if (!primaPrestazione) {
+      if (nuovoListino.prestazioneId) {
+        setNuovoListino((corrente) => ({
+          ...corrente,
+          prestazioneId: "",
+          durata: "30",
+        }));
+      }
+      return;
+    }
 
     if (!prestazioneAncoraValida) {
       setNuovoListino((corrente) => ({
@@ -666,25 +703,10 @@ export function AdminSettings() {
         durata: String(primaPrestazione.durata),
       }));
     }
-  }, [nuovoListino.prestazioneId, prestazioniDelMedico]);
+  }, [nuovoListino.prestazioneId, prestazioniDisponibiliListino]);
 
   const applicaRicercaPrestazioni = () => {
     setRicercaPrestazioniApplicata(ricercaPrestazioni.trim());
-  };
-
-  const applicaRicercaPrestazioniMedico = () => {
-    const ricerca = ricercaPrestazioniMedico.trim();
-    const risultati = filtraPrestazioni(prestazioniDelMedico, ricerca);
-    const primoRisultato = risultati[0];
-    setRicercaPrestazioniMedicoApplicata(ricerca);
-
-    if (primoRisultato && !risultati.some((prestazione) => prestazione.id === nuovoListino.prestazioneId)) {
-      setNuovoListino((corrente) => ({
-        ...corrente,
-        prestazioneId: primoRisultato.id,
-        durata: String(primoRisultato.durata),
-      }));
-    }
   };
 
   const aggiungiSpecialita = () => {
@@ -879,7 +901,7 @@ export function AdminSettings() {
       nuovoListino.compensoTipo === "percentuale"
         ? limitaPercentuale(compensoValoreRaw || 0)
         : Math.max(0, compensoValoreRaw || 0);
-    const prestazioneCompatibile = prestazioniDelMedico.some(
+    const prestazioneCompatibile = prestazioniDisponibiliListino.some(
       (prestazione) => prestazione.id === nuovoListino.prestazioneId,
     );
 
@@ -922,6 +944,8 @@ export function AdminSettings() {
         },
       ];
     });
+    setRicercaPrestazioniMedico("");
+    setPrestazioneListinoOpen(false);
   };
 
   const aggiornaDurataListino = (id: string, durata: number) => {
@@ -2460,60 +2484,69 @@ export function AdminSettings() {
                       </Badge>
                     </div>
 
-                    <div className="mt-4 grid gap-3 rounded-md border border-border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_auto]">
-                      <Field label="Cerca prestazione del medico">
-                        <Input
-                          value={ricercaPrestazioniMedico}
-                          onChange={(event) => setRicercaPrestazioniMedico(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") applicaRicercaPrestazioniMedico();
-                          }}
-                          placeholder={`Cerca tra le prestazioni di ${medicoSelezionato.specialita}`}
-                        />
-                      </Field>
-                      <div className="flex items-end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={applicaRicercaPrestazioniMedico}
-                          className="w-full gap-2"
-                        >
-                          <Search className="h-4 w-4" />
-                          Cerca
-                        </Button>
-                      </div>
-                    </div>
-
                     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(280px,1fr)_120px_140px_180px_150px] 2xl:grid-cols-[minmax(320px,1fr)_120px_140px_190px_150px_auto]">
                       <Field label="Prestazione">
-                        <Select
-                          value={nuovoListino.prestazioneId}
-                          disabled={prestazioniDelMedicoFiltrate.length === 0}
-                          onValueChange={(prestazioneId) =>
-                            setNuovoListino((corrente) => ({
-                              ...corrente,
-                              prestazioneId,
-                              durata: String(durataPrestazione(prestazioneId)),
-                            }))
-                          }
+                        <Popover
+                          open={prestazioneListinoOpen}
+                          onOpenChange={(open) => {
+                            setPrestazioneListinoOpen(open);
+                            if (open) setRicercaPrestazioniMedico("");
+                          }}
                         >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {prestazioniDelMedicoFiltrate.length > 0 ? (
-                              prestazioniDelMedicoFiltrate.map((prestazione) => (
-                                <SelectItem key={prestazione.id} value={prestazione.id}>
-                                  {prestazione.nome}
-                                </SelectItem>
-                              ))
-                            ) : (
-                              <SelectItem value="nessun-risultato" disabled>
-                                Nessuna prestazione trovata
-                              </SelectItem>
-                            )}
-                          </SelectContent>
-                        </Select>
+                          <PopoverTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              role="combobox"
+                              aria-expanded={prestazioneListinoOpen}
+                              disabled={prestazioniDisponibiliListino.length === 0}
+                              className="w-full justify-between font-normal"
+                            >
+                              <span className="truncate">
+                                {prestazioneNuovoListino?.nome ?? "Nessuna prestazione disponibile"}
+                              </span>
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            align="start"
+                            className="p-0"
+                            style={{ width: "var(--radix-popover-trigger-width)" }}
+                          >
+                            <Command shouldFilter={false}>
+                              <CommandInput
+                                value={ricercaPrestazioniMedico}
+                                onValueChange={setRicercaPrestazioniMedico}
+                                placeholder={`Cerca prestazione di ${medicoSelezionato.specialita}`}
+                              />
+                              <CommandList>
+                                <CommandEmpty>Nessuna prestazione trovata</CommandEmpty>
+                                {prestazioniDisponibiliListinoFiltrate.map((prestazione) => (
+                                  <CommandItem
+                                    key={prestazione.id}
+                                    value={`${prestazione.nome} ${prestazione.specialita}`}
+                                    onSelect={() => {
+                                      setNuovoListino((corrente) => ({
+                                        ...corrente,
+                                        prestazioneId: prestazione.id,
+                                        durata: String(prestazione.durata),
+                                      }));
+                                      setPrestazioneListinoOpen(false);
+                                      setRicercaPrestazioniMedico("");
+                                    }}
+                                  >
+                                    <Check
+                                      className={`h-4 w-4 ${
+                                        nuovoListino.prestazioneId === prestazione.id ? "opacity-100" : "opacity-0"
+                                      }`}
+                                    />
+                                    <span className="truncate">{prestazione.nome}</span>
+                                  </CommandItem>
+                                ))}
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
                       </Field>
                       <Field label="Durata">
                         <Input
@@ -2576,7 +2609,7 @@ export function AdminSettings() {
                         <Button
                           type="button"
                           onClick={aggiungiListino}
-                          disabled={prestazioniDelMedicoFiltrate.length === 0}
+                          disabled={!prestazioneNuovoListino}
                           className="w-full gap-2"
                         >
                           <Plus className="h-4 w-4" />

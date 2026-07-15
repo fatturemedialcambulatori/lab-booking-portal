@@ -17,3 +17,6 @@ the API-root project when the frontend admin bundle changes.
 
 Latest infortunistica certificate export and menu placement changes are also
 reflected here for Vercel affected-project detection.
+
+Latest doctor price-list searchable dropdown changes are reflected here so the
+API-root Vercel project rebuilds with the updated frontend bundle.
