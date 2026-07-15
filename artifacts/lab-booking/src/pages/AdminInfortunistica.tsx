@@ -66,6 +66,12 @@ type CertificatoSinistro = {
   note: string;
 };
 
+type PeriodoScoperto = {
+  pratica: PraticaSinistro;
+  dal: string;
+  al: string;
+};
+
 const CLIENTI_INIZIALI: ClienteInfortunistica[] = [
   {
     id: "cliente-rossi",
@@ -168,6 +174,62 @@ const addDays = (date: string, days: number) => {
   return value.toISOString().slice(0, 10);
 };
 
+const giorniInclusivi = (dal: string, al: string) => {
+  const start = new Date(`${dal}T12:00:00`).getTime();
+  const end = new Date(`${al}T12:00:00`).getTime();
+  return Math.max(0, Math.round((end - start) / 86_400_000) + 1);
+};
+
+const certificatoAttivoOggi = (certificato: CertificatoSinistro) => {
+  const today = new Date();
+  const todayTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12).getTime();
+  const start = new Date(`${certificato.emissione}T12:00:00`).getTime();
+  const end = new Date(`${certificato.scadenza}T12:00:00`).getTime();
+  return start <= todayTime && todayTime <= end;
+};
+
+const calcolaPeriodiScoperti = (
+  praticheDaControllare: PraticaSinistro[],
+  certificatiDaControllare: CertificatoSinistro[],
+): PeriodoScoperto[] =>
+  praticheDaControllare.flatMap((pratica) => {
+    const lista = certificatiDaControllare
+      .filter((certificato) => certificato.praticaId === pratica.id)
+      .sort((a, b) => a.emissione.localeCompare(b.emissione));
+
+    return lista.flatMap((certificato, index) => {
+      const prossimo = lista[index + 1];
+      if (!prossimo) return [];
+      const giornoDopoScadenza = addDays(certificato.scadenza, 1);
+      const giornoPrimaProssimaEmissione = addDays(prossimo.emissione, -1);
+      if (giornoDopoScadenza > giornoPrimaProssimaEmissione) return [];
+      return [
+        {
+          pratica,
+          dal: giornoDopoScadenza,
+          al: giornoPrimaProssimaEmissione,
+        },
+      ];
+    });
+  });
+
+const calcolaSommarioMalattie = (certificatiDaControllare: CertificatoSinistro[], periodi: PeriodoScoperto[]) => ({
+  certificati: certificatiDaControllare.length,
+  giorniMalattia: certificatiDaControllare.reduce((sum, certificato) => sum + certificato.prognosiGiorni, 0),
+  malattieAttive: certificatiDaControllare.filter(certificatoAttivoOggi).length,
+  periodiScoperti: periodi.length,
+  giorniScoperti: periodi.reduce((sum, periodo) => sum + giorniInclusivi(periodo.dal, periodo.al), 0),
+});
+
+const safeFileName = (value: string) =>
+  value
+    .trim()
+    .toLocaleLowerCase("it-IT")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "") || "certificato";
+
+const csvCell = (value: string | number | undefined) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+
 const scaricaBlob = (content: BlobPart, fileName: string, type = "text/plain") => {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -247,29 +309,22 @@ export function AdminInfortunistica() {
     [certificati, clienti, pratiche],
   );
 
-  const periodiScoperti = React.useMemo(() => {
-    if (!clienteSelezionato) return [];
-    return praticheCliente.flatMap((pratica) => {
-      const lista = certificati
-        .filter((certificato) => certificato.praticaId === pratica.id)
-        .sort((a, b) => a.emissione.localeCompare(b.emissione));
-
-      return lista.flatMap((certificato, index) => {
-        const prossimo = lista[index + 1];
-        if (!prossimo) return [];
-        const giornoDopoScadenza = addDays(certificato.scadenza, 1);
-        const giornoPrimaProssimaEmissione = addDays(prossimo.emissione, -1);
-        if (giornoDopoScadenza > giornoPrimaProssimaEmissione) return [];
-        return [
-          {
-            pratica,
-            dal: giornoDopoScadenza,
-            al: giornoPrimaProssimaEmissione,
-          },
-        ];
-      });
-    });
-  }, [certificati, clienteSelezionato, praticheCliente]);
+  const periodiScoperti = React.useMemo(
+    () => (clienteSelezionato ? calcolaPeriodiScoperti(praticheCliente, certificati) : []),
+    [certificati, clienteSelezionato, praticheCliente],
+  );
+  const periodiScopertiGlobali = React.useMemo(
+    () => calcolaPeriodiScoperti(pratiche, certificati),
+    [certificati, pratiche],
+  );
+  const sommarioCliente = React.useMemo(
+    () => calcolaSommarioMalattie(certificatiCliente, periodiScoperti),
+    [certificatiCliente, periodiScoperti],
+  );
+  const sommarioGlobale = React.useMemo(
+    () => calcolaSommarioMalattie(certificati, periodiScopertiGlobali),
+    [certificati, periodiScopertiGlobali],
+  );
 
   React.useEffect(() => {
     if (!praticheCliente[0]) return;
@@ -380,7 +435,43 @@ export function AdminInfortunistica() {
     });
   };
 
-  const downloadCertificato = (certificato: CertificatoSinistro) => {
+  const creaIndiceCertificati = (lista: CertificatoSinistro[]) => {
+    const righe = [
+      [
+        "Cliente",
+        "Codice fiscale",
+        "Compagnia",
+        "Numero sinistro",
+        "Tipo certificato",
+        "Emissione",
+        "Prognosi giorni",
+        "Scadenza",
+        "Stato",
+        "File",
+        "Note",
+      ].map(csvCell).join(";"),
+      ...lista.map((certificato) => {
+        const cliente = clienti.find((item) => item.id === certificato.clienteId);
+        const pratica = pratiche.find((item) => item.id === certificato.praticaId);
+        return [
+          cliente?.nome,
+          cliente?.codiceFiscale,
+          pratica?.compagnia,
+          pratica?.numeroSinistro,
+          certificato.tipo,
+          certificato.emissione,
+          certificato.prognosiGiorni,
+          certificato.scadenza,
+          certificato.stato,
+          certificato.fileName ?? "",
+          certificato.note,
+        ].map(csvCell).join(";");
+      }),
+    ];
+    return righe.join("\n");
+  };
+
+  const scaricaCertificatoSingolo = (certificato: CertificatoSinistro) => {
     if (certificato.fileUrl) {
       const link = document.createElement("a");
       link.href = certificato.fileUrl;
@@ -393,8 +484,24 @@ export function AdminInfortunistica() {
 
     scaricaBlob(
       `Tipo: ${certificato.tipo}\nEmissione: ${certificato.emissione}\nScadenza: ${certificato.scadenza}\nNote: ${certificato.note}`,
-      certificato.fileName ?? `${certificato.tipo.toLocaleLowerCase("it-IT").replace(/\s+/g, "-")}.txt`,
+      certificato.fileName ?? `${safeFileName(certificato.tipo)}.txt`,
     );
+  };
+
+  const downloadCertificato = (certificato: CertificatoSinistro) => {
+    scaricaCertificatoSingolo(certificato);
+  };
+
+  const scaricaCertificati = (lista: CertificatoSinistro[], filePrefix: string) => {
+    if (!lista.length) return;
+    scaricaBlob(
+      creaIndiceCertificati(lista),
+      `${safeFileName(filePrefix)}-indice-certificati.csv`,
+      "text/csv;charset=utf-8",
+    );
+    lista.forEach((certificato, index) => {
+      window.setTimeout(() => scaricaCertificatoSingolo(certificato), 220 * (index + 1));
+    });
   };
 
   const creaSinistro = () => {
@@ -447,6 +554,16 @@ export function AdminInfortunistica() {
         <p className="text-sm text-muted-foreground">
           Gestione clienti, sinistri, certificati, scadenze e periodi di malattia scoperti.
         </p>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        <StatBox label="Certificati totali" value={sommarioGlobale.certificati} />
+        <StatBox label="Giorni malattia" value={sommarioGlobale.giorniMalattia} />
+        <StatBox label="Malattie attive" value={sommarioGlobale.malattieAttive} />
+        <StatBox
+          label="Periodi scoperti"
+          value={`${sommarioGlobale.periodiScoperti} / ${sommarioGlobale.giorniScoperti} gg`}
+        />
       </div>
 
       <Tabs defaultValue="clienti" className="space-y-4">
@@ -536,6 +653,17 @@ export function AdminInfortunistica() {
                       />
                     </Field>
                   </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <StatBox label="Certificati" value={sommarioCliente.certificati} compact />
+                  <StatBox label="Giorni malattia" value={sommarioCliente.giorniMalattia} compact />
+                  <StatBox label="Malattie attive" value={sommarioCliente.malattieAttive} compact />
+                  <StatBox
+                    label="Scoperti"
+                    value={`${sommarioCliente.periodiScoperti} / ${sommarioCliente.giorniScoperti} gg`}
+                    compact
+                  />
                 </div>
 
                 <div className="rounded-md border border-border bg-white p-4">
@@ -790,6 +918,9 @@ export function AdminInfortunistica() {
                   onUpdate={aggiornaCertificato}
                   onUpload={uploadCertificato}
                   onDownload={downloadCertificato}
+                  onDownloadAll={() =>
+                    scaricaCertificati(certificatiCliente, `${clienteSelezionato.nome}-certificati`)
+                  }
                 />
 
                 <div className="rounded-md border border-border bg-white p-4">
@@ -817,16 +948,22 @@ export function AdminInfortunistica() {
 
         <TabsContent value="scadenze" className="space-y-4">
           <section className="rounded-md border border-border bg-white p-4">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
-                <CalendarClock className="h-5 w-5" />
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
+                  <CalendarClock className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">Scadenze certificati</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Tutti i certificati ordinati per scadenza, con upload e download rapidi.
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">Scadenze certificati</h2>
-                <p className="text-sm text-muted-foreground">
-                  Tutti i certificati ordinati per scadenza, con upload e download rapidi.
-                </p>
-              </div>
+              <Button type="button" variant="outline" onClick={() => scaricaCertificati(certificati, "tutti-certificati")}>
+                <Download className="mr-2 h-4 w-4" />
+                Scarica tutti
+              </Button>
             </div>
             <Table>
               <TableHeader>
@@ -967,24 +1104,41 @@ export function AdminInfortunistica() {
   );
 }
 
+function StatBox({ label, value, compact = false }: { label: string; value: string | number; compact?: boolean }) {
+  return (
+    <div className={`rounded-md border border-border bg-white ${compact ? "p-3" : "p-4"}`}>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={`${compact ? "mt-1 text-xl" : "mt-2 text-2xl"} font-semibold text-foreground`}>{value}</p>
+    </div>
+  );
+}
+
 function CertificatiTable({
   certificati,
   pratiche,
   onUpdate,
   onUpload,
   onDownload,
+  onDownloadAll,
 }: {
   certificati: CertificatoSinistro[];
   pratiche: PraticaSinistro[];
   onUpdate: <K extends keyof CertificatoSinistro>(id: string, field: K, value: CertificatoSinistro[K]) => void;
   onUpload: (id: string, file: File | undefined) => void;
   onDownload: (certificato: CertificatoSinistro) => void;
+  onDownloadAll: () => void;
 }) {
   return (
     <div className="rounded-md border border-border bg-white p-4">
-      <div className="mb-4 flex items-center gap-2">
-        <FileText className="h-4 w-4 text-primary" />
-        <h3 className="text-sm font-semibold text-foreground">Certificati</h3>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">Certificati</h3>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={onDownloadAll} disabled={certificati.length === 0}>
+          <Download className="mr-2 h-4 w-4" />
+          Scarica certificati
+        </Button>
       </div>
       <div className="overflow-x-auto">
         <Table className="min-w-[1120px]">

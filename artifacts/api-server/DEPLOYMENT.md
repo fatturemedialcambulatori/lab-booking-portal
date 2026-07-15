@@ -14,3 +14,6 @@ affected-project detection.
 
 Latest infortunistica editability changes are reflected here so Vercel rebuilds
 the API-root project when the frontend admin bundle changes.
+
+Latest infortunistica certificate export and menu placement changes are also
+reflected here for Vercel affected-project detection.

@@ -294,6 +294,23 @@ function AdminDashboard({
                 </section>
               );
             })}
+            {can("infortunistica") && (
+              <section className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("infortunistica")}
+                  aria-current={activeTab === "infortunistica" ? "page" : undefined}
+                  className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
+                    activeTab === "infortunistica"
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  <Car className="h-4 w-4 shrink-0" />
+                  <span>Infortunistica stradale</span>
+                </button>
+              </section>
+            )}
           </nav>
 
           <div className="border-t border-border px-5 py-4">
@@ -310,21 +327,6 @@ function AdminDashboard({
               >
                 <Users className="h-4 w-4 shrink-0" />
                 <span>Anagrafiche</span>
-              </button>
-            )}
-            {can("infortunistica") && (
-              <button
-                type="button"
-                onClick={() => setActiveTab("infortunistica")}
-                aria-current={activeTab === "infortunistica" ? "page" : undefined}
-                className={`mb-2 flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
-                  activeTab === "infortunistica"
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <Car className="h-4 w-4 shrink-0" />
-                <span>Infortunistica stradale</span>
               </button>
             )}
             {(can("impostazioni") || can("utenti")) && (
