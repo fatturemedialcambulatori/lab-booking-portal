@@ -11,3 +11,6 @@ when the Vercel project is configured with this directory as its root.
 
 Frontend infortunistica changes also need this root marker updated for Vercel's
 affected-project detection.
+
+Latest infortunistica editability changes are reflected here so Vercel rebuilds
+the API-root project when the frontend admin bundle changes.
