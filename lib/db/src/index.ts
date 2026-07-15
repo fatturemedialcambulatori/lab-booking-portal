@@ -4,7 +4,8 @@ import * as schema from "./schema";
 
 const { Pool } = pg;
 
-const databaseUrl = process.env.DATABASE_URL;
+const rawDatabaseUrl = process.env.DATABASE_URL?.trim();
+const databaseUrl = rawDatabaseUrl?.replace(/^(['"])(.*)\1$/, "$2");
 const poolMax = Number(process.env.DATABASE_POOL_MAX ?? "1");
 
 if (!databaseUrl) {

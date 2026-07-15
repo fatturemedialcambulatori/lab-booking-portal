@@ -5,10 +5,19 @@ import { examsTable } from "@workspace/db";
 
 const router = Router();
 
-const openai = new OpenAI({
-  baseURL: process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"],
-  apiKey: process.env["AI_INTEGRATIONS_OPENAI_API_KEY"],
-});
+let openai: OpenAI | null = null;
+
+function getOpenAIClient() {
+  const apiKey = process.env["AI_INTEGRATIONS_OPENAI_API_KEY"];
+  if (!apiKey) return null;
+
+  openai ??= new OpenAI({
+    baseURL: process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"] || undefined,
+    apiKey,
+  });
+
+  return openai;
+}
 
 router.post("/ocr/prescription", async (req, res) => {
   const { imageBase64, mimeType } = req.body as { imageBase64?: string; mimeType?: string };
@@ -23,6 +32,11 @@ router.post("/ocr/prescription", async (req, res) => {
   }
 
   try {
+    const openaiClient = getOpenAIClient();
+    if (!openaiClient) {
+      return res.status(503).json({ error: "OCR non configurato. Imposta AI_INTEGRATIONS_OPENAI_API_KEY." });
+    }
+
     const exams = await db.select({
       id: examsTable.id,
       codiceAnalisi: examsTable.codiceAnalisi,
@@ -54,7 +68,7 @@ Note importanti:
 - Non inventare abbinamenti incerti: includi solo corrispondenze ragionevoli
 - Rispondi SOLO con il JSON, senza testo aggiuntivo`;
 
-    const response = await openai.chat.completions.create({
+    const response = await openaiClient.chat.completions.create({
       model: "gpt-5-mini",
       max_completion_tokens: 1024,
       messages: [
