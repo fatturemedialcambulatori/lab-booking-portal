@@ -20,6 +20,13 @@ import { AdminAnagrafiche } from "./AdminAnagrafiche";
 import { AdminBookingCalendar } from "./AdminBookingCalendar";
 import { AdminSettings } from "./AdminSettings";
 import { AdminUsers } from "./AdminUsers";
+import {
+  getRoleById,
+  readAdminAccessConfig,
+  roleHasPermission,
+  type AdminAccessConfig,
+  type PermissionId,
+} from "@/lib/adminAccess";
 
 const getStoredRole = () => {
   try {
@@ -31,6 +38,7 @@ const getStoredRole = () => {
 
 export default function Admin() {
   const [, navigate] = useLocation();
+  const [accessConfig] = React.useState(readAdminAccessConfig);
   const [role, setRole] = React.useState<string | null>(getStoredRole);
 
   const handleLogout = () => {
@@ -46,9 +54,17 @@ export default function Admin() {
     return <Login onSuccess={(r) => setRole(r)} />;
   }
 
-  const roleLabel = role === "segreteria" ? "Segreteria" : "Laboratorio";
+  const roleLabel = getRoleById(accessConfig, role)?.nome ?? role;
 
-  return <AdminDashboard role={role} roleLabel={roleLabel} onLogout={handleLogout} navigate={navigate} />;
+  return (
+    <AdminDashboard
+      accessConfig={accessConfig}
+      role={role}
+      roleLabel={roleLabel}
+      onLogout={handleLogout}
+      navigate={navigate}
+    />
+  );
 }
 
 type TabId = "prenotazioni" | "accettazione" | "listino" | "anagrafiche" | "impostazioni" | "utenti";
@@ -99,12 +115,31 @@ const MENU_GROUPS: MenuGroup[] = [
   },
 ];
 
+const permessoVoce = (area: AreaId, tab: TabId): PermissionId | null => {
+  if (area === "laboratorio") {
+    if (tab === "accettazione") return "laboratorio.accettazione";
+    if (tab === "prenotazioni") return "laboratorio.agenda";
+    if (tab === "listino") return "laboratorio.listino";
+  }
+  if (area === "ambulatorio") {
+    if (tab === "accettazione") return "ambulatorio.accettazione";
+    if (tab === "prenotazioni") return "ambulatorio.agenda";
+    if (tab === "listino") return "ambulatorio.prestazioni";
+  }
+  if (tab === "anagrafiche") return "anagrafiche";
+  if (tab === "impostazioni") return "impostazioni";
+  if (tab === "utenti") return "utenti";
+  return null;
+};
+
 function AdminDashboard({
+  accessConfig,
   role,
   roleLabel,
   onLogout,
   navigate,
 }: {
+  accessConfig: AdminAccessConfig;
   role: string;
   roleLabel: string;
   onLogout: () => void;
@@ -112,7 +147,46 @@ function AdminDashboard({
 }) {
   const [activeArea, setActiveArea] = React.useState<AreaId>("laboratorio");
   const [activeTab, setActiveTab] = React.useState<TabId>("accettazione");
-  const activeGroup = MENU_GROUPS.find((group) => group.id === activeArea) ?? MENU_GROUPS[0];
+
+  const can = React.useCallback(
+    (permission: PermissionId) => roleHasPermission(accessConfig, role, permission),
+    [accessConfig, role],
+  );
+
+  const visibleMenuGroups = React.useMemo(
+    () =>
+      MENU_GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter((item) => {
+          const permission = permessoVoce(group.id, item.id);
+          return permission ? can(permission) : false;
+        }),
+      })).filter((group) => group.items.length > 0),
+    [can],
+  );
+
+  const firstAllowedTarget = React.useMemo(() => {
+    const firstGroup = visibleMenuGroups[0];
+    if (firstGroup?.items[0]) return { area: firstGroup.id, tab: firstGroup.items[0].id };
+    if (can("anagrafiche")) return { area: activeArea, tab: "anagrafiche" as TabId };
+    if (can("impostazioni")) return { area: activeArea, tab: "impostazioni" as TabId };
+    if (can("utenti")) return { area: activeArea, tab: "utenti" as TabId };
+    return null;
+  }, [activeArea, can, visibleMenuGroups]);
+
+  React.useEffect(() => {
+    const permission = permessoVoce(activeArea, activeTab);
+    if (permission && can(permission)) return;
+    if (!permission && activeTab === "anagrafiche" && can("anagrafiche")) return;
+    if (!permission && activeTab === "impostazioni" && can("impostazioni")) return;
+    if (!permission && activeTab === "utenti" && can("utenti")) return;
+    if (!firstAllowedTarget) return;
+    setActiveArea(firstAllowedTarget.area);
+    setActiveTab(firstAllowedTarget.tab);
+  }, [activeArea, activeTab, can, firstAllowedTarget]);
+
+  const activeGroup =
+    visibleMenuGroups.find((group) => group.id === activeArea) ?? visibleMenuGroups[0] ?? MENU_GROUPS[0];
   const isAreaScopedTab = activeTab !== "impostazioni" && activeTab !== "anagrafiche" && activeTab !== "utenti";
   const activeItem = activeTab === "impostazioni"
     ? SETTINGS_ITEM
@@ -146,7 +220,7 @@ function AdminDashboard({
           </div>
 
           <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4" aria-label="Menu principale">
-            {MENU_GROUPS.map((group) => {
+            {visibleMenuGroups.map((group) => {
               const GroupIcon = group.Icon;
               const isCurrentGroup = isAreaScopedTab && activeArea === group.id;
 
@@ -202,21 +276,24 @@ function AdminDashboard({
           </nav>
 
           <div className="border-t border-border px-5 py-4">
-            <button
-              type="button"
-              onClick={() => setActiveTab("anagrafiche")}
-              aria-current={activeTab === "anagrafiche" ? "page" : undefined}
-              className={`mb-2 flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
-                activeTab === "anagrafiche"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              <Users className="h-4 w-4 shrink-0" />
-              <span>Anagrafiche</span>
-            </button>
-            {role === "segreteria" && (
+            {can("anagrafiche") && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("anagrafiche")}
+                aria-current={activeTab === "anagrafiche" ? "page" : undefined}
+                className={`mb-2 flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
+                  activeTab === "anagrafiche"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <Users className="h-4 w-4 shrink-0" />
+                <span>Anagrafiche</span>
+              </button>
+            )}
+            {(can("impostazioni") || can("utenti")) && (
               <div className="mb-4 space-y-2">
+                {can("impostazioni") && (
                 <button
                   type="button"
                   onClick={() => setActiveTab("impostazioni")}
@@ -230,6 +307,8 @@ function AdminDashboard({
                   <Settings className="h-4 w-4 shrink-0" />
                   <span>Impostazioni</span>
                 </button>
+                )}
+                {can("utenti") && (
                 <button
                   type="button"
                   onClick={() => setActiveTab("utenti")}
@@ -243,6 +322,7 @@ function AdminDashboard({
                   <KeyRound className="h-4 w-4 shrink-0" />
                   <span>Utenti</span>
                 </button>
+                )}
               </div>
             )}
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Operatore</p>
@@ -278,6 +358,12 @@ function AdminDashboard({
 
         <main className="flex-1 px-4 py-8 sm:px-6">
           <div className="mx-auto max-w-[1600px]">
+            {!firstAllowedTarget && (
+              <div className="rounded-md border border-border bg-white p-6 text-sm text-muted-foreground">
+                Nessuna sezione abilitata per questo ruolo.
+              </div>
+            )}
+
             {activeTab === "accettazione" && <AccettazionePaziente role={role} />}
 
             {activeTab === "anagrafiche" && <AdminAnagrafiche />}

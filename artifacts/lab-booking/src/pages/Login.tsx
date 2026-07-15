@@ -11,17 +11,14 @@ import {
 } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { Lock, Eye, EyeOff } from "lucide-react";
-
-const CREDENTIALS: Record<string, string> = {
-  segreteria: "Corona!20",
-  laboratorio: "Corona!26",
-};
+import { getAccountByUsername, readAdminAccessConfig, getRoleById } from "@/lib/adminAccess";
 
 interface LoginProps {
   onSuccess: (role: string) => void;
 }
 
 export function Login({ onSuccess }: LoginProps) {
+  const [accessConfig] = React.useState(readAdminAccessConfig);
   const [username, setUsername] = React.useState<string>("");
   const [password, setPassword] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
@@ -43,13 +40,15 @@ export function Login({ onSuccess }: LoginProps) {
 
     setLoading(true);
     setTimeout(() => {
-      if (CREDENTIALS[username] === password) {
+      const account = getAccountByUsername(accessConfig, username);
+      if (account && account.stato === "attivo" && account.password === password) {
         try {
-          sessionStorage.setItem("operator_role", username);
+          sessionStorage.setItem("operator_role", account.ruoloId);
+          sessionStorage.setItem("operator_account_username", account.username);
         } catch {
           // Continue with in-memory login if browser storage is unavailable.
         }
-        onSuccess(username);
+        onSuccess(account.ruoloId);
       } else {
         setError("Password non corretta. Riprova.");
         setPassword("");
@@ -78,8 +77,13 @@ export function Login({ onSuccess }: LoginProps) {
                   <SelectValue placeholder="Seleziona utente..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="segreteria">Segreteria</SelectItem>
-                  <SelectItem value="laboratorio">Laboratorio</SelectItem>
+                  {accessConfig.account
+                    .filter((account) => account.stato === "attivo")
+                    .map((account) => (
+                      <SelectItem key={account.id} value={account.username}>
+                        {account.nome} · {getRoleById(accessConfig, account.ruoloId)?.nome ?? "Ruolo"}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>

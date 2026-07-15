@@ -752,6 +752,11 @@ export function AdminSettings() {
     );
   };
 
+  const eliminaPrestazione = (id: string) => {
+    setPrestazioni((correnti) => correnti.filter((prestazione) => prestazione.id !== id));
+    setListini((correnti) => correnti.filter((listino) => listino.prestazioneId !== id));
+  };
+
   const aggiornaDisponibilitaSede = (
     medicoId: string,
     sedeId: SedeMedicoId,
@@ -1788,6 +1793,7 @@ export function AdminSettings() {
                             <TableHead>Prestazione</TableHead>
                             <TableHead>Durata base</TableHead>
                             <TableHead>Attiva</TableHead>
+                            <TableHead className="w-16">Azioni</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1819,6 +1825,19 @@ export function AdminSettings() {
                                     aggiornaPrestazione(prestazione.id, "attiva", Boolean(checked))
                                   }
                                 />
+                              </TableCell>
+                              <TableCell className="w-16">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => eliminaPrestazione(prestazione.id)}
+                                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  aria-label={`Elimina ${prestazione.nome}`}
+                                  title="Elimina prestazione"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -1917,6 +1936,7 @@ export function AdminSettings() {
                   <TableHead>Specialita</TableHead>
                   <TableHead>Durata base</TableHead>
                   <TableHead>Attiva</TableHead>
+                  <TableHead className="w-16">Azioni</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1965,11 +1985,24 @@ export function AdminSettings() {
                           }
                         />
                       </TableCell>
+                      <TableCell className="w-16">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => eliminaPrestazione(prestazione.id)}
+                          className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          aria-label={`Elimina ${prestazione.nome}`}
+                          title="Elimina prestazione"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
                       Nessuna prestazione trovata.
                     </TableCell>
                   </TableRow>
