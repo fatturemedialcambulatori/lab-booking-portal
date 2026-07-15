@@ -10,6 +10,7 @@ out-tsc
 
 # dependencies
 node_modules
+.pnpm-store/
 
 # IDEs and editors
 /.idea
@@ -28,6 +29,9 @@ node_modules
 !.vscode/extensions.json
 
 # misc
+/.env
+/.env.*
+!/.env.example
 /.sass-cache
 /connect.lock
 /coverage

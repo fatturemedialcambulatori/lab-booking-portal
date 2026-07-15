@@ -1,43 +1,25 @@
 import React from "react";
-import { useListBookings } from "@workspace/api-client-react";
-import { format, parseISO } from "date-fns";
-import { it } from "date-fns/locale";
 import { useLocation } from "wouter";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft,
-  RefreshCw,
   CalendarDays,
   FlaskConical,
-  User,
-  Phone,
   LogOut,
+  Settings,
+  Stethoscope,
   UserCheck,
-  CheckCircle2,
-  Clock,
+  KeyRound,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 import { Login } from "./Login";
 import { AdminExams } from "./AdminExams";
 import { AccettazionePaziente } from "./AccettazionePaziente";
 import { AdminAnagrafiche } from "./AdminAnagrafiche";
-
-function StatusBadge({ status }: { status: string }) {
-  switch (status) {
-    case "confirmed":
-      return <Badge className="bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100">Confermata</Badge>;
-    case "accepted":
-      return <Badge className="bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100 gap-1"><UserCheck className="h-3 w-3" />Accettata</Badge>;
-    case "completed":
-      return <Badge className="bg-green-100 text-green-700 border-green-200 hover:bg-green-100 gap-1"><CheckCircle2 className="h-3 w-3" />Completata</Badge>;
-    case "cancelled":
-      return <Badge variant="destructive">Annullata</Badge>;
-    default:
-      return <Badge variant="secondary">In attesa</Badge>;
-  }
-}
+import { AdminBookingCalendar } from "./AdminBookingCalendar";
+import { AdminSettings } from "./AdminSettings";
+import { AdminUsers } from "./AdminUsers";
 
 export default function Admin() {
   const [, navigate] = useLocation();
@@ -59,13 +41,52 @@ export default function Admin() {
   return <AdminDashboard role={role} roleLabel={roleLabel} onLogout={handleLogout} navigate={navigate} />;
 }
 
-type TabId = "prenotazioni" | "accettazione" | "listino" | "anagrafiche";
+type TabId = "prenotazioni" | "accettazione" | "listino" | "anagrafiche" | "impostazioni" | "utenti";
+type AreaId = "laboratorio" | "ambulatorio";
 
-const ALL_TABS: { id: TabId; label: string; icon: React.ReactNode; roles: string[] }[] = [
-  { id: "accettazione", label: "Accettazione", icon: <UserCheck className="h-3.5 w-3.5" />, roles: ["segreteria", "laboratorio"] },
-  { id: "prenotazioni", label: "Prenotazioni", icon: <CalendarDays className="h-3.5 w-3.5" />, roles: ["segreteria"] },
-  { id: "anagrafiche", label: "Anagrafiche", icon: <Users className="h-3.5 w-3.5" />, roles: ["segreteria"] },
-  { id: "listino", label: "Listino Esami", icon: <FlaskConical className="h-3.5 w-3.5" />, roles: ["segreteria", "laboratorio"] },
+type MenuItem = {
+  id: TabId;
+  label: string;
+  Icon: LucideIcon;
+};
+
+type MenuGroup = {
+  id: AreaId;
+  label: string;
+  subtitle: string;
+  Icon: LucideIcon;
+  items: MenuItem[];
+};
+
+const WORKFLOW_ITEMS: MenuItem[] = [
+  { id: "accettazione", label: "Accettazione", Icon: UserCheck },
+  { id: "prenotazioni", label: "Agenda", Icon: CalendarDays },
+  { id: "listino", label: "Listino Esami", Icon: FlaskConical },
+];
+
+const AMBULATORIO_ITEMS: MenuItem[] = WORKFLOW_ITEMS.map((item) =>
+  item.id === "listino" ? { ...item, label: "Prestazioni", Icon: Stethoscope } : item,
+);
+
+const ANAGRAFICHE_ITEM: MenuItem = { id: "anagrafiche", label: "Anagrafiche", Icon: Users };
+const SETTINGS_ITEM: MenuItem = { id: "impostazioni", label: "Impostazioni", Icon: Settings };
+const UTENTI_ITEM: MenuItem = { id: "utenti", label: "Utenti", Icon: KeyRound };
+
+const MENU_GROUPS: MenuGroup[] = [
+  {
+    id: "laboratorio",
+    label: "Laboratorio",
+    subtitle: "Analisi e referti",
+    Icon: FlaskConical,
+    items: WORKFLOW_ITEMS,
+  },
+  {
+    id: "ambulatorio",
+    label: "Ambulatorio",
+    subtitle: "Visite e prestazioni",
+    Icon: UserCheck,
+    items: AMBULATORIO_ITEMS,
+  },
 ];
 
 function AdminDashboard({
@@ -79,219 +100,200 @@ function AdminDashboard({
   onLogout: () => void;
   navigate: (path: string) => void;
 }) {
-  const TABS = ALL_TABS.filter((t) => t.roles.includes(role));
+  const [activeArea, setActiveArea] = React.useState<AreaId>("laboratorio");
   const [activeTab, setActiveTab] = React.useState<TabId>("accettazione");
-  const { data: bookings, isLoading, error, refetch, isFetching } = useListBookings();
-
-  const today = format(new Date(), "yyyy-MM-dd");
-  const todayBookings = bookings?.filter((b) => b.date === today) ?? [];
-  const upcomingBookings = bookings?.filter((b) => b.date > today) ?? [];
-  const pastBookings = bookings?.filter((b) => b.date < today) ?? [];
+  const activeGroup = MENU_GROUPS.find((group) => group.id === activeArea) ?? MENU_GROUPS[0];
+  const isAreaScopedTab = activeTab !== "impostazioni" && activeTab !== "anagrafiche" && activeTab !== "utenti";
+  const activeItem = activeTab === "impostazioni"
+    ? SETTINGS_ITEM
+    : activeTab === "utenti"
+      ? UTENTI_ITEM
+    : activeTab === "anagrafiche"
+      ? ANAGRAFICHE_ITEM
+      : activeGroup.items.find((item) => item.id === activeTab) ?? activeGroup.items[0];
+  const activeSectionLabel = activeTab === "impostazioni"
+    ? "Segreteria"
+    : activeTab === "utenti"
+      ? "Segreteria"
+    : activeTab === "anagrafiche"
+      ? "Studio"
+      : activeGroup.label;
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
-      <header className="bg-white border-b border-border sticky top-0 z-10 shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 bg-primary rounded flex items-center justify-center">
-              <span className="text-white font-bold text-lg leading-none">+</span>
-            </div>
-            <div>
-              <span className="font-semibold text-lg text-primary leading-none">LabMedica</span>
-              <span className="text-xs text-muted-foreground block leading-none mt-0.5">Pannello {roleLabel}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {activeTab === "prenotazioni" && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => refetch()}
-                disabled={isFetching}
-                className="gap-2"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-                Aggiorna
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="gap-2 hidden sm:flex">
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Portale pazienti
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onLogout} className="gap-2 text-muted-foreground hover:text-destructive">
-              <LogOut className="h-3.5 w-3.5" />
-              Esci
-            </Button>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 flex gap-0.5 border-t border-border/50">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === tab.id
-                  ? "border-primary text-primary bg-primary/5"
-                  : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40"
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </header>
-
-      <main className="flex-1 py-8 px-4 sm:px-6">
-        <div className="max-w-5xl mx-auto">
-
-          {activeTab === "accettazione" && <AccettazionePaziente role={role} />}
-
-          {activeTab === "anagrafiche" && <AdminAnagrafiche />}
-
-          {activeTab === "prenotazioni" && (
-            <div className="space-y-8">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Gestione Prenotazioni</h1>
-                <p className="text-muted-foreground text-sm">Visualizza tutte le prenotazioni del laboratorio.</p>
+    <div className="min-h-screen bg-background text-foreground lg:flex">
+      <aside className="bg-white border-b border-border lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:shrink-0 lg:border-b-0 lg:border-r">
+        <div className="flex h-full flex-col">
+          <div className="border-b border-border px-5 py-5">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-md bg-primary flex items-center justify-center">
+                <span className="text-white font-bold text-xl leading-none">+</span>
               </div>
+              <div className="min-w-0">
+                <span className="block text-lg font-semibold leading-none text-primary">M Medical</span>
+                <span className="mt-1 block text-xs text-muted-foreground">Gestionale operativo</span>
+              </div>
+            </div>
+          </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {[
-                  { label: "Totale", value: bookings?.length ?? 0, color: "text-foreground" },
-                  { label: "Oggi", value: todayBookings.length, color: "text-primary" },
-                  { label: "Prossime", value: upcomingBookings.length, color: "text-blue-600" },
-                  { label: "Passate", value: pastBookings.length, color: "text-muted-foreground" },
-                ].map((stat) => (
-                  <div key={stat.label} className="rounded-lg border border-border bg-card p-4">
-                    <p className="text-xs text-muted-foreground mb-1">{stat.label}</p>
-                    <div className={`text-2xl font-bold ${stat.color}`}>
-                      {isLoading ? <Skeleton className="h-8 w-10" /> : stat.value}
+          <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4" aria-label="Menu principale">
+            {MENU_GROUPS.map((group) => {
+              const GroupIcon = group.Icon;
+              const isCurrentGroup = isAreaScopedTab && activeArea === group.id;
+
+              return (
+                <section key={group.id} className="space-y-2">
+                  <div
+                    className={`flex items-center gap-3 rounded-md px-3 py-2 ${
+                      isCurrentGroup ? "bg-primary/10 text-primary" : "text-foreground"
+                    }`}
+                  >
+                    <div
+                      className={`flex h-8 w-8 items-center justify-center rounded-md border ${
+                        isCurrentGroup ? "border-primary/25 bg-primary/10" : "border-border bg-muted/40"
+                      }`}
+                    >
+                      <GroupIcon className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold leading-tight">{group.label}</p>
+                      <p className="text-xs leading-tight text-muted-foreground">{group.subtitle}</p>
                     </div>
                   </div>
-                ))}
+
+                  <div className="space-y-1 pl-2">
+                    {group.items.map((item) => {
+                      const ItemIcon = item.Icon;
+                      const isActive = isAreaScopedTab && activeArea === group.id && activeTab === item.id;
+
+                      return (
+                        <button
+                          key={`${group.id}-${item.id}`}
+                          type="button"
+                          onClick={() => {
+                            setActiveArea(group.id);
+                            setActiveTab(item.id);
+                          }}
+                          aria-current={isActive ? "page" : undefined}
+                          className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
+                            isActive
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                          }`}
+                        >
+                          <ItemIcon className="h-4 w-4 shrink-0" />
+                          <span className="truncate">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+          </nav>
+
+          <div className="border-t border-border px-5 py-4">
+            <button
+              type="button"
+              onClick={() => setActiveTab("anagrafiche")}
+              aria-current={activeTab === "anagrafiche" ? "page" : undefined}
+              className={`mb-2 flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
+                activeTab === "anagrafiche"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <Users className="h-4 w-4 shrink-0" />
+              <span>Anagrafiche</span>
+            </button>
+            {role === "segreteria" && (
+              <div className="mb-4 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("impostazioni")}
+                  aria-current={activeTab === "impostazioni" ? "page" : undefined}
+                  className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
+                    activeTab === "impostazioni"
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  <Settings className="h-4 w-4 shrink-0" />
+                  <span>Impostazioni</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("utenti")}
+                  aria-current={activeTab === "utenti" ? "page" : undefined}
+                  className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
+                    activeTab === "utenti"
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  <KeyRound className="h-4 w-4 shrink-0" />
+                  <span>Utenti</span>
+                </button>
               </div>
+            )}
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Operatore</p>
+            <p className="mt-1 text-sm font-medium text-foreground">{roleLabel}</p>
+          </div>
+        </div>
+      </aside>
 
-              {error ? (
-                <div className="rounded-md bg-destructive/10 border border-destructive/30 px-4 py-3 text-sm text-destructive">
-                  Impossibile caricare le prenotazioni. Riprova.
-                </div>
-              ) : isLoading ? (
-                <div className="space-y-3">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Skeleton key={i} className="h-20 w-full rounded-lg" />
-                  ))}
-                </div>
-              ) : bookings?.length === 0 ? (
-                <div className="text-center py-16 text-muted-foreground">
-                  <FlaskConical className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                  <p className="font-medium">Nessuna prenotazione</p>
-                  <p className="text-sm">Le prenotazioni effettuate dai pazienti appariranno qui.</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {todayBookings.length > 0 && <Section title="Oggi" bookings={todayBookings} highlight />}
-                  {upcomingBookings.length > 0 && <Section title="Prossime" bookings={upcomingBookings} />}
-                  {pastBookings.length > 0 && <Section title="Passate" bookings={pastBookings} muted />}
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === "listino" && (
-            <div className="space-y-6">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Listino Esami</h1>
-                <p className="text-muted-foreground text-sm">Gestisci il catalogo degli esami disponibili e i relativi prezzi.</p>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-10 border-b border-border bg-white/95 shadow-sm backdrop-blur">
+          <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3 px-4 py-4 sm:px-6">
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Gestionale M Medical</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-semibold leading-tight text-foreground">{activeSectionLabel}</h1>
+                <span className="text-muted-foreground">/</span>
+                <span className="text-sm font-medium text-primary">{activeItem.label}</span>
               </div>
-              <AdminExams />
             </div>
-          )}
 
-        </div>
-      </main>
-    </div>
-  );
-}
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="gap-2 hidden sm:flex">
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Portale pazienti
+              </Button>
+              <Button variant="ghost" size="sm" onClick={onLogout} className="gap-2 text-muted-foreground hover:text-destructive">
+                <LogOut className="h-3.5 w-3.5" />
+                Esci
+              </Button>
+            </div>
+          </div>
+        </header>
 
-type Booking = {
-  id: number;
-  examNames: string[];
-  date: string;
-  time: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  notes?: string | null;
-  status: string;
-};
+        <main className="flex-1 px-4 py-8 sm:px-6">
+          <div className="mx-auto max-w-[1600px]">
+            {activeTab === "accettazione" && <AccettazionePaziente role={role} />}
 
-function Section({
-  title,
-  bookings,
-  highlight,
-  muted,
-}: {
-  title: string;
-  bookings: Booking[];
-  highlight?: boolean;
-  muted?: boolean;
-}) {
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-3">
-        <h2 className={`text-sm font-semibold uppercase tracking-wider ${muted ? "text-muted-foreground" : highlight ? "text-primary" : "text-foreground"}`}>
-          {title}
-        </h2>
-        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{bookings.length}</span>
-      </div>
-      <div className="space-y-2">
-        {bookings.map((booking) => (
-          <BookingRow key={booking.id} booking={booking} muted={muted} />
-        ))}
-      </div>
-    </div>
-  );
-}
+            {activeTab === "anagrafiche" && <AdminAnagrafiche />}
 
-function BookingRow({ booking, muted }: { booking: Booking; muted?: boolean }) {
-  const formattedDate = format(parseISO(booking.date), "d MMM yyyy", { locale: it });
+            {activeTab === "impostazioni" && <AdminSettings />}
 
-  return (
-    <div className={`rounded-lg border bg-card px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3 ${muted ? "opacity-60" : ""}`}>
-      <div className="flex items-center gap-3 min-w-0 flex-1">
-        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-          <User className="h-4 w-4 text-primary" />
-        </div>
-        <div className="min-w-0">
-          <p className="font-medium text-foreground text-sm truncate">
-            {booking.firstName} {booking.lastName}
-          </p>
-          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-            <FlaskConical className="h-3 w-3 flex-shrink-0" />
-            <span className="truncate">{booking.examNames.join(", ")}</span>
-          </p>
-        </div>
-      </div>
+            {activeTab === "utenti" && <AdminUsers />}
 
-      <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs text-muted-foreground">
-        <div className="flex items-center gap-1">
-          <CalendarDays className="h-3.5 w-3.5 flex-shrink-0" />
-          <span className="capitalize">{formattedDate}</span>
-          <span className="font-medium text-foreground ml-1">{booking.time}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Phone className="h-3.5 w-3.5 flex-shrink-0" />
-          <span>{booking.phone}</span>
-        </div>
-        {booking.notes && (
-          <span className="italic truncate max-w-[180px]" title={booking.notes}>"{booking.notes}"</span>
-        )}
-        <StatusBadge status={booking.status} />
-        <span className="text-muted-foreground/50 text-xs">#{booking.id}</span>
+            {activeTab === "prenotazioni" && (
+              <AdminBookingCalendar area={activeArea} />
+            )}
+
+            {activeTab === "listino" && (
+              <div className="space-y-6">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">{activeItem.label}</h1>
+                  <p className="text-muted-foreground text-sm">
+                    Gestisci il catalogo {activeArea === "ambulatorio" ? "delle prestazioni" : "degli esami"} del modulo {activeGroup.label.toLowerCase()}.
+                  </p>
+                </div>
+                <AdminExams />
+              </div>
+            )}
+
+          </div>
+        </main>
       </div>
     </div>
   );
