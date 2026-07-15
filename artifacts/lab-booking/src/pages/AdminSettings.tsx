@@ -10,11 +10,22 @@ import {
   Search,
   Stethoscope,
   Tags,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -339,6 +350,7 @@ const colonneExportCompensi = (opzioni: OpzioniExportCompensi) => [
 export function AdminSettings() {
   const importInputRef = React.useRef<HTMLInputElement | null>(null);
   const saveTimerRef = React.useRef<number | null>(null);
+  const skipInitialSettingsSaveRef = React.useRef(true);
   const [specialita, setSpecialita] = React.useState(SPECIALITA_INIZIALI);
   const [prestazioni, setPrestazioni] = React.useState(PRESTAZIONI_INIZIALI);
   const [medici, setMedici] = React.useState(MEDICI_INIZIALI);
@@ -373,6 +385,7 @@ export function AdminSettings() {
   const [exportCompensiOpen, setExportCompensiOpen] = React.useState(false);
   const [formatoExportCompensi, setFormatoExportCompensi] = React.useState<FormatoExportCompensi>("pdf");
   const [opzioniExportCompensi, setOpzioniExportCompensi] = React.useState(OPZIONI_EXPORT_COMPENSI_DEFAULT);
+  const [medicoDaEliminareId, setMedicoDaEliminareId] = React.useState<string | null>(null);
   const [nuovoListino, setNuovoListino] = React.useState({
     prestazioneId: PRESTAZIONI_INIZIALI[0].id,
     durata: String(PRESTAZIONI_INIZIALI[0].durata),
@@ -404,9 +417,9 @@ export function AdminSettings() {
         if (!active) return;
 
         if (isAdminSettingsData(data)) {
-          setSpecialita(data.specialita.length > 0 ? data.specialita : SPECIALITA_INIZIALI);
-          setPrestazioni(data.prestazioni.length > 0 ? data.prestazioni : PRESTAZIONI_INIZIALI);
-          setMedici(data.medici.length > 0 ? data.medici : MEDICI_INIZIALI);
+          setSpecialita(data.specialita);
+          setPrestazioni(data.prestazioni);
+          setMedici(data.medici);
           setListini(data.listini);
           setSelectedSpecialita(data.specialita[0]?.nome ?? data.prestazioni[0]?.specialita ?? "");
           setSelectedMedicoId(data.medici[0]?.id ?? "");
@@ -430,6 +443,11 @@ export function AdminSettings() {
 
   React.useEffect(() => {
     if (!settingsCanSave) return;
+
+    if (skipInitialSettingsSaveRef.current) {
+      skipInitialSettingsSaveRef.current = false;
+      return;
+    }
 
     if (saveTimerRef.current !== null) {
       window.clearTimeout(saveTimerRef.current);
@@ -500,6 +518,7 @@ export function AdminSettings() {
   );
 
   const medicoSelezionato = medici.find((medico) => medico.id === selectedMedicoId) ?? medici[0];
+  const medicoDaEliminare = medici.find((medico) => medico.id === medicoDaEliminareId) ?? null;
 
   const prestazioniDelMedico = React.useMemo(() => {
     if (!medicoSelezionato) return [];
@@ -658,6 +677,22 @@ export function AdminSettings() {
     ]);
     setSelectedMedicoId(id);
     setNuovoMedico((corrente) => ({ ...corrente, nome: "" }));
+  };
+
+  const eliminaMedico = () => {
+    if (!medicoDaEliminare) return;
+
+    const medicoId = medicoDaEliminare.id;
+    const prossimiMedici = medici.filter((medico) => medico.id !== medicoId);
+
+    setMedici(prossimiMedici);
+    setListini((correnti) => correnti.filter((listino) => listino.medicoId !== medicoId));
+    setSelectedMedicoId((corrente) =>
+      corrente === medicoId ? prossimiMedici[0]?.id ?? "" : corrente,
+    );
+    setMedicoCompensiFiltro((corrente) => (corrente === medicoId ? "tutti" : corrente));
+    setMedicoDaEliminareId(null);
+    mostraNotifica(`${medicoDaEliminare.nome} eliminato.`);
   };
 
   const aggiornaMedico = <K extends keyof Medico>(
@@ -1802,38 +1837,59 @@ export function AdminSettings() {
                     <h3 className="text-sm font-semibold text-foreground">Elenco medici</h3>
                   </div>
                   <div className="divide-y divide-border">
-                    {medici.map((medico) => {
-                      const selezionato = medico.id === medicoSelezionato?.id;
-                      const righeListino = listini.filter((listino) => {
-                        if (listino.medicoId !== medico.id) return false;
-                        const prestazione = prestazioni.find((item) => item.id === listino.prestazioneId);
-                        return prestazione ? stessaSpecialita(prestazione.specialita, medico.specialita) : false;
-                      }).length;
+                    {medici.length > 0 ? (
+                      medici.map((medico) => {
+                        const selezionato = medico.id === medicoSelezionato?.id;
+                        const righeListino = listini.filter((listino) => {
+                          if (listino.medicoId !== medico.id) return false;
+                          const prestazione = prestazioni.find((item) => item.id === listino.prestazioneId);
+                          return prestazione ? stessaSpecialita(prestazione.specialita, medico.specialita) : false;
+                        }).length;
 
-                      return (
-                        <button
-                          key={medico.id}
-                          type="button"
-                          onClick={() => setSelectedMedicoId(medico.id)}
-                          className={`w-full px-4 py-3 text-left transition-colors ${
-                            selezionato ? "bg-primary/10" : "bg-white hover:bg-muted/40"
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-foreground">{medico.nome}</p>
-                              <p className="truncate text-xs text-muted-foreground">{medico.specialita}</p>
-                            </div>
-                            <Badge variant="secondary" className="shrink-0">
-                              {righeListino} voci
-                            </Badge>
+                        return (
+                          <div
+                            key={medico.id}
+                            className={`flex items-stretch gap-2 p-2 transition-colors ${
+                              selezionato ? "bg-primary/10" : "bg-white hover:bg-muted/40"
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setSelectedMedicoId(medico.id)}
+                              className="min-w-0 flex-1 rounded-md px-2 py-2 text-left"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-foreground">{medico.nome}</p>
+                                  <p className="truncate text-xs text-muted-foreground">{medico.specialita}</p>
+                                </div>
+                                <Badge variant="secondary" className="shrink-0">
+                                  {righeListino} voci
+                                </Badge>
+                              </div>
+                              <p className="mt-2 text-xs text-muted-foreground">
+                                Agenda {medico.agendaAperta ? "aperta" : "chiusa"}
+                              </p>
+                            </button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setMedicoDaEliminareId(medico.id)}
+                              className="mt-1 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              aria-label={`Elimina ${medico.nome}`}
+                              title="Elimina medico"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            Agenda {medico.agendaAperta ? "aperta" : "chiusa"}
-                          </p>
-                        </button>
-                      );
-                    })}
+                        );
+                      })
+                    ) : (
+                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        Nessun medico inserito. Aggiungi il primo medico dal modulo sopra.
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1848,15 +1904,27 @@ export function AdminSettings() {
                           Modifica dati, apertura agenda e giorni disponibili.
                         </p>
                       </div>
-                      <Badge
-                        className={
-                          medicoSelezionato.agendaAperta
-                            ? "w-fit border-green-200 bg-green-100 text-green-700 hover:bg-green-100"
-                            : "w-fit border-border bg-muted text-muted-foreground hover:bg-muted"
-                        }
-                      >
-                        {medicoSelezionato.agendaAperta ? "Agenda aperta" : "Agenda chiusa"}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          className={
+                            medicoSelezionato.agendaAperta
+                              ? "w-fit border-green-200 bg-green-100 text-green-700 hover:bg-green-100"
+                              : "w-fit border-border bg-muted text-muted-foreground hover:bg-muted"
+                          }
+                        >
+                          {medicoSelezionato.agendaAperta ? "Agenda aperta" : "Agenda chiusa"}
+                        </Badge>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setMedicoDaEliminareId(medicoSelezionato.id)}
+                          className="gap-2 text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Elimina
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -2543,6 +2611,30 @@ export function AdminSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={Boolean(medicoDaEliminare)}
+        onOpenChange={(open) => {
+          if (!open) setMedicoDaEliminareId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminare questo medico?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {medicoDaEliminare
+                ? `${medicoDaEliminare.nome} verra rimosso dall'elenco medici. Verranno eliminate anche le righe del suo listino prezzi.`
+                : "Il medico verra rimosso dall'elenco medici."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction onClick={eliminaMedico} className="bg-destructive text-destructive-foreground">
+              Elimina medico
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
