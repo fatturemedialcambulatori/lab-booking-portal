@@ -1,5 +1,6 @@
 import { displayRefValueAny, isOutOfRangeAny, type StructuredRefRange } from "./refValue";
 import { FIRMA_BASE64 } from "./firma-base64";
+import { parseFiscalCode } from "./fiscalCode";
 
 export type PrintExam = {
   codiceAnalisi: string;
@@ -48,6 +49,17 @@ export type PrintPatient = {
   billingProvincia?: string | null;
 };
 
+export type PrintLegalClient = {
+  nome: string;
+  codiceFiscale?: string | null;
+  indirizzo?: string | null;
+  telefono?: string | null;
+  email?: string | null;
+  birthPlace?: string | null;
+  dateOfBirth?: string | null;
+  gender?: "M" | "F" | null;
+};
+
 const LAB_INFO = {
   name: "MEDICAL POLIAMBULATORI S.R.L.",
   piva: "04233570367",
@@ -58,13 +70,47 @@ const LAB_INFO = {
   pec: "medicalpoliambulatorisrl@sicurezzapostale.it",
 };
 
-function logoUrl(): string {
-  return `${window.location.origin}${import.meta.env.BASE_URL}logo-lab.png`;
+function publicAssetUrl(fileName: string): string {
+  const baseUrl = import.meta.env.BASE_URL.endsWith("/") ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+  return `${window.location.origin}${baseUrl}${fileName}`;
 }
 
+function logoUrl(): string {
+  return publicAssetUrl("logo-lab.png");
+}
+
+function legalLogoUrl(): string {
+  return publicAssetUrl("procura-logo-studio-legale.jpeg");
+}
+
+function legalSignatureUrl(): string {
+  return publicAssetUrl("procura-firma-avvocato.png");
+}
 
 function todayFormatted(): string {
   return new Date().toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function formatItalianDate(value?: string | null): string {
+  if (!value) return "";
+  const [year, month, day] = value.slice(0, 10).split("-");
+  if (!year || !month || !day) return value;
+  return `${day}/${month}/${year}`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function legalField(value: string | null | undefined, widthMm: number): string {
+  const clean = value?.trim();
+  if (clean) return `<span class="filled">${escapeHtml(clean)}</span>`;
+  return `<span class="blank" style="min-width:${widthMm}mm">&nbsp;</span>`;
 }
 
 function printWindow(html: string) {
@@ -106,6 +152,161 @@ const BASE_CSS = `
     @page { margin: 12mm 14mm; size: A4; }
   }
 `;
+
+export function printProcuraAlleLiti(client: PrintLegalClient) {
+  const fiscalInfo = parseFiscalCode(client.codiceFiscale ?? "");
+  const gender = client.gender ?? fiscalInfo?.gender ?? null;
+  const dateOfBirth = client.dateOfBirth ?? fiscalInfo?.dateOfBirth ?? "";
+  const article = gender === "F" ? "La" : gender === "M" ? "Il" : "Il/la";
+  const signed = gender === "F" ? "sottoscritta" : gender === "M" ? "sottoscritto" : "sottoscritto/a";
+  const born = gender === "F" ? "nata" : gender === "M" ? "nato" : "nato/a";
+  const informed = gender === "F" ? "informata" : gender === "M" ? "informato" : "informato/a";
+  const signatureLabel = gender === "F" ? "Sig.ra" : gender === "M" ? "Sig." : "Sig./Sig.ra";
+  const titleName = client.nome.trim() || "cliente";
+
+  const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
+    <title>Procura alle liti - ${escapeHtml(titleName)}</title>
+    <style>
+      * { box-sizing: border-box; }
+      html { color-scheme: light; }
+      body {
+        margin: 0;
+        background: #fff !important;
+        color: #111;
+        font-family: "Times New Roman", Times, serif;
+        font-size: 10.5pt;
+        line-height: 1.28;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .page {
+        width: 190mm;
+        min-height: 267mm;
+        margin: 0 auto;
+        padding: 0;
+      }
+      .legal-logo {
+        display: block;
+        width: 45mm;
+        height: auto;
+        margin: 0 auto 7mm;
+      }
+      h1 {
+        margin: 0 0 6mm;
+        text-align: center;
+        font-size: 11pt;
+        line-height: 1.2;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+      p {
+        margin: 0 0 4.2mm;
+        text-align: justify;
+      }
+      .center {
+        text-align: center;
+        font-weight: 700;
+      }
+      .filled {
+        font-weight: 700;
+      }
+      .blank {
+        display: inline-block;
+        border-bottom: 1px solid #111;
+        height: 1em;
+        transform: translateY(0.12em);
+      }
+      .date-row {
+        margin-top: 7mm;
+      }
+      .client-signature {
+        width: 65mm;
+        margin: 5mm 0 0 auto;
+        text-align: center;
+        font-weight: 700;
+      }
+      .client-line {
+        display: block;
+        border-bottom: 1px solid #111;
+        height: 10mm;
+        margin-top: 2mm;
+      }
+      .lawyer-auth {
+        margin-top: 4mm;
+        width: 72mm;
+        margin-left: auto;
+        text-align: left;
+      }
+      .lawyer-signature {
+        width: 52mm;
+        height: auto;
+        display: block;
+        margin: -3mm 0 -2mm 8mm;
+      }
+      @page {
+        size: A4;
+        margin: 15mm 14mm 12mm;
+      }
+      @media print {
+        body { margin: 0; }
+        .page { width: auto; min-height: auto; }
+      }
+    </style>
+  </head><body>
+    <main class="page">
+      <img src="${legalLogoUrl()}" alt="Studio legale" class="legal-logo" />
+      <h1>PROCURA ALLE LITI</h1>
+
+      <p>
+        ${article} ${signed} ${legalField(client.nome, 54)} ${born} a ${legalField(client.birthPlace, 28)}
+        il ${legalField(formatItalianDate(dateOfBirth), 29)}, C.F. ${legalField(client.codiceFiscale, 42)}
+        e residente in ${legalField(client.indirizzo, 82)}, ${informed} ai sensi dell'art. 4, comma 3, del d.
+        lgs. n. 28/2010 della possibilita di ricorrere al procedimento di mediazione ivi previsto e dei benefici
+        fiscali di cui agli artt. 17 e 20 delle stesso decreto, nonche ${informed} della possibilita di avvalersi
+        del procedimento di negoziazione assistita di cui al D. L. 132/14, convertito in L. n. 162/14
+      </p>
+
+      <p class="center">conferisce procura</p>
+
+      <p>
+        all'avv. Maria Carmela Mangiardi del foro di Catanzaro, con studio in Brognaturo, via Mulinello, n. 41
+        C.F. MNGMCR80R60C352D, Pec mariacarmela.mangiardi@avvocaticatanzaro.legalmail.it al fine di proporre
+        richiesta di risarcimento danni. All'uopo si dichiara di eleggere domicilio presso l'avv. Maria Carmela
+        Mangiardi, con studio in Brognaturo (VV), via Mulinello n. 41.
+      </p>
+
+      <p>
+        La presente delega e efficace, altresi, per eventuali fasi successive di merito, ivi compreso l'appello,
+        l'opposizione, il precetto e l'esecuzione. All'avv. <strong>Maria Carmela Mangiardi</strong> conferisce,
+        inoltre, tutte le facolta previste dall'art. 84 c.p.c., nonche quelle di desistere, conciliare,
+        transigere, rinunciare, ed accettare rinunzie, incassare e quietanzare, proporre domande e/o eccezioni
+        riconvenzionali, chiamare terzi in causa, farli sostituire, modificare domicilio.
+      </p>
+
+      <p>
+        Si dichiara di avere avuto conoscenza dell'informazione sui diritti previsti negli artt. 7 e ss. del
+        D. Lgs. N. 196/2003 e mod.ni aventi ad oggetto la tutela del trattamento dei propri dati personali ed
+        acconsentono al loro trattamento al fine dello svolgimento dell'attivita professionale, esprimendo altresi
+        il consenso al trattamento dei dati sensibili, ex art. 22 della L. 675/96 e successive modifiche.
+      </p>
+
+      <p class="date-row">Modena, li ${legalField(todayFormatted(), 32)}</p>
+
+      <div class="client-signature">
+        ${signatureLabel}
+        <span class="client-line"></span>
+      </div>
+
+      <div class="lawyer-auth">
+        <img src="${legalSignatureUrl()}" alt="Firma avvocato" class="lawyer-signature" />
+        <div>E' vera la firma</div>
+        <strong>avv. M. Carmela Mangiardi</strong>
+      </div>
+    </main>
+  </body></html>`;
+
+  printWindow(html);
+}
 
 function provettaColor(color: string | null | undefined): string {
   if (!color) return "";

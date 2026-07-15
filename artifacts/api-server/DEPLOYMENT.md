@@ -32,3 +32,6 @@ are reflected here for Vercel affected-project detection.
 
 Latest patient registry cache invalidation fixes are reflected here so new
 patients appear immediately after saving in the admin frontend.
+
+Latest infortunistica printable procura alle liti PDF generation is reflected
+here for Vercel affected-project detection.

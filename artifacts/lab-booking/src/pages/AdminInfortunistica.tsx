@@ -5,6 +5,7 @@ import {
   Download,
   FileText,
   Plus,
+  Printer,
   Search,
   Trash2,
   Upload,
@@ -32,6 +33,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { printProcuraAlleLiti } from "@/lib/printDocs";
 
 type StatoCertificato = "caricato" | "da-caricare" | "in-scadenza" | "scaduto";
 
@@ -42,6 +44,8 @@ type ClienteInfortunistica = {
   telefono: string;
   email: string;
   indirizzo: string;
+  luogoNascita?: string;
+  dataNascita?: string;
 };
 
 type PraticaSinistro = {
@@ -101,6 +105,8 @@ const CLIENTI_INIZIALI: ClienteInfortunistica[] = [
     telefono: "333 1234567",
     email: "mario.rossi@email.it",
     indirizzo: "Via Emilia 120, Modena",
+    luogoNascita: "Modena",
+    dataNascita: "1980-01-01",
   },
   {
     id: "cliente-ferri",
@@ -109,6 +115,8 @@ const CLIENTI_INIZIALI: ClienteInfortunistica[] = [
     telefono: "349 9988776",
     email: "laura.ferri@email.it",
     indirizzo: "Via Radici 18, Sassuolo",
+    luogoNascita: "Sassuolo",
+    dataNascita: "1978-03-04",
   },
 ];
 
@@ -327,6 +335,8 @@ export function AdminInfortunistica() {
     telefono: "",
     email: "",
     indirizzo: "",
+    luogoNascita: "",
+    dataNascita: "",
     compagnia: "",
     numeroSinistro: "",
     dataSinistro: "",
@@ -757,6 +767,8 @@ export function AdminInfortunistica() {
         telefono: nuovoSinistro.telefono.trim(),
         email: nuovoSinistro.email.trim(),
         indirizzo: nuovoSinistro.indirizzo.trim(),
+        luogoNascita: nuovoSinistro.luogoNascita.trim(),
+        dataNascita: nuovoSinistro.dataNascita,
       },
     ]);
     setPratiche((current) => [
@@ -778,6 +790,8 @@ export function AdminInfortunistica() {
       telefono: "",
       email: "",
       indirizzo: "",
+      luogoNascita: "",
+      dataNascita: "",
       compagnia: "",
       numeroSinistro: "",
       dataSinistro: "",
@@ -845,16 +859,33 @@ export function AdminInfortunistica() {
             {clienteSelezionato && (
               <section className="space-y-4">
                 <div className="rounded-md border border-border bg-white p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
-                      <UserRound className="h-5 w-5" />
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
+                        <UserRound className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h2 className="text-lg font-semibold text-foreground">{clienteSelezionato.nome}</h2>
+                        <p className="text-sm text-muted-foreground">
+                          Modifica anagrafica cliente e dati di contatto.
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <h2 className="text-lg font-semibold text-foreground">{clienteSelezionato.nome}</h2>
-                      <p className="text-sm text-muted-foreground">
-                        Modifica anagrafica cliente e dati di contatto.
-                      </p>
-                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2 sm:self-start"
+                      onClick={() =>
+                        printProcuraAlleLiti({
+                          ...clienteSelezionato,
+                          birthPlace: clienteSelezionato.luogoNascita,
+                          dateOfBirth: clienteSelezionato.dataNascita,
+                        })
+                      }
+                    >
+                      <Printer className="h-4 w-4" />
+                      Stampa procura PDF
+                    </Button>
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                     <Field label="Nome cliente">
@@ -888,6 +919,19 @@ export function AdminInfortunistica() {
                       <Input
                         value={clienteSelezionato.indirizzo}
                         onChange={(event) => aggiornaCliente(clienteSelezionato.id, "indirizzo", event.target.value)}
+                      />
+                    </Field>
+                    <Field label="Luogo nascita">
+                      <Input
+                        value={clienteSelezionato.luogoNascita ?? ""}
+                        onChange={(event) => aggiornaCliente(clienteSelezionato.id, "luogoNascita", event.target.value)}
+                      />
+                    </Field>
+                    <Field label="Data nascita">
+                      <Input
+                        type="date"
+                        value={clienteSelezionato.dataNascita ?? ""}
+                        onChange={(event) => aggiornaCliente(clienteSelezionato.id, "dataNascita", event.target.value)}
                       />
                     </Field>
                   </div>
@@ -1318,6 +1362,12 @@ export function AdminInfortunistica() {
               </Field>
               <Field label="Indirizzo">
                 <Input value={nuovoSinistro.indirizzo} onChange={(event) => setNuovoSinistro((current) => ({ ...current, indirizzo: event.target.value }))} />
+              </Field>
+              <Field label="Luogo nascita">
+                <Input value={nuovoSinistro.luogoNascita} onChange={(event) => setNuovoSinistro((current) => ({ ...current, luogoNascita: event.target.value }))} />
+              </Field>
+              <Field label="Data nascita">
+                <Input type="date" value={nuovoSinistro.dataNascita} onChange={(event) => setNuovoSinistro((current) => ({ ...current, dataNascita: event.target.value }))} />
               </Field>
               <Field label="Compagnia assicurativa">
                 <Input value={nuovoSinistro.compagnia} onChange={(event) => setNuovoSinistro((current) => ({ ...current, compagnia: event.target.value }))} />
