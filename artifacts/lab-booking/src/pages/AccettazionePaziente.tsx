@@ -101,6 +101,9 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
   const { data: allBookings, isLoading, error, refetch } = useListBookings();
   const statusMutation = useUpdateBookingStatus();
   const { data: allExams } = useListExams();
+  const bookings = React.useMemo(() => (Array.isArray(allBookings) ? allBookings : []), [allBookings]);
+  const exams = React.useMemo(() => (Array.isArray(allExams) ? allExams : []), [allExams]);
+  const invalidBookingsResponse = Boolean(allBookings && !Array.isArray(allBookings));
 
   const [selectedDate, setSelectedDate] = React.useState<string>(
     formatDate(new Date(), "yyyy-MM-dd")
@@ -124,7 +127,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
       const patientData = patientList?.[0];
 
       const examsWithResults: PrintExamWithResult[] = visit.examIds.map((id) => {
-        const exam = allExams?.find((e) => e.id === id);
+        const exam = exams.find((e) => e.id === id);
         const examAny = exam as any;
         if (examAny?.tipo === "pacchetto") {
           const subResults = (examAny.components ?? []).map((c: any) => {
@@ -197,10 +200,10 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
 
   const todayStr = formatDate(new Date(), "yyyy-MM-dd");
 
-  const dayBookings = React.useMemo(() => {
-    if (!allBookings) return [];
-    return allBookings.filter((b) => b.date === selectedDate);
-  }, [allBookings, selectedDate]);
+  const dayBookings = React.useMemo(
+    () => bookings.filter((b) => b.date === selectedDate),
+    [bookings, selectedDate],
+  );
 
   const visits = React.useMemo((): Visit[] => {
     return [...(dayBookings as Array<{
@@ -362,10 +365,10 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
       </div>
 
       {/* Content */}
-      {error ? (
+      {error || invalidBookingsResponse ? (
         <div className="rounded-md bg-destructive/10 border border-destructive/30 px-4 py-3 text-sm text-destructive flex items-center gap-2">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
-          Impossibile caricare le prenotazioni. Riprova.
+          Impossibile caricare le prenotazioni. Verifica che le API Vercel rispondano correttamente.
         </div>
       ) : isLoading ? (
         <div className="space-y-3">

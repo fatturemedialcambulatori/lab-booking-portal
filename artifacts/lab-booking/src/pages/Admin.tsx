@@ -21,14 +21,24 @@ import { AdminBookingCalendar } from "./AdminBookingCalendar";
 import { AdminSettings } from "./AdminSettings";
 import { AdminUsers } from "./AdminUsers";
 
+const getStoredRole = () => {
+  try {
+    return sessionStorage.getItem("operator_role");
+  } catch {
+    return null;
+  }
+};
+
 export default function Admin() {
   const [, navigate] = useLocation();
-  const [role, setRole] = React.useState<string | null>(
-    () => sessionStorage.getItem("operator_role")
-  );
+  const [role, setRole] = React.useState<string | null>(getStoredRole);
 
   const handleLogout = () => {
-    sessionStorage.removeItem("operator_role");
+    try {
+      sessionStorage.removeItem("operator_role");
+    } catch {
+      // The app can still logout in memory if browser storage is unavailable.
+    }
     setRole(null);
   };
 

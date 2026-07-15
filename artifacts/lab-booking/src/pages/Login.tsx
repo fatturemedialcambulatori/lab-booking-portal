@@ -44,7 +44,11 @@ export function Login({ onSuccess }: LoginProps) {
     setLoading(true);
     setTimeout(() => {
       if (CREDENTIALS[username] === password) {
-        sessionStorage.setItem("operator_role", username);
+        try {
+          sessionStorage.setItem("operator_role", username);
+        } catch {
+          // Continue with in-memory login if browser storage is unavailable.
+        }
         onSuccess(username);
       } else {
         setError("Password non corretta. Riprova.");
