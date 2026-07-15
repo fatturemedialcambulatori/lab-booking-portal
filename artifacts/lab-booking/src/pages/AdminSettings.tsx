@@ -78,12 +78,17 @@ type DatiFatturazioneMedico = {
   noteFatturazione: string;
 };
 
+type SedeMedicoId = "modena" | "sassuolo";
+
+type DisponibilitaPerSedeMedico = Record<SedeMedicoId, string[]>;
+
 type Medico = {
   id: string;
   nome: string;
   specialita: string;
   agendaAperta: boolean;
   disponibilita: string[];
+  disponibilitaPerSede?: Partial<DisponibilitaPerSedeMedico>;
   datiFatturazione?: DatiFatturazioneMedico;
 };
 
@@ -163,6 +168,11 @@ type ExcelRow = Record<string, unknown>;
 
 const GIORNI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
 
+const SEDI_MEDICO: Array<{ id: SedeMedicoId; label: string; sigla: string }> = [
+  { id: "modena", label: "Modena", sigla: "MO" },
+  { id: "sassuolo", label: "Sassuolo", sigla: "SASS" },
+];
+
 const valuta = new Intl.NumberFormat("it-IT", {
   style: "currency",
   currency: "EUR",
@@ -191,6 +201,35 @@ const DATI_FATTURAZIONE_MEDICO_VUOTI: DatiFatturazioneMedico = {
   codiceSdi: "",
   regimeFiscale: "",
   noteFatturazione: "",
+};
+
+const creaDisponibilitaPerSedeVuota = (): DisponibilitaPerSedeMedico => ({
+  modena: [],
+  sassuolo: [],
+});
+
+const normalizzaDisponibilitaPerSede = (
+  medico: Pick<Medico, "disponibilita" | "disponibilitaPerSede">,
+): DisponibilitaPerSedeMedico => ({
+  modena: medico.disponibilitaPerSede?.modena ?? medico.disponibilita ?? [],
+  sassuolo: medico.disponibilitaPerSede?.sassuolo ?? [],
+});
+
+const unisciDisponibilitaSedi = (disponibilitaPerSede: DisponibilitaPerSedeMedico) =>
+  Array.from(new Set(SEDI_MEDICO.flatMap((sede) => disponibilitaPerSede[sede.id])));
+
+const normalizzaMedico = (medico: Medico): Medico => {
+  const disponibilitaPerSede = normalizzaDisponibilitaPerSede(medico);
+
+  return {
+    ...medico,
+    disponibilita: unisciDisponibilitaSedi(disponibilitaPerSede),
+    disponibilitaPerSede,
+    datiFatturazione: {
+      ...DATI_FATTURAZIONE_MEDICO_VUOTI,
+      ...medico.datiFatturazione,
+    },
+  };
 };
 
 const formattaData = (data: string) => dataItaliana.format(new Date(`${data}T12:00:00`));
@@ -282,6 +321,16 @@ const leggiBooleano = (row: ExcelRow, chiavi: string[], fallback = true) => {
   return fallback;
 };
 
+const leggiGiorniDisponibilita = (row: ExcelRow, chiavi: string[], fallback: string[] = []) => {
+  const testo = leggiTesto(row, chiavi);
+  if (!testo) return fallback;
+
+  return testo
+    .split(/[;,|]/)
+    .map((giorno) => giorno.trim())
+    .filter(Boolean);
+};
+
 const leggiCompensoTipo = (row: ExcelRow) => {
   const valore = normalizzaTesto(leggiTesto(row, ["compensoTipo", "tipo compenso", "tipo", "compenso tipo"], "percentuale"));
   return valore.startsWith("f") ? "fisso" : "percentuale";
@@ -320,9 +369,30 @@ const PRESTAZIONI_INIZIALI: Prestazione[] = [
 ];
 
 const MEDICI_INIZIALI: Medico[] = [
-  { id: "rossi", nome: "Dott. Marco Rossi", specialita: "Cardiologia", agendaAperta: true, disponibilita: ["Lun", "Mer", "Ven"] },
-  { id: "bianchi", nome: "Dott.ssa Laura Bianchi", specialita: "Diagnostica", agendaAperta: true, disponibilita: ["Mar", "Gio"] },
-  { id: "verdi", nome: "Dott. Paolo Verdi", specialita: "Dermatologia", agendaAperta: false, disponibilita: ["Lun", "Gio"] },
+  {
+    id: "rossi",
+    nome: "Dott. Marco Rossi",
+    specialita: "Cardiologia",
+    agendaAperta: true,
+    disponibilita: ["Lun", "Mer", "Ven"],
+    disponibilitaPerSede: { modena: ["Lun", "Mer"], sassuolo: ["Ven"] },
+  },
+  {
+    id: "bianchi",
+    nome: "Dott.ssa Laura Bianchi",
+    specialita: "Diagnostica",
+    agendaAperta: true,
+    disponibilita: ["Mar", "Gio"],
+    disponibilitaPerSede: { modena: ["Mar"], sassuolo: ["Gio"] },
+  },
+  {
+    id: "verdi",
+    nome: "Dott. Paolo Verdi",
+    specialita: "Dermatologia",
+    agendaAperta: false,
+    disponibilita: ["Lun", "Gio"],
+    disponibilitaPerSede: { modena: ["Gio"], sassuolo: ["Lun"] },
+  },
 ];
 
 const LISTINI_INIZIALI: Listino[] = [
@@ -451,7 +521,7 @@ export function AdminSettings() {
         if (isAdminSettingsData(data)) {
           setSpecialita(data.specialita);
           setPrestazioni(data.prestazioni);
-          setMedici(data.medici);
+          setMedici(data.medici.map(normalizzaMedico));
           setListini(data.listini);
           setSelectedSpecialita(data.specialita[0]?.nome ?? data.prestazioni[0]?.specialita ?? "");
           setSelectedMedicoId(data.medici[0]?.id ?? "");
@@ -551,6 +621,9 @@ export function AdminSettings() {
 
   const medicoSelezionato = medici.find((medico) => medico.id === selectedMedicoId) ?? medici[0];
   const medicoDaEliminare = medici.find((medico) => medico.id === medicoDaEliminareId) ?? null;
+  const disponibilitaPerSedeMedicoSelezionato = medicoSelezionato
+    ? normalizzaDisponibilitaPerSede(medicoSelezionato)
+    : creaDisponibilitaPerSedeVuota();
   const datiFatturazioneMedicoSelezionato: DatiFatturazioneMedico = {
     ...DATI_FATTURAZIONE_MEDICO_VUOTI,
     ...medicoSelezionato?.datiFatturazione,
@@ -679,14 +752,31 @@ export function AdminSettings() {
     );
   };
 
-  const aggiornaDisponibilita = (medicoId: string, giorno: string, attivo: boolean) => {
+  const aggiornaDisponibilitaSede = (
+    medicoId: string,
+    sedeId: SedeMedicoId,
+    giorno: string,
+    attivo: boolean,
+  ) => {
     setMedici((correnti) =>
       correnti.map((medico) => {
         if (medico.id !== medicoId) return medico;
-        const giorni = attivo
-          ? Array.from(new Set([...medico.disponibilita, giorno]))
-          : medico.disponibilita.filter((g) => g !== giorno);
-        return { ...medico, disponibilita: giorni };
+
+        const disponibilitaPerSede = normalizzaDisponibilitaPerSede(medico);
+        const giorniSede = disponibilitaPerSede[sedeId];
+        const prossimiGiorniSede = attivo
+          ? Array.from(new Set([...giorniSede, giorno]))
+          : giorniSede.filter((g) => g !== giorno);
+        const prossimaDisponibilitaPerSede = {
+          ...disponibilitaPerSede,
+          [sedeId]: prossimiGiorniSede,
+        };
+
+        return {
+          ...medico,
+          disponibilita: unisciDisponibilitaSedi(prossimaDisponibilitaPerSede),
+          disponibilitaPerSede: prossimaDisponibilitaPerSede,
+        };
       }),
     );
   };
@@ -709,6 +799,7 @@ export function AdminSettings() {
         specialita: specialitaMedico,
         agendaAperta: true,
         disponibilita: [],
+        disponibilitaPerSede: creaDisponibilitaPerSedeVuota(),
         datiFatturazione: DATI_FATTURAZIONE_MEDICO_VUOTI,
       },
     ]);
@@ -1303,13 +1394,16 @@ export function AdminSettings() {
         ...DATI_FATTURAZIONE_MEDICO_VUOTI,
         ...medico.datiFatturazione,
       };
+      const disponibilitaPerSede = normalizzaDisponibilitaPerSede(medico);
 
       return {
         id: medico.id,
         nome: medico.nome,
         specialita: medico.specialita,
         agendaAperta: medico.agendaAperta,
-        disponibilita: medico.disponibilita.join(", "),
+        disponibilita: unisciDisponibilitaSedi(disponibilitaPerSede).join(", "),
+        disponibilitaModena: disponibilitaPerSede.modena.join(", "),
+        disponibilitaSassuolo: disponibilitaPerSede.sassuolo.join(", "),
         intestatarioFatturazione: datiFatturazione.intestatario,
         partitaIva: datiFatturazione.partitaIva,
         codiceFiscale: datiFatturazione.codiceFiscale,
@@ -1400,16 +1494,29 @@ export function AdminSettings() {
           .map((row, index): Medico | null => {
             const nome = leggiTesto(row, ["nome", "medico"]);
             if (!nome) return null;
-            const disponibilita = leggiTesto(row, ["disponibilita", "disponibilità", "giorni"])
-              .split(/[;,|]/)
-              .map((giorno) => giorno.trim())
-              .filter(Boolean);
+            const disponibilitaGenerale = leggiGiorniDisponibilita(row, [
+              "disponibilita",
+              "disponibilità",
+              "giorni",
+            ]);
+            const disponibilitaPerSede: DisponibilitaPerSedeMedico = {
+              modena: leggiGiorniDisponibilita(
+                row,
+                ["disponibilitaModena", "disponibilità modena", "giorni modena", "modena"],
+                disponibilitaGenerale,
+              ),
+              sassuolo: leggiGiorniDisponibilita(
+                row,
+                ["disponibilitaSassuolo", "disponibilità sassuolo", "giorni sassuolo", "sassuolo"],
+              ),
+            };
             return {
               id: leggiTesto(row, ["id", "medicoId", "medico id"], slugId("medico", nome, index)),
               nome,
               specialita: leggiTesto(row, ["specialita", "specialità"], "Generale"),
               agendaAperta: leggiBooleano(row, ["agendaAperta", "agenda aperta", "agenda"], true),
-              disponibilita,
+              disponibilita: unisciDisponibilitaSedi(disponibilitaPerSede),
+              disponibilitaPerSede,
               datiFatturazione: {
                 intestatario: leggiTesto(
                   row,
@@ -1945,6 +2052,11 @@ export function AdminSettings() {
                           const prestazione = prestazioni.find((item) => item.id === listino.prestazioneId);
                           return prestazione ? stessaSpecialita(prestazione.specialita, medico.specialita) : false;
                         }).length;
+                        const disponibilitaPerSede = normalizzaDisponibilitaPerSede(medico);
+                        const riepilogoSedi = SEDI_MEDICO.map((sede) => {
+                          const giorni = disponibilitaPerSede[sede.id];
+                          return `${sede.sigla}: ${giorni.length > 0 ? giorni.join(", ") : "-"}`;
+                        }).join(" · ");
 
                         return (
                           <div
@@ -1969,6 +2081,9 @@ export function AdminSettings() {
                               </div>
                               <p className="mt-2 text-xs text-muted-foreground">
                                 Agenda {medico.agendaAperta ? "aperta" : "chiusa"}
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {riepilogoSedi}
                               </p>
                             </button>
                             <Button
@@ -2218,47 +2333,79 @@ export function AdminSettings() {
                       </div>
                     </div>
 
-                    <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                      <div className="w-full lg:max-w-sm">
-                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Disponibilita
-                        </p>
-                        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 lg:grid-cols-3">
-                          {GIORNI.map((giorno) => {
-                            const selezionato = medicoSelezionato.disponibilita.includes(giorno);
-                            return (
-                              <button
-                                key={giorno}
-                                type="button"
-                                onClick={() =>
-                                  aggiornaDisponibilita(medicoSelezionato.id, giorno, !selezionato)
-                                }
-                                className={`min-h-9 rounded-md border px-2 text-xs font-medium transition-colors ${
-                                  selezionato
-                                    ? "border-primary bg-primary text-primary-foreground"
-                                    : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
-                                }`}
-                              >
-                                {giorno}
-                              </button>
-                            );
-                          })}
+                    <div className="mt-5 rounded-md border border-border bg-white p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Disponibilita per sede
+                          </p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Ogni sede puo avere giorni diversi per lo stesso medico.
+                          </p>
                         </div>
+                        <Button
+                          type="button"
+                          variant={medicoSelezionato.agendaAperta ? "outline" : "default"}
+                          onClick={() =>
+                            aggiornaMedico(
+                              medicoSelezionato.id,
+                              "agendaAperta",
+                              !medicoSelezionato.agendaAperta,
+                            )
+                          }
+                          className="w-full lg:w-auto"
+                        >
+                          {medicoSelezionato.agendaAperta ? "Chiudi agenda" : "Apri agenda"}
+                        </Button>
                       </div>
 
-                      <Button
-                        type="button"
-                        variant={medicoSelezionato.agendaAperta ? "outline" : "default"}
-                        onClick={() =>
-                          aggiornaMedico(
-                            medicoSelezionato.id,
-                            "agendaAperta",
-                            !medicoSelezionato.agendaAperta,
-                          )
-                        }
-                      >
-                        {medicoSelezionato.agendaAperta ? "Chiudi agenda" : "Apri agenda"}
-                      </Button>
+                      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                        {SEDI_MEDICO.map((sede) => {
+                          const giorniSede = disponibilitaPerSedeMedicoSelezionato[sede.id];
+
+                          return (
+                            <div key={sede.id} className="rounded-md border border-border bg-muted/20 p-3">
+                              <div className="mb-3 flex items-center justify-between gap-2">
+                                <div>
+                                  <h4 className="text-sm font-semibold text-foreground">{sede.label}</h4>
+                                  <p className="text-xs text-muted-foreground">
+                                    {giorniSede.length > 0 ? giorniSede.join(", ") : "Nessun giorno impostato"}
+                                  </p>
+                                </div>
+                                <Badge variant="secondary" className="shrink-0">
+                                  {giorniSede.length} giorni
+                                </Badge>
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 xl:grid-cols-3">
+                                {GIORNI.map((giorno) => {
+                                  const selezionato = giorniSede.includes(giorno);
+                                  return (
+                                    <button
+                                      key={`${sede.id}-${giorno}`}
+                                      type="button"
+                                      onClick={() =>
+                                        aggiornaDisponibilitaSede(
+                                          medicoSelezionato.id,
+                                          sede.id,
+                                          giorno,
+                                          !selezionato,
+                                        )
+                                      }
+                                      className={`min-h-9 rounded-md border px-2 text-xs font-medium transition-colors ${
+                                        selezionato
+                                          ? "border-primary bg-primary text-primary-foreground"
+                                          : "border-border bg-white text-muted-foreground hover:bg-muted"
+                                      }`}
+                                    >
+                                      {giorno}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
