@@ -1,16 +1,68 @@
 import { Router, type RequestHandler } from "express";
 import { db } from "@workspace/db";
 import { patientsTable } from "@workspace/db";
-import { eq, ilike, or, and, isNotNull } from "drizzle-orm";
+import { eq, ilike, or, inArray } from "drizzle-orm";
 import { CreatePatientBody, UpdatePatientBody } from "@workspace/api-zod";
 
 const router = Router();
+const MAX_BULK_ERRORS = 50;
 
 const toDateStr = (v: string | Date | null): string =>
   !v ? "" : typeof v === "string" ? v.slice(0, 10) : v.toISOString().slice(0, 10);
 
 const importErrorMessage = (err: unknown) =>
   err instanceof Error ? err.message.slice(0, 180) : "errore di inserimento";
+
+type BulkPatient = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  dateOfBirth: string;
+  codiceFiscale: string | null;
+  gender: "M" | "F" | null;
+  notes: string | null;
+  billingAddress: string | null;
+  billingCap: string | null;
+  billingCity: string | null;
+  billingProvincia: string | null;
+};
+
+const normalizePhoneKey = (phone: string) => phone.replace(/\s+/g, "");
+
+const uniqueNonEmpty = (values: Array<string | null | undefined>) =>
+  Array.from(new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean)));
+
+function normalizeBulkPatient(row: unknown): BulkPatient {
+  const data = row && typeof row === "object" ? row as Record<string, unknown> : {};
+  const firstName = String(data["firstName"] ?? "").trim();
+  const lastName = String(data["lastName"] ?? "").trim();
+  const email = String(data["email"] ?? "").trim();
+  const phone = String(data["phone"] ?? "").trim().replace(/^'+/, "").trim();
+  const dateOfBirth = toDateStr(String(data["dateOfBirth"] ?? "").trim()) || "1900-01-01";
+  const codiceFiscale = String(data["codiceFiscale"] ?? "").trim().toUpperCase() || null;
+  const genderText = String(data["gender"] ?? "").trim().toUpperCase();
+  const gender = genderText === "M" || genderText === "MALE" || genderText === "MASCHIO"
+    ? "M"
+    : genderText === "F" || genderText === "FEMALE" || genderText === "FEMMINA"
+      ? "F"
+      : null;
+
+  return {
+    firstName,
+    lastName,
+    email,
+    phone,
+    dateOfBirth,
+    codiceFiscale,
+    gender,
+    notes: String(data["notes"] ?? "").trim() || null,
+    billingAddress: String(data["billingAddress"] ?? "").trim() || null,
+    billingCap: String(data["billingCap"] ?? "").trim() || null,
+    billingCity: String(data["billingCity"] ?? "").trim() || null,
+    billingProvincia: String(data["billingProvincia"] ?? "").trim() || null,
+  };
+}
 
 function formatPatient(p: typeof patientsTable.$inferSelect) {
   return {
@@ -178,71 +230,93 @@ const bulkImportPatients: RequestHandler = async (req, res) => {
 
   let created = 0;
   let skipped = 0;
+  let errorCount = 0;
   const errors: string[] = [];
 
-  for (const row of rows) {
-    const firstName = String(row.firstName ?? "").trim();
-    const lastName = String(row.lastName ?? "").trim();
-    const email = String(row.email ?? "").trim();
-    const phone = String(row.phone ?? "").trim().replace(/^'+/, "").trim();
-    const dateOfBirth = toDateStr(String(row.dateOfBirth ?? "").trim());
-    const cf = String(row.codiceFiscale ?? "").trim().toUpperCase() || null;
-    const genderText = String(row.gender ?? "").trim().toUpperCase();
-    const gender = (genderText === "M" || genderText === "MALE" || genderText === "MASCHIO" ? "M" : genderText === "F" || genderText === "FEMALE" || genderText === "FEMMINA" ? "F" : null);
+  const addError = (message: string) => {
+    errorCount++;
+    if (errors.length < MAX_BULK_ERRORS) errors.push(message);
+  };
 
-    if (!firstName || !lastName) {
-      errors.push(`Riga saltata (nome o cognome mancante): ${firstName} ${lastName}`);
-      continue;
+  const normalizedRows = rows.map(normalizeBulkPatient);
+  const validRows: BulkPatient[] = [];
+
+  for (const row of normalizedRows) {
+    if (!row.firstName || !row.lastName) {
+      addError(`Riga saltata (nome o cognome mancante): ${row.firstName} ${row.lastName}`);
+    } else {
+      validRows.push(row);
     }
+  }
 
-    try {
-      const existing = cf
-        ? await db
-            .select({ id: patientsTable.id })
+  try {
+    const codiceFiscaleValues = uniqueNonEmpty(validRows.map((row) => row.codiceFiscale));
+    const emailValues = uniqueNonEmpty(validRows.map((row) => row.email));
+    const phoneValues = uniqueNonEmpty(validRows.map((row) => normalizePhoneKey(row.phone)));
+
+    const [existingByCfRows, existingByEmailRows, existingByPhoneRows] = await Promise.all([
+      codiceFiscaleValues.length
+        ? db
+            .select({ codiceFiscale: patientsTable.codiceFiscale })
             .from(patientsTable)
-            .where(and(isNotNull(patientsTable.codiceFiscale), eq(patientsTable.codiceFiscale, cf)))
-            .limit(1)
-        : email
-          ? await db
-              .select({ id: patientsTable.id })
-              .from(patientsTable)
-              .where(eq(patientsTable.email, email))
-              .limit(1)
-          : phone
-            ? await db
-                .select({ id: patientsTable.id })
-                .from(patientsTable)
-                .where(eq(patientsTable.phone, phone))
-                .limit(1)
-            : [];
+            .where(inArray(patientsTable.codiceFiscale, codiceFiscaleValues))
+        : Promise.resolve([]),
+      emailValues.length
+        ? db
+            .select({ email: patientsTable.email })
+            .from(patientsTable)
+            .where(inArray(patientsTable.email, emailValues))
+        : Promise.resolve([]),
+      phoneValues.length
+        ? db
+            .select({ phone: patientsTable.phone })
+            .from(patientsTable)
+            .where(inArray(patientsTable.phone, phoneValues))
+        : Promise.resolve([]),
+    ]);
 
-      if (existing.length > 0) {
+    const existingCfs = new Set(existingByCfRows.map((row) => String(row.codiceFiscale ?? "").toUpperCase()).filter(Boolean));
+    const existingEmails = new Set(existingByEmailRows.map((row) => row.email.trim().toLocaleLowerCase("it-IT")).filter(Boolean));
+    const existingPhones = new Set(existingByPhoneRows.map((row) => normalizePhoneKey(row.phone)).filter(Boolean));
+    const seenCfs = new Set<string>();
+    const seenEmails = new Set<string>();
+    const seenPhones = new Set<string>();
+    const insertRows: Array<typeof patientsTable.$inferInsert> = [];
+
+    for (const row of validRows) {
+      const cfKey = row.codiceFiscale?.toUpperCase() ?? "";
+      const emailKey = row.email.toLocaleLowerCase("it-IT");
+      const phoneKey = normalizePhoneKey(row.phone);
+      const duplicate =
+        (cfKey && (existingCfs.has(cfKey) || seenCfs.has(cfKey))) ||
+        (emailKey && (existingEmails.has(emailKey) || seenEmails.has(emailKey))) ||
+        (phoneKey && (existingPhones.has(phoneKey) || seenPhones.has(phoneKey)));
+
+      if (duplicate) {
         skipped++;
         continue;
       }
 
-      await db.insert(patientsTable).values({
-        firstName,
-        lastName,
-        dateOfBirth: dateOfBirth || "1900-01-01",
-        codiceFiscale: cf,
-        gender,
-        email,
-        phone,
-        notes: String(row.notes ?? "").trim() || null,
-        billingAddress: String(row.billingAddress ?? "").trim() || null,
-        billingCap: String(row.billingCap ?? "").trim() || null,
-        billingCity: String(row.billingCity ?? "").trim() || null,
-        billingProvincia: String(row.billingProvincia ?? "").trim() || null,
-      });
-      created++;
-    } catch (err) {
-      req.log.error({ err }, "Bulk import row error");
-      errors.push(`Errore su ${firstName} ${lastName}: ${importErrorMessage(err)}`);
+      if (cfKey) seenCfs.add(cfKey);
+      if (emailKey) seenEmails.add(emailKey);
+      if (phoneKey) seenPhones.add(phoneKey);
+      insertRows.push(row);
     }
+
+    if (insertRows.length > 0) {
+      await db.insert(patientsTable).values(insertRows);
+      created = insertRows.length;
+    }
+  } catch (err) {
+    req.log.error({ err }, "Bulk import batch error");
+    addError(`Errore import batch: ${importErrorMessage(err)}`);
   }
 
-  res.json({ created, skipped, errors });
+  if (errorCount > errors.length) {
+    errors.push(`Altri ${errorCount - errors.length} errori non mostrati.`);
+  }
+
+  res.json({ created, skipped, errors, errorCount });
 };
 
 router.post("/patients-bulk", bulkImportPatients);

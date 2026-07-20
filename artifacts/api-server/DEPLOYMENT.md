@@ -47,3 +47,6 @@ here for Vercel affected-project detection.
 
 Latest patient bulk import route update switches the frontend to the single
 segment /api/patients-bulk endpoint for Vercel routing compatibility.
+
+Latest patient bulk import performance update batches duplicate checks and
+inserts to avoid Vercel function timeouts on large CSV files.

@@ -96,14 +96,15 @@ async function parseFile(file: File): Promise<{ headers: string[]; raw: Record<s
   return { headers, raw: data };
 }
 
-interface Result { created: number; skipped: number; errors: string[] }
+interface Result { created: number; skipped: number; errors: string[]; errorCount?: number }
 
 interface Props {
   onClose: () => void;
   onImported: () => void;
 }
 
-const IMPORT_CHUNK_SIZE = 200;
+const IMPORT_CHUNK_SIZE = 500;
+const MAX_VISIBLE_IMPORT_ERRORS = 100;
 
 async function readImportResponse(response: Response): Promise<Result> {
   const text = await response.text();
@@ -148,6 +149,7 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
   const [mapping, setMapping] = React.useState<Record<string, string>>({});
   const [rows, setRows] = React.useState<PatientRow[]>([]);
   const [importing, setImporting] = React.useState(false);
+  const [importProgress, setImportProgress] = React.useState<{ processed: number; total: number } | null>(null);
   const [result, setResult] = React.useState<Result | null>(null);
   const [parseError, setParseError] = React.useState<string | null>(null);
 
@@ -183,9 +185,15 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
 
   const handleImport = async () => {
     setImporting(true);
-    try {
-      const total: Result = { created: 0, skipped: 0, errors: [] };
+    setImportProgress({ processed: 0, total: rows.length });
+    const total: Result = { created: 0, skipped: 0, errors: [], errorCount: 0 };
 
+    const addVisibleErrors = (messages: string[]) => {
+      const availableSlots = MAX_VISIBLE_IMPORT_ERRORS - total.errors.length;
+      if (availableSlots > 0) total.errors.push(...messages.slice(0, availableSlots));
+    };
+
+    try {
       for (let index = 0; index < rows.length; index += IMPORT_CHUNK_SIZE) {
         const chunk = rows.slice(index, index + IMPORT_CHUNK_SIZE);
         const resp = await fetch("/api/patients-bulk", {
@@ -196,25 +204,31 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
         const data = await readImportResponse(resp);
         total.created += data.created;
         total.skipped += data.skipped;
-        total.errors.push(...data.errors);
+        total.errorCount = (total.errorCount ?? 0) + (data.errorCount ?? data.errors.length);
+        addVisibleErrors(data.errors);
+        setImportProgress({ processed: Math.min(index + IMPORT_CHUNK_SIZE, rows.length), total: rows.length });
       }
 
+      if ((total.errorCount ?? 0) > total.errors.length) {
+        total.errors.push(`Altri ${(total.errorCount ?? 0) - total.errors.length} errori non mostrati.`);
+      }
       setResult(total);
       setStep("result");
       if (total.created > 0) onImported();
     } catch (error) {
+      const errorMessage = error instanceof Error
+        ? error.message
+        : "Importazione non riuscita. Riprova.";
+      total.errorCount = (total.errorCount ?? 0) + 1;
+      addVisibleErrors([errorMessage]);
       setResult({
-        created: 0,
-        skipped: 0,
-        errors: [
-          error instanceof Error
-            ? error.message
-            : "Importazione non riuscita. Riprova.",
-        ],
+        ...total,
+        errors: total.errors,
       });
       setStep("result");
     } finally {
       setImporting(false);
+      setImportProgress(null);
     }
   };
 
@@ -236,6 +250,10 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
   const requiredMapped = ["firstName", "lastName"].every(
     (f) => Object.values(mapping).includes(f)
   );
+  const importProgressPercent = importProgress
+    ? Math.round((importProgress.processed / Math.max(importProgress.total, 1)) * 100)
+    : 0;
+  const resultErrorCount = result?.errorCount ?? result?.errors.length ?? 0;
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -332,6 +350,21 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
                 </div>
               )}
 
+              {importProgress && (
+                <div className="rounded-lg border bg-muted/30 px-4 py-3">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
+                    <span>Importazione in corso</span>
+                    <span>{importProgress.processed} / {importProgress.total}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full bg-primary transition-all"
+                      style={{ width: `${importProgressPercent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Preview table */}
               {rows.length > 0 && (
                 <div>
@@ -386,7 +419,7 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
                 </div>
                 <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-center">
                   <AlertCircle className="h-6 w-6 text-red-400 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-red-700">{result.errors.length}</p>
+                  <p className="text-2xl font-bold text-red-700">{resultErrorCount}</p>
                   <p className="text-xs text-red-600">Errori</p>
                 </div>
               </div>
