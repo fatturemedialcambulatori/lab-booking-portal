@@ -103,6 +103,42 @@ interface Props {
   onImported: () => void;
 }
 
+const IMPORT_CHUNK_SIZE = 200;
+
+async function readImportResponse(response: Response): Promise<Result> {
+  const text = await response.text();
+  let data: unknown = null;
+
+  if (text.trim()) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+
+  if (!response.ok) {
+    const serverError = data && typeof data === "object" && "error" in data
+      ? String((data as { error?: unknown }).error)
+      : text.trim().slice(0, 240);
+
+    throw new Error(serverError || `Importazione non riuscita (HTTP ${response.status})`);
+  }
+
+  if (
+    data &&
+    typeof data === "object" &&
+    "created" in data &&
+    "skipped" in data &&
+    "errors" in data &&
+    Array.isArray((data as Result).errors)
+  ) {
+    return data as Result;
+  }
+
+  throw new Error("Risposta import non valida dal server.");
+}
+
 export function BulkImportDialog({ onClose, onImported }: Props) {
   const [step, setStep] = React.useState<"upload" | "preview" | "result">("upload");
   const [dragging, setDragging] = React.useState(false);
@@ -148,17 +184,34 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
   const handleImport = async () => {
     setImporting(true);
     try {
-      const resp = await fetch("/api/patients/bulk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rows),
-      });
-      const data: Result = await resp.json();
-      setResult(data);
+      const total: Result = { created: 0, skipped: 0, errors: [] };
+
+      for (let index = 0; index < rows.length; index += IMPORT_CHUNK_SIZE) {
+        const chunk = rows.slice(index, index + IMPORT_CHUNK_SIZE);
+        const resp = await fetch("/api/patients/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(chunk),
+        });
+        const data = await readImportResponse(resp);
+        total.created += data.created;
+        total.skipped += data.skipped;
+        total.errors.push(...data.errors);
+      }
+
+      setResult(total);
       setStep("result");
-      if (data.created > 0) onImported();
-    } catch {
-      setResult({ created: 0, skipped: 0, errors: ["Errore di rete. Riprova."] });
+      if (total.created > 0) onImported();
+    } catch (error) {
+      setResult({
+        created: 0,
+        skipped: 0,
+        errors: [
+          error instanceof Error
+            ? error.message
+            : "Importazione non riuscita. Riprova.",
+        ],
+      });
       setStep("result");
     } finally {
       setImporting(false);
@@ -168,8 +221,8 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
   const FIELDS = [
     { value: "firstName", label: "Nome *" },
     { value: "lastName", label: "Cognome *" },
-    { value: "email", label: "Email *" },
-    { value: "phone", label: "Telefono *" },
+    { value: "email", label: "Email" },
+    { value: "phone", label: "Telefono" },
     { value: "dateOfBirth", label: "Data di nascita" },
     { value: "codiceFiscale", label: "Codice fiscale" },
     { value: "gender", label: "Sesso" },

@@ -9,6 +9,9 @@ const router = Router();
 const toDateStr = (v: string | Date | null): string =>
   !v ? "" : typeof v === "string" ? v.slice(0, 10) : v.toISOString().slice(0, 10);
 
+const importErrorMessage = (err: unknown) =>
+  err instanceof Error ? err.message.slice(0, 180) : "errore di inserimento";
+
 function formatPatient(p: typeof patientsTable.$inferSelect) {
   return {
     id: p.id,
@@ -235,7 +238,7 @@ router.post("/patients/bulk", async (req, res) => {
       created++;
     } catch (err) {
       req.log.error({ err }, "Bulk import row error");
-      errors.push(`Errore su ${firstName} ${lastName}: errore di inserimento`);
+      errors.push(`Errore su ${firstName} ${lastName}: ${importErrorMessage(err)}`);
     }
   }
 

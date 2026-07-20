@@ -41,3 +41,6 @@ when doctor price lists grow beyond the default Express payload size.
 
 Latest CSV import compatibility and admin-settings error-detail changes are
 reflected here for Vercel affected-project detection.
+
+Latest patient bulk import diagnostics and chunked upload changes are reflected
+here for Vercel affected-project detection.
