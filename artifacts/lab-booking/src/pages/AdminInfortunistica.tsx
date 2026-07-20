@@ -1,4 +1,5 @@
 import React from "react";
+import Papa from "papaparse";
 import {
   AlertTriangle,
   CalendarClock,
@@ -322,7 +323,82 @@ const scaricaBlob = (content: BlobPart, fileName: string, type = "text/plain") =
   URL.revokeObjectURL(url);
 };
 
+const normalizeCsvHeader = (value: string) =>
+  value.replace(/^\uFEFF/, "").trim().toLocaleLowerCase("it-IT").replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+
+const cleanCsvValue = (value: unknown) => String(value ?? "").trim().replace(/^'+/, "").trim();
+
+const readCsvValue = (row: Record<string, unknown>, aliases: string[]) => {
+  const normalizedAliases = aliases.map(normalizeCsvHeader);
+  const entry = Object.entries(row).find(([key]) => normalizedAliases.includes(normalizeCsvHeader(key)));
+  return cleanCsvValue(entry?.[1]);
+};
+
+const firstNonEmpty = (...values: string[]) => values.find((value) => value.trim())?.trim() ?? "";
+
+const validFiscalCode = (value: string) => /^[A-Z0-9]{16}$/i.test(value.trim());
+
+const makeImportedId = (prefix: string, value: string, index: number) =>
+  `${prefix}-${safeFileName(value || `${Date.now()}-${index}`)}-${index}`;
+
+const importedClientKey = (cliente: Pick<ClienteInfortunistica, "nome" | "codiceFiscale" | "email" | "telefono">) =>
+  (cliente.codiceFiscale && `cf:${cliente.codiceFiscale.toLocaleUpperCase("it-IT")}`) ||
+  (cliente.email && `email:${cliente.email.toLocaleLowerCase("it-IT")}`) ||
+  (cliente.telefono && `tel:${cliente.telefono.replace(/\s+/g, "")}`) ||
+  `nome:${cliente.nome.toLocaleLowerCase("it-IT")}`;
+
+const buildImportedClient = (row: Record<string, unknown>, index: number): ClienteInfortunistica | null => {
+  const firstName = readCsvValue(row, ["first name", "firstname", "nome", "fiscal first name"]);
+  const lastName = readCsvValue(row, ["last name", "lastname", "cognome", "fiscal last name"]);
+  const nome = firstNonEmpty(readCsvValue(row, ["cliente", "nome cliente", "name"]), [firstName, lastName].filter(Boolean).join(" "));
+  if (!nome) return null;
+
+  const fiscalCode = readCsvValue(row, ["codice fiscale", "codiceFiscale", "fiscal code", "tax code", "cf"]);
+  const document = readCsvValue(row, ["document", "documento"]);
+  const street = readCsvValue(row, ["address street", "indirizzo", "via"]);
+  const streetNumber = readCsvValue(row, ["address number", "numero civico", "civico"]);
+  const cap = readCsvValue(row, ["address postal code", "cap", "codice postale"]);
+  const city = readCsvValue(row, ["address city", "citta", "città", "comune"]);
+  const province = readCsvValue(row, ["address province", "address state", "provincia", "prov"]);
+  const country = readCsvValue(row, ["address country", "country", "paese"]);
+  const addressLine = firstNonEmpty(
+    readCsvValue(row, ["indirizzo completo", "indirizzo fatturazione", "address"]),
+    [
+      [street, streetNumber].filter(Boolean).join(" "),
+      [cap, city].filter(Boolean).join(" "),
+      province,
+      country,
+    ].filter(Boolean).join(", "),
+  );
+
+  return {
+    id: makeImportedId("cliente", firstNonEmpty(fiscalCode, document, nome), index),
+    nome,
+    codiceFiscale: firstNonEmpty(fiscalCode, validFiscalCode(document) ? document : "").toLocaleUpperCase("it-IT"),
+    telefono: readCsvValue(row, ["telefono", "phone", "mobile", "cellulare", "additional phone"]),
+    email: readCsvValue(row, ["email", "e-mail", "mail"]),
+    indirizzo: addressLine,
+    luogoNascita: readCsvValue(row, ["luogo nascita", "born city", "birth city", "comune nascita"]),
+    dataNascita: readCsvValue(row, ["data nascita", "data di nascita", "date of birth", "dob"]),
+  };
+};
+
+const mergeImportedClient = (
+  current: ClienteInfortunistica,
+  incoming: ClienteInfortunistica,
+): ClienteInfortunistica => ({
+  ...current,
+  nome: incoming.nome || current.nome,
+  codiceFiscale: incoming.codiceFiscale || current.codiceFiscale,
+  telefono: incoming.telefono || current.telefono,
+  email: incoming.email || current.email,
+  indirizzo: incoming.indirizzo || current.indirizzo,
+  luogoNascita: incoming.luogoNascita || current.luogoNascita,
+  dataNascita: incoming.dataNascita || current.dataNascita,
+});
+
 export function AdminInfortunistica() {
+  const importClientiInputRef = React.useRef<HTMLInputElement | null>(null);
   const [clienti, setClienti] = React.useState(CLIENTI_INIZIALI);
   const [pratiche, setPratiche] = React.useState(PRATICHE_INIZIALI);
   const [certificati, setCertificati] = React.useState(CERTIFICATI_INIZIALI);
@@ -752,6 +828,126 @@ export function AdminInfortunistica() {
     });
   };
 
+  const importaClientiCsv = async (file: File) => {
+    const text = await file.text();
+    const parsed = Papa.parse<Record<string, unknown>>(text, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (header) => header.replace(/^\uFEFF/, "").trim(),
+    });
+
+    if (parsed.errors.length > 0 && parsed.data.length === 0) {
+      throw new Error("CSV non leggibile");
+    }
+
+    const nextClienti = [...clienti];
+    const nextPratiche = [...pratiche];
+    const nextCertificati = [...certificati];
+    const clientiByKey = new Map(nextClienti.map((cliente, index) => [importedClientKey(cliente), index]));
+    const praticheKeys = new Set(
+      nextPratiche.map((pratica) =>
+        `${pratica.clienteId}|${pratica.compagnia.toLocaleLowerCase("it-IT")}|${pratica.numeroSinistro.toLocaleLowerCase("it-IT")}`,
+      ),
+    );
+    const baseTime = Date.now();
+    let creati = 0;
+    let aggiornati = 0;
+    let praticheCreate = 0;
+    let certificatiCreati = 0;
+    let firstImportedClientId = "";
+
+    parsed.data.forEach((row, index) => {
+      const imported = buildImportedClient(row, baseTime + index);
+      if (!imported) return;
+
+      const key = importedClientKey(imported);
+      const existingIndex = clientiByKey.get(key);
+      const clienteId = existingIndex === undefined ? imported.id : nextClienti[existingIndex].id;
+
+      if (!firstImportedClientId) firstImportedClientId = clienteId;
+
+      if (existingIndex === undefined) {
+        nextClienti.push({ ...imported, id: clienteId });
+        clientiByKey.set(key, nextClienti.length - 1);
+        creati++;
+      } else {
+        nextClienti[existingIndex] = mergeImportedClient(nextClienti[existingIndex], imported);
+        aggiornati++;
+      }
+
+      const compagnia = readCsvValue(row, ["compagnia", "compagnia assicurativa", "insurance"]);
+      const numeroSinistro = readCsvValue(row, ["numero sinistro", "numeroSinistro", "sinistro", "claim number"]);
+      let praticaId = "";
+
+      if (compagnia && numeroSinistro) {
+        const praticaKey = `${clienteId}|${compagnia.toLocaleLowerCase("it-IT")}|${numeroSinistro.toLocaleLowerCase("it-IT")}`;
+        const existingPratica = nextPratiche.find(
+          (pratica) =>
+            pratica.clienteId === clienteId &&
+            pratica.compagnia.toLocaleLowerCase("it-IT") === compagnia.toLocaleLowerCase("it-IT") &&
+            pratica.numeroSinistro.toLocaleLowerCase("it-IT") === numeroSinistro.toLocaleLowerCase("it-IT"),
+        );
+        praticaId = existingPratica?.id ?? "";
+
+        if (!praticheKeys.has(praticaKey)) {
+          praticaId = makeImportedId("sinistro", `${clienteId}-${numeroSinistro}`, baseTime + index);
+          nextPratiche.push({
+            id: praticaId,
+            clienteId,
+            compagnia,
+            numeroSinistro,
+            dataSinistro: readCsvValue(row, ["data sinistro", "dataSinistro", "claim date"]) || new Date().toISOString().slice(0, 10),
+            referente: readCsvValue(row, ["referente", "referente legale", "legale", "lawyer"]),
+            stato: readCsvValue(row, ["stato pratica", "statoPratica", "status"]).toLocaleLowerCase("it-IT") === "chiusa"
+              ? "chiusa"
+              : "aperta",
+          });
+          praticheKeys.add(praticaKey);
+          praticheCreate++;
+        }
+      }
+
+      const tipoCertificato = readCsvValue(row, ["tipo certificato", "tipoCertificato", "certificato", "certificate type"]);
+      if (tipoCertificato && praticaId) {
+        nextCertificati.push({
+          id: makeImportedId("certificato", `${clienteId}-${tipoCertificato}`, baseTime + index),
+          clienteId,
+          praticaId,
+          tipo: tipoCertificato,
+          emissione: readCsvValue(row, ["emissione certificato", "emissioneCertificato", "emissione"]) || new Date().toISOString().slice(0, 10),
+          prognosiGiorni: Number(readCsvValue(row, ["prognosi giorni", "prognosiGiorni", "prognosi"])) || 0,
+          scadenza: readCsvValue(row, ["scadenza certificato", "scadenzaCertificato", "scadenza"]) || new Date().toISOString().slice(0, 10),
+          stato: (readCsvValue(row, ["stato certificato", "statoCertificato"]) as StatoCertificato) || "da-caricare",
+          note: readCsvValue(row, ["note certificato", "noteCertificato", "note"]),
+        });
+        certificatiCreati++;
+      }
+    });
+
+    setClienti(nextClienti);
+    setPratiche(nextPratiche);
+    setCertificati(nextCertificati);
+    if (firstImportedClientId) setSelectedClienteId(firstImportedClientId);
+    mostraNotifica(
+      `Import clienti completato: ${creati} creati, ${aggiornati} aggiornati, ${praticheCreate} pratiche, ${certificatiCreati} certificati.`,
+    );
+  };
+
+  const apriImportClientiCsv = () => importClientiInputRef.current?.click();
+
+  const gestisciImportClientiCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      await importaClientiCsv(file);
+    } catch {
+      mostraNotifica("Import clienti non riuscito. Controlla che il file sia un CSV valido.", "destructive");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
   const creaSinistro = () => {
     const nome = nuovoSinistro.nome.trim();
     if (!nome || !nuovoSinistro.compagnia.trim() || !nuovoSinistro.numeroSinistro.trim()) return;
@@ -801,11 +997,25 @@ export function AdminInfortunistica() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Infortunistica stradale</h1>
-        <p className="text-sm text-muted-foreground">
-          Gestione clienti, sinistri, certificati, scadenze e periodi di malattia scoperti.
-        </p>
+      <input
+        ref={importClientiInputRef}
+        type="file"
+        accept=".csv"
+        className="hidden"
+        onChange={gestisciImportClientiCsv}
+      />
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Infortunistica stradale</h1>
+          <p className="text-sm text-muted-foreground">
+            Gestione clienti, sinistri, certificati, scadenze e periodi di malattia scoperti.
+          </p>
+        </div>
+        <Button type="button" variant="outline" className="gap-2 sm:self-start" onClick={apriImportClientiCsv}>
+          <Upload className="h-4 w-4" />
+          Importa clienti CSV
+        </Button>
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">

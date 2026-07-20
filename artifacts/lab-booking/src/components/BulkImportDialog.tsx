@@ -25,21 +25,34 @@ const ALIAS: Record<string, string> = {
   "data nascita": "dateOfBirth", "data di nascita": "dateOfBirth", datanascita: "dateOfBirth",
   "date of birth": "dateOfBirth", dob: "dateOfBirth", "data_nascita": "dateOfBirth",
   "codice fiscale": "codiceFiscale", "codice_fiscale": "codiceFiscale", cf: "codiceFiscale",
-  "tax code": "codiceFiscale", codicefiscale: "codiceFiscale",
+  "tax code": "codiceFiscale", "fiscal code": "codiceFiscale", codicefiscale: "codiceFiscale",
+  document: "codiceFiscale",
   email: "email", "e-mail": "email", mail: "email",
   telefono: "phone", tel: "phone", phone: "phone", cellulare: "phone", mobile: "phone",
   sesso: "gender", genere: "gender", gender: "gender",
   note: "notes", notes: "notes",
-  indirizzo: "billingAddress", "indirizzo fatturazione": "billingAddress", billingaddress: "billingAddress",
-  cap: "billingCap", "codice postale": "billingCap", billingcap: "billingCap",
-  città: "billingCity", citta: "billingCity", city: "billingCity", comune: "billingCity", billingcity: "billingCity",
-  provincia: "billingProvincia", prov: "billingProvincia", billingprovincia: "billingProvincia",
+  indirizzo: "billingAddress", "indirizzo fatturazione": "billingAddress", "address street": "billingAddress", address: "billingAddress", billingaddress: "billingAddress",
+  cap: "billingCap", "codice postale": "billingCap", "address postal code": "billingCap", postalcode: "billingCap", billingcap: "billingCap",
+  città: "billingCity", citta: "billingCity", city: "billingCity", comune: "billingCity", "address city": "billingCity", billingcity: "billingCity",
+  provincia: "billingProvincia", prov: "billingProvincia", "address province": "billingProvincia", "address state": "billingProvincia", billingprovincia: "billingProvincia",
+  "fiscal first name": "firstName", "fiscal last name": "lastName",
 };
 
 type PatientRow = Record<string, string>;
 
 function normalizeHeader(h: string): string {
-  return h.trim().toLowerCase().replace(/\s+/g, " ");
+  return h.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+}
+
+function cleanCell(value: unknown): string {
+  return String(value ?? "").trim().replace(/^'+/, "").trim();
+}
+
+function normalizeGender(value: string | undefined): string | undefined {
+  const text = cleanCell(value).toLowerCase();
+  if (["f", "female", "femmina", "donna"].includes(text)) return "F";
+  if (["m", "male", "maschio", "uomo"].includes(text)) return "M";
+  return value;
 }
 
 function mapHeaders(headers: string[]): Record<string, string> {
@@ -55,10 +68,11 @@ function parseRows(raw: Record<string, string>[], mapping: Record<string, string
   return raw.map((row) => {
     const out: PatientRow = {};
     for (const [col, field] of Object.entries(mapping)) {
-      out[field] = String(row[col] ?? "").trim();
+      const value = cleanCell(row[col]);
+      out[field] = field === "gender" ? normalizeGender(value) ?? value : value;
     }
     return out;
-  }).filter((r) => r.firstName || r.lastName || r.email);
+  }).filter((r) => r.firstName || r.lastName || r.email || r.phone || r.codiceFiscale);
 }
 
 async function parseFile(file: File): Promise<{ headers: string[]; raw: Record<string, string>[] }> {
@@ -166,7 +180,7 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
     { value: "billingProvincia", label: "Provincia" },
   ];
 
-  const requiredMapped = ["firstName", "lastName", "email", "phone"].every(
+  const requiredMapped = ["firstName", "lastName"].every(
     (f) => Object.values(mapping).includes(f)
   );
 
@@ -261,7 +275,7 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
               {!requiredMapped && (
                 <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                   <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  Associa almeno: Nome, Cognome, Email, Telefono per poter importare.
+                  Associa almeno Nome e Cognome per poter importare. Email e telefono possono essere vuoti.
                 </div>
               )}
 

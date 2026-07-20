@@ -181,26 +181,37 @@ router.post("/patients/bulk", async (req, res) => {
     const firstName = String(row.firstName ?? "").trim();
     const lastName = String(row.lastName ?? "").trim();
     const email = String(row.email ?? "").trim();
-    const phone = String(row.phone ?? "").trim();
+    const phone = String(row.phone ?? "").trim().replace(/^'+/, "").trim();
     const dateOfBirth = toDateStr(String(row.dateOfBirth ?? "").trim());
     const cf = String(row.codiceFiscale ?? "").trim().toUpperCase() || null;
-    const gender = (String(row.gender ?? "").trim().toUpperCase() === "M" ? "M" : String(row.gender ?? "").trim().toUpperCase() === "F" ? "F" : null);
+    const genderText = String(row.gender ?? "").trim().toUpperCase();
+    const gender = (genderText === "M" || genderText === "MALE" || genderText === "MASCHIO" ? "M" : genderText === "F" || genderText === "FEMALE" || genderText === "FEMMINA" ? "F" : null);
 
-    if (!firstName || !lastName || !email || !phone) {
-      errors.push(`Riga saltata (dati obbligatori mancanti): ${firstName} ${lastName}`);
+    if (!firstName || !lastName) {
+      errors.push(`Riga saltata (nome o cognome mancante): ${firstName} ${lastName}`);
       continue;
     }
 
     try {
-      const existingCondition = cf
-        ? and(isNotNull(patientsTable.codiceFiscale), eq(patientsTable.codiceFiscale, cf))
-        : eq(patientsTable.email, email);
-
-      const existing = await db
-        .select({ id: patientsTable.id })
-        .from(patientsTable)
-        .where(existingCondition)
-        .limit(1);
+      const existing = cf
+        ? await db
+            .select({ id: patientsTable.id })
+            .from(patientsTable)
+            .where(and(isNotNull(patientsTable.codiceFiscale), eq(patientsTable.codiceFiscale, cf)))
+            .limit(1)
+        : email
+          ? await db
+              .select({ id: patientsTable.id })
+              .from(patientsTable)
+              .where(eq(patientsTable.email, email))
+              .limit(1)
+          : phone
+            ? await db
+                .select({ id: patientsTable.id })
+                .from(patientsTable)
+                .where(eq(patientsTable.phone, phone))
+                .limit(1)
+            : [];
 
       if (existing.length > 0) {
         skipped++;

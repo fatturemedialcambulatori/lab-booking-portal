@@ -38,3 +38,6 @@ here for Vercel affected-project detection.
 
 Latest API JSON body limit update prevents admin settings saves from failing
 when doctor price lists grow beyond the default Express payload size.
+
+Latest CSV import compatibility and admin-settings error-detail changes are
+reflected here for Vercel affected-project detection.

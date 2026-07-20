@@ -585,13 +585,21 @@ export function AdminSettings() {
         },
         body: JSON.stringify(payload),
       })
-        .then((response) => {
-          if (!response.ok) throw new Error("Salvataggio non riuscito");
+        .then(async (response) => {
+          if (!response.ok) {
+            const data = await response.json().catch(() => null) as { error?: string } | null;
+            throw new Error(data?.error ?? `Salvataggio non riuscito (HTTP ${response.status})`);
+          }
           setSettingsSaveState("saved");
         })
-        .catch(() => {
+        .catch((error) => {
           setSettingsSaveState("error");
-          mostraNotifica("Salvataggio impostazioni non riuscito. Verifica Supabase e Vercel.", "destructive");
+          mostraNotifica(
+            error instanceof Error
+              ? error.message
+              : "Salvataggio impostazioni non riuscito. Verifica Supabase e Vercel.",
+            "destructive",
+          );
         });
     }, 700);
 
@@ -1641,7 +1649,7 @@ export function AdminSettings() {
     loading: "Caricamento DB",
     saving: "Salvataggio...",
     saved: "DB collegato",
-    error: "DB non collegato",
+    error: "Errore salvataggio",
   };
 
   const settingsBadgeClass =
