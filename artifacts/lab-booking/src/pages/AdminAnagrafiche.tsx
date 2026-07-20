@@ -21,6 +21,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  ChevronLeft,
+  ChevronRight,
   Search,
   UserPlus,
   Pencil,
@@ -61,6 +63,7 @@ function isFormValid(f: PatientForm) {
 }
 
 const today = new Date().toISOString().slice(0, 10);
+const PAGE_SIZE = 50;
 
 const byPatientName = (a: Patient, b: Patient) =>
   a.lastName.localeCompare(b.lastName, "it", { sensitivity: "base" }) ||
@@ -80,6 +83,7 @@ function useDebounce<T>(value: T, delay: number): T {
 export function AdminAnagrafiche() {
   const queryClient = useQueryClient();
   const [search, setSearch] = React.useState("");
+  const [pageIndex, setPageIndex] = React.useState(0);
   const [showCreate, setShowCreate] = React.useState(false);
   const [showBulkImport, setShowBulkImport] = React.useState(false);
   const [editPatient, setEditPatient] = React.useState<{ id: number; form: PatientForm } | null>(null);
@@ -87,9 +91,18 @@ export function AdminAnagrafiche() {
   const [formError, setFormError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const debouncedSearch = useDebounce(search.trim(), 300);
+
+  React.useEffect(() => {
+    setPageIndex(0);
+  }, [debouncedSearch]);
+
   const patientQueryParams = React.useMemo(
-    () => debouncedSearch ? { search: debouncedSearch } : undefined,
-    [debouncedSearch],
+    () => ({
+      ...(debouncedSearch ? { search: debouncedSearch } : {}),
+      limit: PAGE_SIZE + 1,
+      offset: pageIndex * PAGE_SIZE,
+    }),
+    [debouncedSearch, pageIndex],
   );
 
   const { data: patients, isLoading, isFetching, error, refetch, queryKey } = useListPatients(patientQueryParams);
@@ -98,7 +111,10 @@ export function AdminAnagrafiche() {
   const updatePatient = useUpdatePatient();
   const deletePatient = useDeletePatient();
 
-  const visiblePatients = patients ?? [];
+  const hasNextPage = (patients?.length ?? 0) > PAGE_SIZE;
+  const visiblePatients = (patients ?? []).slice(0, PAGE_SIZE);
+  const firstVisibleIndex = pageIndex * PAGE_SIZE + 1;
+  const lastVisibleIndex = pageIndex * PAGE_SIZE + visiblePatients.length;
 
   const handleCreate = async (form: PatientForm) => {
     setSaving(true);
@@ -229,80 +245,110 @@ export function AdminAnagrafiche() {
           <p className="text-sm">{search ? "Prova a cambiare i termini di ricerca." : "Aggiungi il primo paziente con il pulsante in alto."}</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {visiblePatients.map((p) => (
-            <div
-              key={p.id}
-              className="rounded-xl border bg-card shadow-sm px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4"
-            >
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center font-bold text-sm text-primary flex-shrink-0">
-                  {p.firstName[0]}{p.lastName[0]}
-                </div>
-                <div className="min-w-0">
-                  <p className="font-semibold text-foreground">
-                    {p.firstName} {p.lastName}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <CalendarDays className="h-3 w-3" />
-                      Nato il {p.dateOfBirth}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Phone className="h-3 w-3" />
-                      {p.phone}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Mail className="h-3 w-3" />
-                      {p.email}
-                    </span>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            {visiblePatients.map((p) => (
+              <div
+                key={p.id}
+                className="rounded-xl border bg-card shadow-sm px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4"
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className="h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center font-bold text-sm text-primary flex-shrink-0">
+                    {p.firstName[0]}{p.lastName[0]}
                   </div>
-                  {p.notes && (
-                    <p className="text-xs text-muted-foreground italic mt-0.5">"{p.notes}"</p>
-                  )}
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground">
+                      {p.firstName} {p.lastName}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <CalendarDays className="h-3 w-3" />
+                        Nato il {p.dateOfBirth}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Phone className="h-3 w-3" />
+                        {p.phone || "Telefono non presente"}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Mail className="h-3 w-3" />
+                        {p.email || "Email non presente"}
+                      </span>
+                    </div>
+                    {p.notes && (
+                      <p className="text-xs text-muted-foreground italic mt-0.5">"{p.notes}"</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Badge variant="outline" className="text-xs">#{p.id}</Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => {
+                      setEditPatient({
+                        id: p.id,
+                        form: {
+                          firstName: p.firstName,
+                          lastName: p.lastName,
+                          dateOfBirth: p.dateOfBirth,
+                          codiceFiscale: p.codiceFiscale ?? "",
+                          gender: (p.gender as "M" | "F" | "") ?? "",
+                          email: p.email,
+                          phone: p.phone,
+                          notes: p.notes ?? "",
+                          billingAddress: p.billingAddress ?? "",
+                          billingCap: p.billingCap ?? "",
+                          billingCity: p.billingCity ?? "",
+                          billingProvincia: p.billingProvincia ?? "",
+                        },
+                      });
+                      setFormError(null);
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Modifica
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/5"
+                    onClick={() => setDeleteConfirmId(p.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <Badge variant="outline" className="text-xs">#{p.id}</Badge>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5"
-                  onClick={() => {
-                    setEditPatient({
-                      id: p.id,
-                      form: {
-                        firstName: p.firstName,
-                        lastName: p.lastName,
-                        dateOfBirth: p.dateOfBirth,
-                        codiceFiscale: p.codiceFiscale ?? "",
-                        gender: (p.gender as "M" | "F" | "") ?? "",
-                        email: p.email,
-                        phone: p.phone,
-                        notes: p.notes ?? "",
-                        billingAddress: p.billingAddress ?? "",
-                        billingCap: p.billingCap ?? "",
-                        billingCity: p.billingCity ?? "",
-                        billingProvincia: p.billingProvincia ?? "",
-                      },
-                    });
-                    setFormError(null);
-                  }}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  Modifica
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/5"
-                  onClick={() => setDeleteConfirmId(p.id)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              {firstVisibleIndex}-{lastVisibleIndex} visualizzati · Pagina {pageIndex + 1}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={pageIndex === 0 || isFetching}
+                onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Indietro
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={!hasNextPage || isFetching}
+                onClick={() => setPageIndex((current) => current + 1)}
+              >
+                Avanti
+                <ChevronRight className="h-4 w-4" />
+              </Button>
             </div>
-          ))}
+          </div>
         </div>
       )}
 

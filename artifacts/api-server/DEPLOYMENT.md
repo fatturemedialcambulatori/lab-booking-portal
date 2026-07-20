@@ -53,3 +53,6 @@ inserts to avoid Vercel function timeouts on large CSV files.
 
 Latest patient list performance update limits /api/patients responses and moves
 Anagrafiche search to server-side filtering for large imported datasets.
+
+Latest Anagrafiche update adds client pagination controls over the limited
+server-side patient list.
