@@ -35,3 +35,6 @@ patients appear immediately after saving in the admin frontend.
 
 Latest infortunistica printable procura alle liti PDF generation is reflected
 here for Vercel affected-project detection.
+
+Latest API JSON body limit update prevents admin settings saves from failing
+when doctor price lists grow beyond the default Express payload size.
