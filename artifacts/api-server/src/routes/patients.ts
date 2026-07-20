@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { db } from "@workspace/db";
 import { patientsTable } from "@workspace/db";
 import { eq, ilike, or, and, isNotNull } from "drizzle-orm";
@@ -169,7 +169,7 @@ router.delete("/patients/:id", async (req, res) => {
   }
 });
 
-router.post("/patients/bulk", async (req, res) => {
+const bulkImportPatients: RequestHandler = async (req, res) => {
   const rows = req.body;
   if (!Array.isArray(rows) || rows.length === 0) {
     res.status(400).json({ error: "Provide a non-empty array of patients" });
@@ -243,6 +243,9 @@ router.post("/patients/bulk", async (req, res) => {
   }
 
   res.json({ created, skipped, errors });
-});
+};
+
+router.post("/patients-bulk", bulkImportPatients);
+router.post("/patients/bulk", bulkImportPatients);
 
 export default router;

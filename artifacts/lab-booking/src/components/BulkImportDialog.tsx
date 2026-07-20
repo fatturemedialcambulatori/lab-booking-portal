@@ -188,7 +188,7 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
 
       for (let index = 0; index < rows.length; index += IMPORT_CHUNK_SIZE) {
         const chunk = rows.slice(index, index + IMPORT_CHUNK_SIZE);
-        const resp = await fetch("/api/patients/bulk", {
+        const resp = await fetch("/api/patients-bulk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(chunk),
