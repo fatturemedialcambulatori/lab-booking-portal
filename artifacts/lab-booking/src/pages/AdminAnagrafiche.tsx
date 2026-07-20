@@ -66,6 +66,17 @@ const byPatientName = (a: Patient, b: Patient) =>
   a.lastName.localeCompare(b.lastName, "it", { sensitivity: "base" }) ||
   a.firstName.localeCompare(b.firstName, "it", { sensitivity: "base" });
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = React.useState(value);
+
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+
+  return debounced;
+}
+
 export function AdminAnagrafiche() {
   const queryClient = useQueryClient();
   const [search, setSearch] = React.useState("");
@@ -75,24 +86,19 @@ export function AdminAnagrafiche() {
   const [deleteConfirmId, setDeleteConfirmId] = React.useState<number | null>(null);
   const [formError, setFormError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const debouncedSearch = useDebounce(search.trim(), 300);
+  const patientQueryParams = React.useMemo(
+    () => debouncedSearch ? { search: debouncedSearch } : undefined,
+    [debouncedSearch],
+  );
 
-  const { data: patients, isLoading, error, refetch } = useListPatients();
+  const { data: patients, isLoading, isFetching, error, refetch, queryKey } = useListPatients(patientQueryParams);
 
   const createPatient = useCreatePatient();
   const updatePatient = useUpdatePatient();
   const deletePatient = useDeletePatient();
 
-  const filtered = React.useMemo(() => {
-    if (!patients) return [];
-    const q = search.trim().toLowerCase();
-    if (!q) return patients;
-    return patients.filter(
-      (p) =>
-        `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
-        p.email.toLowerCase().includes(q) ||
-        p.phone.includes(q)
-    );
-  }, [patients, search]);
+  const visiblePatients = patients ?? [];
 
   const handleCreate = async (form: PatientForm) => {
     setSaving(true);
@@ -114,7 +120,7 @@ export function AdminAnagrafiche() {
           billingProvincia: form.billingProvincia.trim() || null,
         },
       });
-      queryClient.setQueryData<Patient[]>(getListPatientsQueryKey(), (current) =>
+      queryClient.setQueryData<Patient[]>(queryKey, (current) =>
         current ? [...current, created].sort(byPatientName) : current
       );
       await queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
@@ -147,7 +153,7 @@ export function AdminAnagrafiche() {
           billingProvincia: form.billingProvincia.trim() || null,
         },
       });
-      queryClient.setQueryData<Patient[]>(getListPatientsQueryKey(), (current) =>
+      queryClient.setQueryData<Patient[]>(queryKey, (current) =>
         current ? current.map((patient) => (patient.id === id ? updated : patient)).sort(byPatientName) : current
       );
       await queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
@@ -162,7 +168,7 @@ export function AdminAnagrafiche() {
   const handleDelete = async (id: number) => {
     try {
       await deletePatient.mutateAsync({ id });
-      queryClient.setQueryData<Patient[]>(getListPatientsQueryKey(), (current) =>
+      queryClient.setQueryData<Patient[]>(queryKey, (current) =>
         current ? current.filter((patient) => patient.id !== id) : current
       );
       await queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
@@ -178,7 +184,7 @@ export function AdminAnagrafiche() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Anagrafiche Pazienti</h1>
           <p className="text-muted-foreground text-sm">
-            Gestisci il registro pazienti: {patients?.length ?? 0} pazienti registrati.
+            Gestisci il registro pazienti: {visiblePatients.length} pazienti visualizzati.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -196,12 +202,15 @@ export function AdminAnagrafiche() {
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
-          placeholder="Cerca per nome, email o telefono..."
+          placeholder="Cerca per nome, email, telefono o codice fiscale..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
         />
       </div>
+      {isFetching && !isLoading && (
+        <p className="text-xs text-muted-foreground">Aggiornamento risultati...</p>
+      )}
 
       {error ? (
         <div className="rounded-md bg-destructive/10 border border-destructive/30 px-4 py-3 text-sm text-destructive flex items-center gap-2">
@@ -213,7 +222,7 @@ export function AdminAnagrafiche() {
         <div className="space-y-3">
           {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : visiblePatients.length === 0 ? (
         <div className="text-center py-20 text-muted-foreground">
           <Users className="h-10 w-10 mx-auto mb-3 opacity-30" />
           <p className="font-medium">{search ? "Nessun risultato" : "Nessun paziente registrato"}</p>
@@ -221,7 +230,7 @@ export function AdminAnagrafiche() {
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map((p) => (
+          {visiblePatients.map((p) => (
             <div
               key={p.id}
               className="rounded-xl border bg-card shadow-sm px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4"

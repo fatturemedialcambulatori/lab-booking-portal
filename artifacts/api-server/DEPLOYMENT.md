@@ -50,3 +50,6 @@ segment /api/patients-bulk endpoint for Vercel routing compatibility.
 
 Latest patient bulk import performance update batches duplicate checks and
 inserts to avoid Vercel function timeouts on large CSV files.
+
+Latest patient list performance update limits /api/patients responses and moves
+Anagrafiche search to server-side filtering for large imported datasets.

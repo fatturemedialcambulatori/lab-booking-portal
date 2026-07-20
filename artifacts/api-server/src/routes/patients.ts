@@ -86,6 +86,10 @@ function formatPatient(p: typeof patientsTable.$inferSelect) {
 router.get("/patients", async (req, res) => {
   try {
     const search = (req.query["search"] as string | undefined)?.trim();
+    const rawLimit = Number(req.query["limit"] ?? 100);
+    const rawOffset = Number(req.query["offset"] ?? 0);
+    const limit = Number.isFinite(rawLimit) ? Math.min(200, Math.max(1, Math.floor(rawLimit))) : 100;
+    const offset = Number.isFinite(rawOffset) ? Math.max(0, Math.floor(rawOffset)) : 0;
     let rows;
     if (search) {
       const pattern = `%${search}%`;
@@ -97,15 +101,20 @@ router.get("/patients", async (req, res) => {
             ilike(patientsTable.firstName, pattern),
             ilike(patientsTable.lastName, pattern),
             ilike(patientsTable.email, pattern),
-            ilike(patientsTable.phone, pattern)
+            ilike(patientsTable.phone, pattern),
+            ilike(patientsTable.codiceFiscale, pattern)
           )
         )
-        .orderBy(patientsTable.lastName, patientsTable.firstName);
+        .orderBy(patientsTable.lastName, patientsTable.firstName)
+        .limit(limit)
+        .offset(offset);
     } else {
       rows = await db
         .select()
         .from(patientsTable)
-        .orderBy(patientsTable.lastName, patientsTable.firstName);
+        .orderBy(patientsTable.lastName, patientsTable.firstName)
+        .limit(limit)
+        .offset(offset);
     }
     res.json(rows.map(formatPatient));
   } catch (err) {
