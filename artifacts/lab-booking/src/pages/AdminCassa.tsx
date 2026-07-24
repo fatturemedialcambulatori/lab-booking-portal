@@ -1,12 +1,13 @@
 import React from "react";
 import {
   Banknote,
-  CalendarDays,
+  Camera,
   CreditCard,
   Download,
-  FileText,
   Landmark,
   Plus,
+  QrCode,
+  RefreshCw,
   ReceiptText,
   Save,
   Trash2,
@@ -25,7 +26,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
+import { uploadCassaDocument } from "@/lib/cassaFiles";
 
 type SedeCassaId = "modena" | "sassuolo";
 type CassaScope = "tutte" | SedeCassaId;
@@ -96,6 +104,14 @@ type TotaliCassa = {
 const SEDI_CASSA: Array<{ id: SedeCassaId; label: string }> = [
   { id: "modena", label: "Modena" },
   { id: "sassuolo", label: "Sassuolo" },
+];
+
+const CATEGORIE_SPESE: Array<{ id: CategoriaSpesa; label: string; color: string }> = [
+  { id: "medico", label: "Medico", color: "bg-sky-500" },
+  { id: "materiale", label: "Materiale", color: "bg-amber-500" },
+  { id: "servizi", label: "Servizi", color: "bg-violet-500" },
+  { id: "rimborso", label: "Rimborso", color: "bg-emerald-500" },
+  { id: "altro", label: "Altro", color: "bg-slate-500" },
 ];
 
 const CASSA_STORAGE_KEY = "mmedical_cassa_state_v1";
@@ -197,17 +213,18 @@ const normalizeDocumento = (value: unknown): DocumentoCassa | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as Partial<DocumentoCassa>;
   if (!isSedeCassa(item.sedeId) || typeof item.data !== "string" || !isTipoDocumento(item.tipo)) return null;
-  if (typeof item.fileName !== "string" || typeof item.fileUrl !== "string") return null;
+  if (typeof item.fileName !== "string") return null;
+  const id = typeof item.id === "string" ? item.id : documentoId(item.sedeId, item.data, item.tipo);
 
   return {
-    id: typeof item.id === "string" ? item.id : documentoId(item.sedeId, item.data, item.tipo),
+    id,
     data: item.data,
     sedeId: item.sedeId,
     tipo: item.tipo,
     bucket: item.bucket,
     storagePath: item.storagePath,
     fileName: item.fileName,
-    fileUrl: item.fileUrl,
+    fileUrl: typeof item.fileUrl === "string" ? item.fileUrl : `/api/cassa-files/${encodeURIComponent(id)}`,
     contentType: item.contentType,
     sizeBytes: item.sizeBytes,
     uploadedAt: item.uploadedAt ?? new Date().toISOString(),
@@ -263,6 +280,10 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   const [saveState, setSaveState] = React.useState<SaveState>("loading");
   const [persistenzaAttiva, setPersistenzaAttiva] = React.useState(false);
   const [uploadingDocId, setUploadingDocId] = React.useState<string | null>(null);
+  const [mobileCapture, setMobileCapture] = React.useState<{
+    sedeId: SedeCassaId;
+    tipo: TipoDocumentoCassa;
+  } | null>(null);
   const [nuoveSpese, setNuoveSpese] = React.useState<Record<SedeCassaId, NuovaSpesaDraft>>({
     modena: emptySpesa(),
     sassuolo: emptySpesa(),
@@ -282,6 +303,19 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
       variant,
     });
   }, []);
+
+  const aggiornaDaDb = React.useCallback(async (showToast = true) => {
+    try {
+      const response = await fetch("/api/cassa-state");
+      if (!response.ok) throw new Error("Cassa non disponibile");
+      const data: unknown = await response.json();
+      setState(normalizeState(data));
+      setSaveState("saved");
+      if (showToast) mostraNotifica("Cassa aggiornata dal DB.");
+    } catch {
+      if (showToast) mostraNotifica("Non sono riuscito ad aggiornare la cassa dal DB.", "destructive");
+    }
+  }, [mostraNotifica]);
 
   React.useEffect(() => {
     let active = true;
@@ -333,6 +367,15 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
 
     return () => window.clearTimeout(timer);
   }, [persistenzaAttiva, state]);
+
+  React.useEffect(() => {
+    if (!mobileCapture) return;
+    const timer = window.setInterval(() => {
+      void aggiornaDaDb(false);
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [aggiornaDaDb, mobileCapture]);
 
   const getChiusura = React.useCallback(
     (sedeId: SedeCassaId, data: string): ChiusuraCassa =>
@@ -427,37 +470,17 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   const uploadDocumento = async (sedeId: SedeCassaId, tipo: TipoDocumentoCassa, file: File | undefined) => {
     if (!file) return;
 
-    if (file.size > 50 * 1024 * 1024) {
-      mostraNotifica("File troppo grande: sul piano Free il limite e 50 MB per file.", "destructive");
-      return;
-    }
-
     const id = documentoId(sedeId, giorno, tipo);
     setUploadingDocId(id);
 
     try {
-      const response = await fetch(`/api/cassa-files/${encodeURIComponent(id)}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": file.type || "application/octet-stream",
-          "x-file-name": encodeURIComponent(file.name),
-          "x-sede-id": sedeId,
-          "x-data": giorno,
-          "x-document-type": tipo,
-        },
-        body: file,
+      const data = await uploadCassaDocument({
+        id,
+        sedeId,
+        data: giorno,
+        tipo,
+        file,
       });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        const message = data && typeof data === "object" && "details" in data
-          ? String(data.details)
-          : "Upload documento cassa non riuscito.";
-        mostraNotifica(message, "destructive");
-        return;
-      }
-
-      const data = await response.json() as Partial<DocumentoCassa>;
       const documento: DocumentoCassa = {
         id,
         data: giorno,
@@ -480,8 +503,11 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         ],
       }));
       mostraNotifica(tipo === "fatturato" ? "Foglio fatturato caricato." : "Chiusura POS caricata.");
-    } catch {
-      mostraNotifica("Upload documento non riuscito. Verifica Supabase Storage.", "destructive");
+    } catch (err) {
+      mostraNotifica(
+        err instanceof Error ? err.message : "Upload documento non riuscito. Verifica Supabase Storage.",
+        "destructive",
+      );
     } finally {
       setUploadingDocId(null);
     }
@@ -539,6 +565,17 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
           ? "Salvato"
           : "Solo locale";
 
+  const captureUrl = React.useMemo(() => {
+    if (!mobileCapture || typeof window === "undefined") return "";
+    const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+    const url = new URL(`${basePath}/cassa-camera`, window.location.origin);
+    url.searchParams.set("doc", documentoId(mobileCapture.sedeId, giorno, mobileCapture.tipo));
+    url.searchParams.set("sede", mobileCapture.sedeId);
+    url.searchParams.set("data", giorno);
+    url.searchParams.set("tipo", mobileCapture.tipo);
+    return url.toString();
+  }, [giorno, mobileCapture]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -570,21 +607,32 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard icon={<Banknote className="h-5 w-5" />} label="Contanti" value={valuta.format(totaliGiorno.contanti)} />
-        <StatCard icon={<CreditCard className="h-5 w-5" />} label="Bancomat/POS" value={valuta.format(totaliGiorno.bancomat)} />
-        <StatCard icon={<Landmark className="h-5 w-5" />} label="Assegni" value={valuta.format(totaliGiorno.assegni)} />
-        <StatCard icon={<WalletCards className="h-5 w-5" />} label="Fondo cassa" value={valuta.format(totaliGiorno.fondoCassa)} />
-        <StatCard
-          icon={<ReceiptText className="h-5 w-5" />}
-          label="Saldo giornaliero"
-          value={valuta.format(totaliGiorno.saldo)}
-          detail={`Spese: ${valuta.format(totaliGiorno.spese)}`}
-          strong
-        />
-      </div>
+      <section className="rounded-md border border-border bg-white p-4">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">Dati giornalieri</h2>
+            <p className="text-sm text-muted-foreground">
+              Chiusura del {formatDate(giorno)} per {scopeLabel.toLowerCase()}.
+            </p>
+          </div>
+          <Badge variant="secondary">{valuta.format(totaliGiorno.saldo)} saldo</Badge>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <StatCard icon={<Banknote className="h-5 w-5" />} label="Contanti" value={valuta.format(totaliGiorno.contanti)} />
+          <StatCard icon={<CreditCard className="h-5 w-5" />} label="Bancomat/POS" value={valuta.format(totaliGiorno.bancomat)} />
+          <StatCard icon={<Landmark className="h-5 w-5" />} label="Assegni" value={valuta.format(totaliGiorno.assegni)} />
+          <StatCard icon={<WalletCards className="h-5 w-5" />} label="Fondo cassa" value={valuta.format(totaliGiorno.fondoCassa)} />
+          <StatCard
+            icon={<ReceiptText className="h-5 w-5" />}
+            label="Saldo giornaliero"
+            value={valuta.format(totaliGiorno.saldo)}
+            detail={`Spese: ${valuta.format(totaliGiorno.spese)}`}
+            strong
+          />
+        </div>
+      </section>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className={scope === "tutte" ? "grid gap-4 xl:grid-cols-2" : "grid gap-4"}>
         {sediVisibili.map((sedeId) => (
           <CassaSedePanel
             key={sedeId}
@@ -604,6 +652,8 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             onDeleteSpesa={eliminaSpesa}
             onUploadDocumento={uploadDocumento}
             onDeleteDocumento={eliminaDocumento}
+            onOpenMobileCapture={(tipo) => setMobileCapture({ sedeId, tipo })}
+            wideLayout={scope !== "tutte"}
           />
         ))}
       </div>
@@ -659,6 +709,14 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
           </table>
         </div>
       </div>
+
+      <MobileCaptureDialog
+        capture={mobileCapture}
+        giorno={giorno}
+        captureUrl={captureUrl}
+        onClose={() => setMobileCapture(null)}
+        onRefresh={() => void aggiornaDaDb()}
+      />
     </div>
   );
 }
@@ -678,6 +736,8 @@ function CassaSedePanel({
   onDeleteSpesa,
   onUploadDocumento,
   onDeleteDocumento,
+  onOpenMobileCapture,
+  wideLayout,
 }: {
   sedeId: SedeCassaId;
   giorno: string;
@@ -693,9 +753,17 @@ function CassaSedePanel({
   onDeleteSpesa: (id: string) => void;
   onUploadDocumento: (sedeId: SedeCassaId, tipo: TipoDocumentoCassa, file: File | undefined) => void | Promise<void>;
   onDeleteDocumento: (id: string) => void;
+  onOpenMobileCapture: (tipo: TipoDocumentoCassa) => void;
+  wideLayout: boolean;
 }) {
   const speseTotale = spese.reduce((sum, spesa) => sum + spesa.importo, 0);
   const totali = sommaTotali([chiusura], spese);
+  const spesaGridClass = wideLayout
+    ? "grid gap-2 xl:grid-cols-[minmax(180px,1.3fr)_minmax(130px,.75fr)_minmax(110px,.55fr)_minmax(130px,.75fr)_minmax(160px,1fr)_minmax(130px,.65fr)]"
+    : "grid gap-2 md:grid-cols-2";
+  const spesaRowClass = wideLayout
+    ? "grid gap-2 rounded-md border border-border bg-white p-2 xl:grid-cols-[minmax(180px,1.3fr)_minmax(130px,.75fr)_minmax(110px,.55fr)_minmax(130px,.75fr)_minmax(160px,1fr)_44px]"
+    : "grid gap-2 rounded-md border border-border bg-white p-2 md:grid-cols-2";
 
   return (
     <section className="rounded-md border border-border bg-white">
@@ -752,6 +820,7 @@ function CassaSedePanel({
             uploadingDocId={uploadingDocId}
             onUpload={onUploadDocumento}
             onDelete={onDeleteDocumento}
+            onOpenMobileCapture={onOpenMobileCapture}
           />
           <DocumentoUploader
             sedeId={sedeId}
@@ -762,10 +831,11 @@ function CassaSedePanel({
             uploadingDocId={uploadingDocId}
             onUpload={onUploadDocumento}
             onDelete={onDeleteDocumento}
+            onOpenMobileCapture={onOpenMobileCapture}
           />
         </div>
 
-        <div className="rounded-md border border-border bg-muted/20 p-3">
+        <div className="rounded-md border border-border bg-muted/20 p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-foreground">Spese giornaliere</h3>
@@ -776,7 +846,7 @@ function CassaSedePanel({
             <Badge variant="secondary">{valuta.format(speseTotale)}</Badge>
           </div>
 
-          <div className="grid gap-2 lg:grid-cols-[minmax(180px,1fr)_150px_120px_140px_minmax(160px,1fr)_auto]">
+          <div className={spesaGridClass}>
             <Input
               value={nuovaSpesa.descrizione}
               onChange={(event) => onUpdateNuovaSpesa({ descrizione: event.target.value })}
@@ -836,7 +906,7 @@ function CassaSedePanel({
               spese.map((spesa) => (
                 <div
                   key={spesa.id}
-                  className="grid gap-2 rounded-md border border-border bg-white p-2 lg:grid-cols-[minmax(180px,1fr)_150px_120px_140px_minmax(160px,1fr)_auto]"
+                  className={spesaRowClass}
                 >
                   <Input
                     value={spesa.descrizione}
@@ -889,7 +959,7 @@ function CassaSedePanel({
                     variant="ghost"
                     size="icon"
                     onClick={() => onDeleteSpesa(spesa.id)}
-                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive md:justify-self-start xl:justify-self-center"
                     aria-label="Elimina spesa"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -902,6 +972,8 @@ function CassaSedePanel({
               </div>
             )}
           </div>
+
+          <SpeseMiniChart spese={spese} />
         </div>
       </div>
     </section>
@@ -917,6 +989,7 @@ function DocumentoUploader({
   uploadingDocId,
   onUpload,
   onDelete,
+  onOpenMobileCapture,
 }: {
   sedeId: SedeCassaId;
   giorno: string;
@@ -926,6 +999,7 @@ function DocumentoUploader({
   uploadingDocId: string | null;
   onUpload: (sedeId: SedeCassaId, tipo: TipoDocumentoCassa, file: File | undefined) => void | Promise<void>;
   onDelete: (id: string) => void;
+  onOpenMobileCapture: (tipo: TipoDocumentoCassa) => void;
 }) {
   const inputId = `cassa-file-${sedeId}-${giorno}-${tipo}`;
   const docId = documentoId(sedeId, giorno, tipo);
@@ -948,17 +1022,31 @@ function DocumentoUploader({
             event.currentTarget.value = "";
           }}
         />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={uploading}
-          onClick={() => document.getElementById(inputId)?.click()}
-          className="gap-2 bg-white"
-        >
-          <Upload className="h-4 w-4" />
-          {uploading ? "Carico..." : "Carica"}
-        </Button>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          {tipo === "pos" && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onOpenMobileCapture(tipo)}
+              className="gap-2 bg-white"
+            >
+              <Camera className="h-4 w-4" />
+              Scatta foto
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={uploading}
+            onClick={() => document.getElementById(inputId)?.click()}
+            className="gap-2 bg-white"
+          >
+            <Upload className="h-4 w-4" />
+            {uploading ? "Carico..." : "Carica file"}
+          </Button>
+        </div>
       </div>
 
       {documento ? (
@@ -993,6 +1081,125 @@ function DocumentoUploader({
         </div>
       )}
     </div>
+  );
+}
+
+function SpeseMiniChart({ spese }: { spese: SpesaCassa[] }) {
+  const rows = CATEGORIE_SPESE.map((categoria) => ({
+    ...categoria,
+    totale: spese
+      .filter((spesa) => spesa.categoria === categoria.id)
+      .reduce((sum, spesa) => sum + spesa.importo, 0),
+  })).filter((row) => row.totale > 0);
+  const max = Math.max(...rows.map((row) => row.totale), 1);
+
+  return (
+    <div className="mt-4 rounded-md border border-border bg-white p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold text-foreground">Grafico spese</h4>
+          <p className="text-xs text-muted-foreground">Distribuzione della giornata per categoria.</p>
+        </div>
+        <Badge variant="secondary">{valuta.format(spese.reduce((sum, spesa) => sum + spesa.importo, 0))}</Badge>
+      </div>
+
+      {rows.length > 0 ? (
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <div key={row.id} className="grid gap-2 sm:grid-cols-[110px_1fr_90px] sm:items-center">
+              <span className="text-sm font-medium text-foreground">{row.label}</span>
+              <div className="h-3 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={`h-full rounded-full ${row.color}`}
+                  style={{ width: `${Math.max(8, (row.totale / max) * 100)}%` }}
+                />
+              </div>
+              <span className="text-right text-sm font-semibold text-foreground">{valuta.format(row.totale)}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+          Nessuna spesa da rappresentare.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MobileCaptureDialog({
+  capture,
+  giorno,
+  captureUrl,
+  onClose,
+  onRefresh,
+}: {
+  capture: { sedeId: SedeCassaId; tipo: TipoDocumentoCassa } | null;
+  giorno: string;
+  captureUrl: string;
+  onClose: () => void;
+  onRefresh: () => void;
+}) {
+  const qrUrl = captureUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=16&data=${encodeURIComponent(captureUrl)}`
+    : "";
+
+  return (
+    <Dialog open={Boolean(capture)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <QrCode className="h-5 w-5 text-primary" />
+            Scatta foto dal telefono
+          </DialogTitle>
+        </DialogHeader>
+
+        {capture && (
+          <div className="space-y-4">
+            <div className="rounded-md border border-border bg-muted/30 p-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Documento</p>
+              <p className="mt-1 text-sm font-semibold text-foreground">
+                Chiusura giornaliera POS - {sedeLabel(capture.sedeId)} - {formatDate(giorno)}
+              </p>
+            </div>
+
+            <div className="flex justify-center rounded-md border border-border bg-white p-4">
+              {qrUrl ? (
+                <img src={qrUrl} alt="QR per scatto foto cassa" className="h-64 w-64" />
+              ) : (
+                <div className="flex h-64 w-64 items-center justify-center text-sm text-muted-foreground">
+                  QR non disponibile.
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-md border border-border bg-muted/20 p-3">
+              <p className="text-sm text-muted-foreground">
+                Apri il QR dal telefono, premi Scatta foto e carica la foto. Questa pagina controlla il DB ogni 5 secondi.
+              </p>
+              <a
+                href={captureUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 block break-all text-xs font-medium text-primary"
+              >
+                {captureUrl}
+              </a>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={onRefresh} className="gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Aggiorna
+              </Button>
+              <Button type="button" onClick={onClose}>
+                Chiudi
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

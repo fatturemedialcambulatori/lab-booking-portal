@@ -16,6 +16,7 @@ type CassaDocument = {
   bucket: string;
   storagePath: string;
   fileName: string;
+  fileUrl?: string;
   contentType: string;
   sizeBytes: number;
   uploadedAt: string;
@@ -66,6 +67,9 @@ const sanitizeSegment = (value: string, fallback: string) => {
 const readHeader = (value: string | string[] | undefined, fallback = "") =>
   Array.isArray(value) ? value[0] ?? fallback : value ?? fallback;
 
+const readBodyString = (value: unknown, fallback = "") =>
+  typeof value === "string" && value.trim() ? value.trim() : fallback;
+
 const inferContentType = (fileName: string, providedType: string) => {
   if (providedType && providedType !== "application/octet-stream") return providedType;
 
@@ -75,6 +79,86 @@ const inferContentType = (fileName: string, providedType: string) => {
   if (lowerName.endsWith(".png")) return "image/png";
 
   return "application/octet-stream";
+};
+
+const splitBuffer = (buffer: Buffer, separator: Buffer) => {
+  const chunks: Buffer[] = [];
+  let position = 0;
+  let index = buffer.indexOf(separator, position);
+
+  while (index !== -1) {
+    chunks.push(buffer.subarray(position, index));
+    position = index + separator.length;
+    index = buffer.indexOf(separator, position);
+  }
+
+  chunks.push(buffer.subarray(position));
+  return chunks;
+};
+
+const parseDisposition = (value: string | undefined) => {
+  const result: Record<string, string> = {};
+  if (!value) return result;
+
+  value.split(";").forEach((part) => {
+    const [rawKey, ...rawValue] = part.trim().split("=");
+    if (!rawKey || rawValue.length === 0) return;
+    result[rawKey.toLowerCase()] = rawValue.join("=").trim().replace(/^"|"$/g, "");
+  });
+
+  return result;
+};
+
+const parseMultipartUpload = (body: Buffer, contentType: string) => {
+  const boundary = contentType.match(/boundary=([^;]+)/i)?.[1]?.replace(/^"|"$/g, "");
+  if (!boundary) return null;
+
+  const fields: Record<string, string> = {};
+  const files: Array<{ body: Buffer; fileName: string; contentType: string }> = [];
+
+  splitBuffer(body, Buffer.from(`--${boundary}`)).forEach((rawPart) => {
+    let part = rawPart;
+    if (part.subarray(0, 2).toString() === "\r\n") part = part.subarray(2);
+    if (part.subarray(0, 2).toString() === "--" || part.length === 0) return;
+
+    const headerEnd = part.indexOf(Buffer.from("\r\n\r\n"));
+    if (headerEnd === -1) return;
+
+    const headerLines = part.subarray(0, headerEnd).toString("utf8").split("\r\n");
+    const headers = new Map<string, string>();
+    headerLines.forEach((line) => {
+      const separator = line.indexOf(":");
+      if (separator === -1) return;
+      headers.set(line.slice(0, separator).trim().toLowerCase(), line.slice(separator + 1).trim());
+    });
+
+    let partBody = part.subarray(headerEnd + 4);
+    if (partBody.subarray(-2).toString() === "\r\n") partBody = partBody.subarray(0, -2);
+
+    const disposition = parseDisposition(headers.get("content-disposition"));
+    const name = disposition.name;
+    if (!name) return;
+
+    if (disposition.filename) {
+      files.push({
+        body: partBody,
+        fileName: disposition.filename,
+        contentType: headers.get("content-type") ?? "application/octet-stream",
+      });
+      return;
+    }
+
+    fields[name] = partBody.toString("utf8");
+  });
+
+  const file = files[0];
+  if (!file) return null;
+  return {
+    body: file.body,
+    fileName: file.fileName,
+    contentType: file.contentType,
+    fields,
+  };
 };
 
 const isCassaDocument = (value: unknown): value is CassaDocument => {
@@ -93,6 +177,11 @@ const isCassaDocument = (value: unknown): value is CassaDocument => {
     typeof item.uploadedAt === "string"
   );
 };
+
+const withFileUrl = (document: CassaDocument): CassaDocument => ({
+  ...document,
+  fileUrl: document.fileUrl ?? `/api/cassa-files/${encodeURIComponent(document.id)}`,
+});
 
 const loadCassaState = async (): Promise<CassaState> => {
   const [settings] = await db
@@ -127,9 +216,91 @@ const saveCassaState = async (state: CassaState) => {
   return settings.value;
 };
 
+const ensureStorageBucket = async (config: NonNullable<ReturnType<typeof getStorageConfig>>) => {
+  const bucketResponse = await fetch(
+    `${config.supabaseUrl}/storage/v1/bucket/${encodeURIComponent(config.bucket)}`,
+    {
+      headers: storageHeaders(config.serviceRoleKey),
+    },
+  );
+
+  if (bucketResponse.ok) return;
+  if (bucketResponse.status !== 404) {
+    const message = await bucketResponse.text();
+    throw new Error(`Bucket check failed (${bucketResponse.status}): ${message}`);
+  }
+
+  const createResponse = await fetch(`${config.supabaseUrl}/storage/v1/bucket`, {
+    method: "POST",
+    headers: storageHeaders(config.serviceRoleKey, { "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      id: config.bucket,
+      name: config.bucket,
+      public: false,
+      file_size_limit: MAX_FILE_BYTES,
+      allowed_mime_types: null,
+    }),
+  });
+
+  if (!createResponse.ok && createResponse.status !== 400 && createResponse.status !== 409) {
+    const message = await createResponse.text();
+    throw new Error(`Bucket create failed (${createResponse.status}): ${message}`);
+  }
+};
+
+const buildDocument = ({
+  documentId,
+  sedeId,
+  data,
+  tipo,
+  bucket,
+  storagePath,
+  fileName,
+  contentType,
+  sizeBytes,
+}: {
+  documentId: string;
+  sedeId: string;
+  data: string;
+  tipo: string;
+  bucket: string;
+  storagePath: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+}): CassaDocument => ({
+  id: documentId,
+  data,
+  sedeId,
+  tipo,
+  bucket,
+  storagePath,
+  fileName,
+  fileUrl: `/api/cassa-files/${encodeURIComponent(documentId)}`,
+  contentType,
+  sizeBytes,
+  uploadedAt: new Date().toISOString(),
+});
+
+const saveCassaDocument = async (document: CassaDocument) => {
+  const state = await loadCassaState();
+  const documenti = [
+    ...(Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument) : [])
+      .filter((item) => item.id !== document.id),
+    document,
+  ];
+
+  await saveCassaState({ ...state, documenti });
+  return withFileUrl(document);
+};
+
 router.get("/cassa-state", async (req, res) => {
   try {
-    res.json(await loadCassaState());
+    const state = await loadCassaState();
+    res.json({
+      ...state,
+      documenti: Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument).map(withFileUrl) : [],
+    });
   } catch (err) {
     req.log.error({ err }, "Failed to load cassa state");
     res.status(500).json({ error: "Internal server error" });
@@ -160,7 +331,11 @@ const uploadCassaFile: RequestHandler = async (req, res) => {
     return;
   }
 
-  const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const requestContentType = readHeader(req.headers["content-type"], "application/octet-stream");
+  const multipartUpload = Buffer.isBuffer(req.body)
+    ? parseMultipartUpload(req.body, requestContentType)
+    : null;
+  const body = multipartUpload?.body ?? (Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0));
   if (body.length === 0) {
     res.status(400).json({ error: "File mancante" });
     return;
@@ -172,14 +347,31 @@ const uploadCassaFile: RequestHandler = async (req, res) => {
   }
 
   const documentId = sanitizeSegment(readHeader(req.params.documentId), "documento");
-  const sedeId = sanitizeSegment(readHeader(req.headers["x-sede-id"], "sede"), "sede");
-  const data = sanitizeSegment(readHeader(req.headers["x-data"], new Date().toISOString().slice(0, 10)), "data");
-  const tipo = sanitizeSegment(readHeader(req.headers["x-document-type"], "documento"), "documento");
-  const fileName = sanitizeSegment(readHeader(req.headers["x-file-name"], "documento.pdf"), "documento.pdf");
-  const contentType = inferContentType(fileName, readHeader(req.headers["content-type"], "application/octet-stream"));
+  const sedeId = sanitizeSegment(
+    multipartUpload?.fields.sedeId ?? readHeader(req.headers["x-sede-id"], "sede"),
+    "sede",
+  );
+  const data = sanitizeSegment(
+    multipartUpload?.fields.data ?? readHeader(req.headers["x-data"], new Date().toISOString().slice(0, 10)),
+    "data",
+  );
+  const tipo = sanitizeSegment(
+    multipartUpload?.fields.tipo ?? readHeader(req.headers["x-document-type"], "documento"),
+    "documento",
+  );
+  const fileName = sanitizeSegment(
+    multipartUpload?.fileName ?? readHeader(req.headers["x-file-name"], "documento.pdf"),
+    "documento.pdf",
+  );
+  const contentType = inferContentType(
+    fileName,
+    multipartUpload?.contentType ?? readHeader(req.headers["content-type"], "application/octet-stream"),
+  );
   const storagePath = ["cassa", sedeId, data, tipo, `${Date.now()}-${fileName}`].join("/");
 
   try {
+    await ensureStorageBucket(config);
+
     const uploadResponse = await fetch(
       `${config.supabaseUrl}/storage/v1/object/${config.bucket}/${encodeURI(storagePath)}`,
       {
@@ -200,8 +392,8 @@ const uploadCassaFile: RequestHandler = async (req, res) => {
       return;
     }
 
-    const document: CassaDocument = {
-      id: documentId,
+    const document = buildDocument({
+      documentId,
       data,
       sedeId,
       tipo,
@@ -210,26 +402,133 @@ const uploadCassaFile: RequestHandler = async (req, res) => {
       fileName,
       contentType,
       sizeBytes: body.length,
-      uploadedAt: new Date().toISOString(),
-    };
-    const state = await loadCassaState();
-    const documenti = [
-      ...(Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument) : [])
-        .filter((item) => item.id !== document.id),
-      document,
-    ];
-
-    await saveCassaState({ ...state, documenti });
-
-    res.json({
-      ...document,
-      fileUrl: `/api/cassa-files/${encodeURIComponent(document.id)}`,
     });
+
+    res.json(await saveCassaDocument(document));
   } catch (err) {
     req.log.error({ err }, "Failed to upload cassa document");
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+router.post("/cassa-files/:documentId/sign", async (req, res) => {
+  const config = getStorageConfig();
+  if (!config) {
+    res.status(503).json({
+      error: "Supabase Storage non configurato",
+      details: "Imposta SUPABASE_SERVICE_ROLE_KEY su Vercel.",
+    });
+    return;
+  }
+
+  try {
+    await ensureStorageBucket(config);
+
+    const documentId = sanitizeSegment(readHeader(req.params.documentId), "documento");
+    const sedeId = sanitizeSegment(readBodyString(req.body?.sedeId, "sede"), "sede");
+    const data = sanitizeSegment(readBodyString(req.body?.data, new Date().toISOString().slice(0, 10)), "data");
+    const tipo = sanitizeSegment(readBodyString(req.body?.tipo, "documento"), "documento");
+    const fileName = sanitizeSegment(readBodyString(req.body?.fileName, "documento.jpg"), "documento.jpg");
+    const contentType = inferContentType(fileName, readBodyString(req.body?.contentType, "application/octet-stream"));
+    const sizeBytes = Number.isFinite(Number(req.body?.sizeBytes)) ? Number(req.body.sizeBytes) : 0;
+
+    if (sizeBytes > MAX_FILE_BYTES) {
+      res.status(413).json({ error: "File troppo grande. Il piano Free consente massimo 50 MB per file." });
+      return;
+    }
+
+    const storagePath = ["cassa", sedeId, data, tipo, `${Date.now()}-${fileName}`].join("/");
+    const signResponse = await fetch(
+      `${config.supabaseUrl}/storage/v1/object/upload/sign/${config.bucket}/${encodeURI(storagePath)}`,
+      {
+        method: "POST",
+        headers: storageHeaders(config.serviceRoleKey, {
+          "Content-Type": "application/json",
+          "x-upsert": "true",
+        }),
+        body: JSON.stringify({}),
+      },
+    );
+
+    if (!signResponse.ok) {
+      const message = await signResponse.text();
+      req.log.error({ status: signResponse.status, message }, "Supabase Storage cassa signed URL failed");
+      res.status(502).json({ error: "Creazione link upload Supabase non riuscita" });
+      return;
+    }
+
+    const signData = await signResponse.json() as { url?: string; signedUrl?: string; signedURL?: string };
+    const signedUrl = signData.signedUrl ?? signData.signedURL ??
+      (signData.url?.startsWith("http") ? signData.url : signData.url ? `${config.supabaseUrl}/storage/v1${signData.url}` : "");
+
+    if (!signedUrl) {
+      res.status(502).json({ error: "Supabase non ha restituito un link di upload valido" });
+      return;
+    }
+
+    res.json({
+      signedUrl,
+      document: buildDocument({
+        documentId,
+        data,
+        sedeId,
+        tipo,
+        bucket: config.bucket,
+        storagePath,
+        fileName,
+        contentType,
+        sizeBytes,
+      }),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to create cassa signed upload URL");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/cassa-files/:documentId/complete", async (req, res) => {
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    res.status(400).json({ error: "Documento cassa non valido" });
+    return;
+  }
+
+  const candidate = req.body as Partial<CassaDocument>;
+  const documentId = sanitizeSegment(readHeader(req.params.documentId), "documento");
+  if (
+    candidate.id !== documentId ||
+    !candidate.data ||
+    !candidate.sedeId ||
+    !candidate.tipo ||
+    !candidate.bucket ||
+    !candidate.storagePath ||
+    !candidate.fileName ||
+    !candidate.contentType ||
+    typeof candidate.sizeBytes !== "number" ||
+    !candidate.uploadedAt
+  ) {
+    res.status(400).json({ error: "Documento cassa non valido" });
+    return;
+  }
+
+  try {
+    res.json(await saveCassaDocument({
+      id: documentId,
+      data: candidate.data,
+      sedeId: candidate.sedeId,
+      tipo: candidate.tipo,
+      bucket: candidate.bucket,
+      storagePath: candidate.storagePath,
+      fileName: candidate.fileName,
+      fileUrl: `/api/cassa-files/${encodeURIComponent(documentId)}`,
+      contentType: candidate.contentType,
+      sizeBytes: candidate.sizeBytes,
+      uploadedAt: candidate.uploadedAt,
+    }));
+  } catch (err) {
+    req.log.error({ err }, "Failed to complete cassa document upload");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 const downloadCassaFile: RequestHandler = async (req, res) => {
   const config = getStorageConfig();

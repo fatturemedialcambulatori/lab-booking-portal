@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/Home";
 import Admin from "@/pages/Admin";
+import { CassaMobileUpload } from "@/pages/CassaMobileUpload";
 
 const queryClient = new QueryClient();
 
@@ -64,6 +65,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/admin" component={Admin} />
+      <Route path="/cassa-camera" component={CassaMobileUpload} />
       <Route component={NotFound} />
     </Switch>
   );
