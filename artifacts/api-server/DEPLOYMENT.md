@@ -56,3 +56,6 @@ Anagrafiche search to server-side filtering for large imported datasets.
 
 Latest Anagrafiche update adds client pagination controls over the limited
 server-side patient list.
+
+Latest CRM fixes add single-segment infortunistica certificate file endpoints
+and draft-based prestazioni edit unlock/save controls.

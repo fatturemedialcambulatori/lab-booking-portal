@@ -263,7 +263,7 @@ const csvCell = (value: string | number | undefined) => `"${String(value ?? "").
 const isPraticaAttiva = (pratica: PraticaSinistro) => pratica.stato === "aperta";
 
 const certFileUrl = (certificatoId: string) =>
-  `/api/infortunistica/certificati/${encodeURIComponent(certificatoId)}/file`;
+  `/api/infortunistica-certificato-file/${encodeURIComponent(certificatoId)}`;
 
 const isInfortunisticaState = (value: unknown): value is InfortunisticaState => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -455,7 +455,7 @@ export function AdminInfortunistica() {
       try {
         const [stateResponse, filesResponse] = await Promise.all([
           fetch("/api/infortunistica-state"),
-          fetch("/api/infortunistica/certificati/files"),
+          fetch("/api/infortunistica-certificati-files"),
         ]);
 
         const stateData: unknown = stateResponse.ok ? await stateResponse.json() : null;
@@ -653,7 +653,7 @@ export function AdminInfortunistica() {
     if (!certificato) return;
 
     try {
-      const response = await fetch(`/api/infortunistica/certificati/${encodeURIComponent(id)}/file`, {
+      const response = await fetch(certFileUrl(id), {
         method: "POST",
         headers: {
           "Content-Type": file.type || "application/octet-stream",

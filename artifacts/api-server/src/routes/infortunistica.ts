@@ -1,4 +1,4 @@
-import express, { Router } from "express";
+import express, { Router, type RequestHandler } from "express";
 import { eq } from "drizzle-orm";
 import {
   adminSettingsTable,
@@ -115,7 +115,7 @@ router.put("/infortunistica-state", async (req, res) => {
   }
 });
 
-router.get("/infortunistica/certificati/files", async (req, res) => {
+const listaCertificatiFiles: RequestHandler = async (req, res) => {
   try {
     const files = await db.select().from(infortunisticaCertificatiFilesTable);
     res.json(files);
@@ -123,72 +123,82 @@ router.get("/infortunistica/certificati/files", async (req, res) => {
     req.log.error({ err }, "Failed to load infortunistica certificate files");
     res.status(500).json({ error: "Internal server error" });
   }
-});
+};
 
-router.post(
-  "/infortunistica/certificati/:certificatoId/file",
-  express.raw({ type: "*/*", limit: "50mb" }),
-  async (req, res) => {
-    const config = getStorageConfig();
-    if (!config) {
-      res.status(503).json({
-        error: "Supabase Storage non configurato",
-        details: "Imposta SUPABASE_SERVICE_ROLE_KEY su Vercel.",
-      });
-      return;
-    }
+const caricaCertificatoFile: RequestHandler = async (req, res) => {
+  const config = getStorageConfig();
+  if (!config) {
+    res.status(503).json({
+      error: "Supabase Storage non configurato",
+      details: "Imposta SUPABASE_SERVICE_ROLE_KEY su Vercel.",
+    });
+    return;
+  }
 
-    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-    if (body.length === 0) {
-      res.status(400).json({ error: "File mancante" });
-      return;
-    }
+  const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (body.length === 0) {
+    res.status(400).json({ error: "File mancante" });
+    return;
+  }
 
-    if (body.length > MAX_FILE_BYTES) {
-      res.status(413).json({ error: "File troppo grande. Il piano Free consente massimo 50 MB per file." });
-      return;
-    }
+  if (body.length > MAX_FILE_BYTES) {
+    res.status(413).json({ error: "File troppo grande. Il piano Free consente massimo 50 MB per file." });
+    return;
+  }
 
-    const certificatoId = sanitizeSegment(req.params.certificatoId, "certificato");
-    const clienteId = sanitizeSegment(readHeader(req.headers["x-cliente-id"]), "cliente");
-    const praticaId = sanitizeSegment(readHeader(req.headers["x-pratica-id"]), "pratica");
-    const fileName = sanitizeSegment(readHeader(req.headers["x-file-name"], "certificato.pdf"), "certificato.pdf");
-    const contentType = inferContentType(
-      fileName,
-      readHeader(req.headers["content-type"], "application/octet-stream"),
+  const certificatoId = sanitizeSegment(readHeader(req.params.certificatoId), "certificato");
+  const clienteId = sanitizeSegment(readHeader(req.headers["x-cliente-id"]), "cliente");
+  const praticaId = sanitizeSegment(readHeader(req.headers["x-pratica-id"]), "pratica");
+  const fileName = sanitizeSegment(readHeader(req.headers["x-file-name"], "certificato.pdf"), "certificato.pdf");
+  const contentType = inferContentType(
+    fileName,
+    readHeader(req.headers["content-type"], "application/octet-stream"),
+  );
+  const storagePath = [
+    clienteId,
+    praticaId,
+    certificatoId,
+    `${Date.now()}-${fileName}`,
+  ].join("/");
+
+  try {
+    const uploadResponse = await fetch(
+      `${config.supabaseUrl}/storage/v1/object/${config.bucket}/${encodeURI(storagePath)}`,
+      {
+        method: "POST",
+        headers: storageHeaders(config.serviceRoleKey, {
+          "Content-Type": contentType,
+          "Cache-Control": "3600",
+          "x-upsert": "true",
+        }),
+        body,
+      },
     );
-    const storagePath = [
-      clienteId,
-      praticaId,
-      certificatoId,
-      `${Date.now()}-${fileName}`,
-    ].join("/");
 
-    try {
-      const uploadResponse = await fetch(
-        `${config.supabaseUrl}/storage/v1/object/${config.bucket}/${encodeURI(storagePath)}`,
-        {
-          method: "POST",
-          headers: storageHeaders(config.serviceRoleKey, {
-            "Content-Type": contentType,
-            "Cache-Control": "3600",
-            "x-upsert": "true",
-          }),
-          body,
-        },
-      );
+    if (!uploadResponse.ok) {
+      const message = await uploadResponse.text();
+      req.log.error({ status: uploadResponse.status, message }, "Supabase Storage upload failed");
+      res.status(502).json({ error: "Upload Supabase Storage non riuscito" });
+      return;
+    }
 
-      if (!uploadResponse.ok) {
-        const message = await uploadResponse.text();
-        req.log.error({ status: uploadResponse.status, message }, "Supabase Storage upload failed");
-        res.status(502).json({ error: "Upload Supabase Storage non riuscito" });
-        return;
-      }
-
-      const uploadedAt = new Date();
-      const [file] = await db
-        .insert(infortunisticaCertificatiFilesTable)
-        .values({
+    const uploadedAt = new Date();
+    const [file] = await db
+      .insert(infortunisticaCertificatiFilesTable)
+      .values({
+        certificatoId,
+        clienteId,
+        praticaId,
+        bucket: config.bucket,
+        storagePath,
+        fileName,
+        contentType,
+        sizeBytes: body.length,
+        uploadedAt,
+      })
+      .onConflictDoUpdate({
+        target: infortunisticaCertificatiFilesTable.certificatoId,
+        set: {
           certificatoId,
           clienteId,
           praticaId,
@@ -198,34 +208,21 @@ router.post(
           contentType,
           sizeBytes: body.length,
           uploadedAt,
-        })
-        .onConflictDoUpdate({
-          target: infortunisticaCertificatiFilesTable.certificatoId,
-          set: {
-            clienteId,
-            praticaId,
-            bucket: config.bucket,
-            storagePath,
-            fileName,
-            contentType,
-            sizeBytes: body.length,
-            uploadedAt,
-          },
-        })
-        .returning();
+        },
+      })
+      .returning();
 
-      res.json({
-        ...file,
-        fileUrl: `/api/infortunistica/certificati/${encodeURIComponent(certificatoId)}/file`,
-      });
-    } catch (err) {
-      req.log.error({ err }, "Failed to upload infortunistica certificate");
-      res.status(500).json({ error: "Internal server error" });
-    }
-  },
-);
+    res.json({
+      ...file,
+      fileUrl: `/api/infortunistica-certificato-file/${encodeURIComponent(certificatoId)}`,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to upload infortunistica certificate");
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
 
-router.get("/infortunistica/certificati/:certificatoId/file", async (req, res) => {
+const scaricaCertificatoFile: RequestHandler = async (req, res) => {
   const config = getStorageConfig();
   if (!config) {
     res.status(503).json({
@@ -236,10 +233,11 @@ router.get("/infortunistica/certificati/:certificatoId/file", async (req, res) =
   }
 
   try {
+    const certificatoId = sanitizeSegment(readHeader(req.params.certificatoId), "certificato");
     const [file] = await db
       .select()
       .from(infortunisticaCertificatiFilesTable)
-      .where(eq(infortunisticaCertificatiFilesTable.certificatoId, req.params.certificatoId))
+      .where(eq(infortunisticaCertificatiFilesTable.certificatoId, certificatoId))
       .limit(1);
 
     if (!file) {
@@ -270,6 +268,17 @@ router.get("/infortunistica/certificati/:certificatoId/file", async (req, res) =
     req.log.error({ err }, "Failed to download infortunistica certificate");
     res.status(500).json({ error: "Internal server error" });
   }
-});
+};
+
+const rawCertificatoFile = express.raw({ type: "*/*", limit: "50mb" });
+
+router.get("/infortunistica-certificati-files", listaCertificatiFiles);
+router.get("/infortunistica/certificati/files", listaCertificatiFiles);
+
+router.post("/infortunistica-certificato-file/:certificatoId", rawCertificatoFile, caricaCertificatoFile);
+router.post("/infortunistica/certificati/:certificatoId/file", rawCertificatoFile, caricaCertificatoFile);
+
+router.get("/infortunistica-certificato-file/:certificatoId", scaricaCertificatoFile);
+router.get("/infortunistica/certificati/:certificatoId/file", scaricaCertificatoFile);
 
 export default router;

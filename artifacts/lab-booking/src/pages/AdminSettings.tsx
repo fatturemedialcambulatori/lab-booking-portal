@@ -13,7 +13,9 @@ import {
   Stethoscope,
   Tags,
   Trash2,
+  Unlock,
   Upload,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -76,6 +78,8 @@ type Prestazione = {
   durata: number;
   attiva: boolean;
 };
+
+const copiaPrestazioni = (lista: Prestazione[]) => lista.map((prestazione) => ({ ...prestazione }));
 
 type DatiFatturazioneMedico = {
   intestatario: string;
@@ -469,6 +473,8 @@ export function AdminSettings() {
   const skipInitialSettingsSaveRef = React.useRef(true);
   const [specialita, setSpecialita] = React.useState(SPECIALITA_INIZIALI);
   const [prestazioni, setPrestazioni] = React.useState(PRESTAZIONI_INIZIALI);
+  const [prestazioniModificaAttiva, setPrestazioniModificaAttiva] = React.useState(false);
+  const [prestazioniDraft, setPrestazioniDraft] = React.useState<Prestazione[] | null>(null);
   const [medici, setMedici] = React.useState(MEDICI_INIZIALI);
   const [listini, setListini] = React.useState(LISTINI_INIZIALI);
   const [settingsCanSave, setSettingsCanSave] = React.useState(false);
@@ -535,6 +541,8 @@ export function AdminSettings() {
         if (isAdminSettingsData(data)) {
           setSpecialita(data.specialita);
           setPrestazioni(data.prestazioni);
+          setPrestazioniDraft(null);
+          setPrestazioniModificaAttiva(false);
           setMedici(data.medici.map(normalizzaMedico));
           setListini(data.listini);
           setSelectedSpecialita(data.specialita[0]?.nome ?? data.prestazioni[0]?.specialita ?? "");
@@ -631,14 +639,19 @@ export function AdminSettings() {
     );
   }, []);
 
+  const prestazioniInGestione = React.useMemo(
+    () => (prestazioniModificaAttiva ? prestazioniDraft ?? prestazioni : prestazioni),
+    [prestazioni, prestazioniDraft, prestazioniModificaAttiva],
+  );
+
   const prestazioniFiltrate = React.useMemo(
-    () => filtraPrestazioni(prestazioni, ricercaPrestazioniApplicata),
-    [filtraPrestazioni, prestazioni, ricercaPrestazioniApplicata],
+    () => filtraPrestazioni(prestazioniInGestione, ricercaPrestazioniApplicata),
+    [filtraPrestazioni, prestazioniInGestione, ricercaPrestazioniApplicata],
   );
 
   const prestazioniSpecialita = React.useMemo(
-    () => prestazioni.filter((prestazione) => stessaSpecialita(prestazione.specialita, selectedSpecialita)),
-    [prestazioni, selectedSpecialita],
+    () => prestazioniInGestione.filter((prestazione) => stessaSpecialita(prestazione.specialita, selectedSpecialita)),
+    [prestazioniInGestione, selectedSpecialita],
   );
 
   const medicoSelezionato = medici.find((medico) => medico.id === selectedMedicoId) ?? medici[0];
@@ -717,6 +730,43 @@ export function AdminSettings() {
     setRicercaPrestazioniApplicata(ricercaPrestazioni.trim());
   };
 
+  const avvisaPrestazioniBloccate = () => {
+    mostraNotifica("Sblocca modifica prestazioni prima di cambiare l'elenco.");
+  };
+
+  const aggiornaPrestazioniDraft = (updater: (correnti: Prestazione[]) => Prestazione[]) => {
+    if (!prestazioniModificaAttiva) {
+      avvisaPrestazioniBloccate();
+      return;
+    }
+
+    setPrestazioniDraft((correnti) => updater(correnti ?? copiaPrestazioni(prestazioni)));
+  };
+
+  const sbloccaModificaPrestazioni = () => {
+    setPrestazioniDraft(copiaPrestazioni(prestazioni));
+    setPrestazioniModificaAttiva(true);
+  };
+
+  const annullaModificaPrestazioni = () => {
+    setPrestazioniDraft(null);
+    setPrestazioniModificaAttiva(false);
+    mostraNotifica("Modifiche prestazioni annullate.");
+  };
+
+  const salvaModificaPrestazioni = () => {
+    if (!prestazioniModificaAttiva) return;
+
+    const prossimePrestazioni = prestazioniDraft ?? prestazioni;
+    const prestazioniIds = new Set(prossimePrestazioni.map((prestazione) => prestazione.id));
+
+    setPrestazioni(prossimePrestazioni);
+    setListini((correnti) => correnti.filter((listino) => prestazioniIds.has(listino.prestazioneId)));
+    setPrestazioniDraft(null);
+    setPrestazioniModificaAttiva(false);
+    mostraNotifica("Modifiche prestazioni salvate.");
+  };
+
   const aggiungiSpecialita = () => {
     const nome = nuovaSpecialita.trim();
     if (!nome) return;
@@ -738,8 +788,12 @@ export function AdminSettings() {
   const aggiungiPrestazioneASpecialita = () => {
     const nome = nuovaPrestazioneSpecialita.nome.trim();
     if (!nome || !selectedSpecialita) return;
+    if (!prestazioniModificaAttiva) {
+      avvisaPrestazioniBloccate();
+      return;
+    }
 
-    setPrestazioni((correnti) => [
+    aggiornaPrestazioniDraft((correnti) => [
       ...correnti,
       {
         id: `prestazione-${Date.now()}`,
@@ -755,9 +809,14 @@ export function AdminSettings() {
   const aggiungiPrestazione = () => {
     const nome = nuovaPrestazione.nome.trim();
     if (!nome) return;
+    if (!prestazioniModificaAttiva) {
+      avvisaPrestazioniBloccate();
+      return;
+    }
+
     const specialitaPrestazione = nuovaPrestazione.specialita || specialitaDisponibili[0] || "Generale";
 
-    setPrestazioni((correnti) => [
+    aggiornaPrestazioniDraft((correnti) => [
       ...correnti,
       {
         id: `prestazione-${Date.now()}`,
@@ -775,7 +834,7 @@ export function AdminSettings() {
     campo: K,
     valore: Prestazione[K],
   ) => {
-    setPrestazioni((correnti) =>
+    aggiornaPrestazioniDraft((correnti) =>
       correnti.map((prestazione) =>
         prestazione.id === id ? { ...prestazione, [campo]: valore } : prestazione,
       ),
@@ -783,8 +842,7 @@ export function AdminSettings() {
   };
 
   const eliminaPrestazione = (id: string) => {
-    setPrestazioni((correnti) => correnti.filter((prestazione) => prestazione.id !== id));
-    setListini((correnti) => correnti.filter((listino) => listino.prestazioneId !== id));
+    aggiornaPrestazioniDraft((correnti) => correnti.filter((prestazione) => prestazione.id !== id));
   };
 
   const aggiornaDisponibilitaSede = (
@@ -1706,7 +1764,15 @@ export function AdminSettings() {
             title="Specialita"
             description="Raggruppa le prestazioni per area clinica, ad esempio Ortopedia, Cardiologia o Diagnostica."
             icon={<Tags className="h-5 w-5" />}
-            actions={<ImportExportActions onExport={esportaExcel} onImportClick={apriImportExcel} />}
+            actions={
+              <div className="flex flex-wrap justify-end gap-2">
+                <PrestazioniUnlockAction
+                  editing={prestazioniModificaAttiva}
+                  onUnlock={sbloccaModificaPrestazioni}
+                />
+                <ImportExportActions onExport={esportaExcel} onImportClick={apriImportExcel} />
+              </div>
+            }
           >
             <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
               <div className="space-y-3">
@@ -1737,7 +1803,7 @@ export function AdminSettings() {
                   <div className="divide-y divide-border">
                     {specialitaDisponibili.map((nomeSpecialita) => {
                       const selezionata = stessaSpecialita(nomeSpecialita, selectedSpecialita);
-                      const numeroPrestazioni = prestazioni.filter((prestazione) =>
+                      const numeroPrestazioni = prestazioniInGestione.filter((prestazione) =>
                         stessaSpecialita(prestazione.specialita, nomeSpecialita),
                       ).length;
 
@@ -1786,6 +1852,7 @@ export function AdminSettings() {
                     <Field label="Nuova prestazione">
                       <Input
                         value={nuovaPrestazioneSpecialita.nome}
+                        disabled={!prestazioniModificaAttiva}
                         onChange={(event) =>
                           setNuovaPrestazioneSpecialita((corrente) => ({
                             ...corrente,
@@ -1801,6 +1868,7 @@ export function AdminSettings() {
                         min={5}
                         step={5}
                         value={nuovaPrestazioneSpecialita.durata}
+                        disabled={!prestazioniModificaAttiva}
                         onChange={(event) =>
                           setNuovaPrestazioneSpecialita((corrente) => ({
                             ...corrente,
@@ -1810,7 +1878,12 @@ export function AdminSettings() {
                       />
                     </Field>
                     <div className="flex items-end">
-                      <Button type="button" onClick={aggiungiPrestazioneASpecialita} className="w-full gap-2">
+                      <Button
+                        type="button"
+                        onClick={aggiungiPrestazioneASpecialita}
+                        disabled={!prestazioniModificaAttiva}
+                        className="w-full gap-2"
+                      >
                         <Plus className="h-4 w-4" />
                         Aggiungi
                       </Button>
@@ -1834,6 +1907,7 @@ export function AdminSettings() {
                               <TableCell className="min-w-[220px]">
                                 <Input
                                   value={prestazione.nome}
+                                  disabled={!prestazioniModificaAttiva}
                                   onChange={(event) =>
                                     aggiornaPrestazione(prestazione.id, "nome", event.target.value)
                                   }
@@ -1845,6 +1919,7 @@ export function AdminSettings() {
                                   min={5}
                                   step={5}
                                   value={prestazione.durata}
+                                  disabled={!prestazioniModificaAttiva}
                                   onChange={(event) =>
                                     aggiornaPrestazione(prestazione.id, "durata", Number(event.target.value) || 0)
                                   }
@@ -1853,6 +1928,7 @@ export function AdminSettings() {
                               <TableCell className="w-24">
                                 <Checkbox
                                   checked={prestazione.attiva}
+                                  disabled={!prestazioniModificaAttiva}
                                   onCheckedChange={(checked) =>
                                     aggiornaPrestazione(prestazione.id, "attiva", Boolean(checked))
                                   }
@@ -1864,6 +1940,7 @@ export function AdminSettings() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => eliminaPrestazione(prestazione.id)}
+                                  disabled={!prestazioniModificaAttiva}
                                   className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                                   aria-label={`Elimina ${prestazione.nome}`}
                                   title="Elimina prestazione"
@@ -1881,6 +1958,13 @@ export function AdminSettings() {
                       Nessuna prestazione collegata a questa specialita.
                     </div>
                   )}
+                  <div className="mt-4">
+                    <PrestazioniSaveBar
+                      editing={prestazioniModificaAttiva}
+                      onCancel={annullaModificaPrestazioni}
+                      onSave={salvaModificaPrestazioni}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1892,7 +1976,15 @@ export function AdminSettings() {
             title="Prestazioni dei medici"
             description="La prestazione esiste una sola volta; durata e importo effettivi si definiscono nel listino del medico."
             icon={<Stethoscope className="h-5 w-5" />}
-            actions={<ImportExportActions onExport={esportaExcel} onImportClick={apriImportExcel} />}
+            actions={
+              <div className="flex flex-wrap justify-end gap-2">
+                <PrestazioniUnlockAction
+                  editing={prestazioniModificaAttiva}
+                  onUnlock={sbloccaModificaPrestazioni}
+                />
+                <ImportExportActions onExport={esportaExcel} onImportClick={apriImportExcel} />
+              </div>
+            }
           >
             <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_auto]">
               <Field label="Cerca prestazione">
@@ -1917,6 +2009,7 @@ export function AdminSettings() {
               <Field label="Prestazione">
                 <Input
                   value={nuovaPrestazione.nome}
+                  disabled={!prestazioniModificaAttiva}
                   onChange={(event) =>
                     setNuovaPrestazione((corrente) => ({ ...corrente, nome: event.target.value }))
                   }
@@ -1926,6 +2019,7 @@ export function AdminSettings() {
               <Field label="Specialita">
                 <Select
                   value={nuovaPrestazione.specialita}
+                  disabled={!prestazioniModificaAttiva}
                   onValueChange={(valore) =>
                     setNuovaPrestazione((corrente) => ({ ...corrente, specialita: valore }))
                   }
@@ -1948,13 +2042,19 @@ export function AdminSettings() {
                   min={5}
                   step={5}
                   value={nuovaPrestazione.durata}
+                  disabled={!prestazioniModificaAttiva}
                   onChange={(event) =>
                     setNuovaPrestazione((corrente) => ({ ...corrente, durata: event.target.value }))
                   }
                 />
               </Field>
               <div className="flex items-end">
-                <Button type="button" onClick={aggiungiPrestazione} className="w-full gap-2">
+                <Button
+                  type="button"
+                  onClick={aggiungiPrestazione}
+                  disabled={!prestazioniModificaAttiva}
+                  className="w-full gap-2"
+                >
                   <Plus className="h-4 w-4" />
                   Aggiungi
                 </Button>
@@ -1978,12 +2078,14 @@ export function AdminSettings() {
                       <TableCell className="min-w-[220px]">
                         <Input
                           value={prestazione.nome}
+                          disabled={!prestazioniModificaAttiva}
                           onChange={(event) => aggiornaPrestazione(prestazione.id, "nome", event.target.value)}
                         />
                       </TableCell>
                       <TableCell className="min-w-[180px]">
                         <Select
                           value={prestazione.specialita}
+                          disabled={!prestazioniModificaAttiva}
                           onValueChange={(valore) => aggiornaPrestazione(prestazione.id, "specialita", valore)}
                         >
                           <SelectTrigger>
@@ -2004,6 +2106,7 @@ export function AdminSettings() {
                           min={5}
                           step={5}
                           value={prestazione.durata}
+                          disabled={!prestazioniModificaAttiva}
                           onChange={(event) =>
                             aggiornaPrestazione(prestazione.id, "durata", Number(event.target.value) || 0)
                           }
@@ -2012,6 +2115,7 @@ export function AdminSettings() {
                       <TableCell>
                         <Checkbox
                           checked={prestazione.attiva}
+                          disabled={!prestazioniModificaAttiva}
                           onCheckedChange={(checked) =>
                             aggiornaPrestazione(prestazione.id, "attiva", Boolean(checked))
                           }
@@ -2023,6 +2127,7 @@ export function AdminSettings() {
                           variant="ghost"
                           size="icon"
                           onClick={() => eliminaPrestazione(prestazione.id)}
+                          disabled={!prestazioniModificaAttiva}
                           className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                           aria-label={`Elimina ${prestazione.nome}`}
                           title="Elimina prestazione"
@@ -2041,6 +2146,11 @@ export function AdminSettings() {
                 )}
               </TableBody>
             </Table>
+            <PrestazioniSaveBar
+              editing={prestazioniModificaAttiva}
+              onCancel={annullaModificaPrestazioni}
+              onSave={salvaModificaPrestazioni}
+            />
           </SettingsPanel>
         </TabsContent>
 
@@ -3221,6 +3331,53 @@ function ImportExportActions({
         <Upload className="h-4 w-4" />
         Importa
       </Button>
+    </div>
+  );
+}
+
+function PrestazioniUnlockAction({
+  editing,
+  onUnlock,
+}: {
+  editing: boolean;
+  onUnlock: () => void;
+}) {
+  return editing ? (
+    <Badge variant="secondary" className="h-9 px-3">
+      Modifica attiva
+    </Badge>
+  ) : (
+    <Button type="button" variant="outline" size="sm" onClick={onUnlock} className="gap-2">
+      <Unlock className="h-4 w-4" />
+      Sblocca modifica
+    </Button>
+  );
+}
+
+function PrestazioniSaveBar({
+  editing,
+  onCancel,
+  onSave,
+}: {
+  editing: boolean;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  if (!editing) return null;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-primary/20 bg-primary/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm font-medium text-foreground">Modifiche prestazioni in bozza.</p>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" onClick={onCancel} className="gap-2">
+          <X className="h-4 w-4" />
+          Annulla
+        </Button>
+        <Button type="button" onClick={onSave} className="gap-2">
+          <Check className="h-4 w-4" />
+          Salva modifiche
+        </Button>
+      </div>
     </div>
   );
 }
