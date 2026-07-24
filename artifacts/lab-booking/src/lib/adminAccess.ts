@@ -75,11 +75,6 @@ export const TUTTI_I_PERMESSI = PERMESSI_GRUPPI.flatMap((gruppo) =>
   gruppo.permessi.map((permesso) => permesso.id),
 );
 
-const permessiSegreteriaSede = (sede: "modena" | "sassuolo") =>
-  TUTTI_I_PERMESSI.filter((permesso) => !permesso.startsWith("cassa")).concat(
-    sede === "modena" ? "cassa.modena" : "cassa.sassuolo",
-  );
-
 const DEFAULT_ACCESS_CONFIG: AdminAccessConfig = {
   ruoli: [
     {
@@ -115,14 +110,14 @@ const DEFAULT_ACCESS_CONFIG: AdminAccessConfig = {
     {
       id: "segreteria-modena",
       nome: "Segreteria Modena",
-      descrizione: "Segreteria completa con cassa limitata alla sede di Modena.",
-      permessi: permessiSegreteriaSede("modena"),
+      descrizione: "Accesso limitato alla sola cassa della sede di Modena.",
+      permessi: ["cassa.modena"],
     },
     {
       id: "segreteria-sassuolo",
       nome: "Segreteria Sassuolo",
-      descrizione: "Segreteria completa con cassa limitata alla sede di Sassuolo.",
-      permessi: permessiSegreteriaSede("sassuolo"),
+      descrizione: "Accesso limitato alla sola cassa della sede di Sassuolo.",
+      permessi: ["cassa.sassuolo"],
     },
     {
       id: "admin",
@@ -201,9 +196,12 @@ const mergeDefaultAccessConfig = (config: AdminAccessConfig): AdminAccessConfig 
     }
     ruoli[existingIndex] = {
       ...ruoli[existingIndex],
-      descrizione: ruoloDefault.id === "avvocato" ? ruoloDefault.descrizione : ruoli[existingIndex].descrizione,
+      descrizione:
+        ruoloDefault.id === "avvocato" || ruoloDefault.id === "segreteria-modena" || ruoloDefault.id === "segreteria-sassuolo"
+          ? ruoloDefault.descrizione
+          : ruoli[existingIndex].descrizione,
       permessi:
-        ruoloDefault.id === "avvocato"
+        ruoloDefault.id === "avvocato" || ruoloDefault.id === "segreteria-modena" || ruoloDefault.id === "segreteria-sassuolo"
           ? ruoloDefault.permessi
           : Array.from(new Set([...ruoli[existingIndex].permessi, ...ruoloDefault.permessi])),
     };
