@@ -62,3 +62,6 @@ and draft-based prestazioni edit unlock/save controls.
 
 Latest infortunistica upload fix moves certificate file transfer to a query-id
 single-segment endpoint for Vercel routing.
+
+Latest agenda UI update changes the admin agenda to a day-by-doctor scheduler
+with mini calendar, agenda filters, and doctor columns.

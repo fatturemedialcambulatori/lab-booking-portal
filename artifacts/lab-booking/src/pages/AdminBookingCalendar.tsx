@@ -12,15 +12,19 @@ import {
 } from "date-fns";
 import { it } from "date-fns/locale";
 import {
+  Building2,
   CalendarDays,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   Clock,
   Download,
   FileText,
-  MapPin,
+  MoreVertical,
+  Printer,
   Search,
+  Settings,
+  UserRound,
   Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -72,10 +76,12 @@ type PrenotazioneAgenda = {
   stato: StatoPrenotazione;
 };
 
-const DEMO_TODAY = new Date("2026-07-10T12:00:00");
-const ORA_INIZIO = 8;
-const ORA_FINE = 20;
-const SLOT_HEIGHT = 64;
+const DEMO_TODAY = new Date("2026-07-24T12:00:00");
+const ORA_INIZIO = 7;
+const ORA_FINE = 19;
+const SLOT_MINUTES = 30;
+const SLOT_HEIGHT = 40;
+const CURRENT_TIME = "13:40";
 
 const SEDI: Array<{ id: SedeId; label: string }> = [
   { id: "tutte", label: "Tutte le sedi" },
@@ -85,8 +91,6 @@ const SEDI: Array<{ id: SedeId; label: string }> = [
 
 const VIEWS: Array<{ id: CalendarView; label: string }> = [
   { id: "giorno", label: "Giorno" },
-  { id: "settimana", label: "Settimana" },
-  { id: "mese", label: "Mese" },
 ];
 
 const MEDICI_AGENDA: MedicoAgenda[] = [
@@ -123,6 +127,38 @@ const MEDICI_AGENDA: MedicoAgenda[] = [
     colore: "bg-cyan-700",
   },
   {
+    id: "gennari",
+    nome: "Dott.ssa Loretta Gennari",
+    specialita: "Fisiatria",
+    area: "ambulatorio",
+    sedi: ["modena"],
+    colore: "bg-lime-600",
+  },
+  {
+    id: "leoni",
+    nome: "Dott. Luigi Leoni",
+    specialita: "Ecografia",
+    area: "ambulatorio",
+    sedi: ["modena", "sassuolo"],
+    colore: "bg-green-700",
+  },
+  {
+    id: "rosa",
+    nome: "Dott. Sandro Rosa",
+    specialita: "Medicina dello sport",
+    area: "ambulatorio",
+    sedi: ["sassuolo"],
+    colore: "bg-red-600",
+  },
+  {
+    id: "barbieri",
+    nome: "Dott.ssa Paola Barbieri",
+    specialita: "Medicina dello sport",
+    area: "ambulatorio",
+    sedi: ["modena"],
+    colore: "bg-amber-600",
+  },
+  {
     id: "moretti",
     nome: "Dott.ssa Elisa Moretti",
     specialita: "Laboratorio analisi",
@@ -145,6 +181,22 @@ const MEDICI_AGENDA: MedicoAgenda[] = [
     area: "laboratorio",
     sedi: ["sassuolo"],
     colore: "bg-rose-600",
+  },
+  {
+    id: "moc",
+    nome: "Medical MOC",
+    specialita: "Tecnico sanitario",
+    area: "laboratorio",
+    sedi: ["modena", "sassuolo"],
+    colore: "bg-green-700",
+  },
+  {
+    id: "costa",
+    nome: "Laboratorio Costa",
+    specialita: "Analista clinico",
+    area: "laboratorio",
+    sedi: ["modena"],
+    colore: "bg-emerald-700",
   },
 ];
 
@@ -341,9 +393,192 @@ const PRENOTAZIONI_AGENDA: PrenotazioneAgenda[] = [
     durata: 20,
     stato: "confermata",
   },
+  {
+    id: "amb-024-001",
+    area: "ambulatorio",
+    sede: "modena",
+    medicoId: "rossi",
+    paziente: "Nicola Burrascano",
+    prestazione: "Visita cardiologica",
+    data: "2026-07-24",
+    ora: "08:30",
+    durata: 30,
+    stato: "confermata",
+  },
+  {
+    id: "amb-024-002",
+    area: "ambulatorio",
+    sede: "modena",
+    medicoId: "rossi",
+    paziente: "Andrea Curci",
+    prestazione: "ECG",
+    data: "2026-07-24",
+    ora: "09:00",
+    durata: 20,
+    stato: "accettata",
+  },
+  {
+    id: "amb-024-003",
+    area: "ambulatorio",
+    sede: "modena",
+    medicoId: "rossi",
+    paziente: "Lorenza Bertolani",
+    prestazione: "Controllo cardiologico",
+    data: "2026-07-24",
+    ora: "09:40",
+    durata: 70,
+    stato: "confermata",
+  },
+  {
+    id: "amb-024-004",
+    area: "ambulatorio",
+    sede: "modena",
+    medicoId: "bianchi",
+    paziente: "Hamza Agnaou",
+    prestazione: "Ecografia addome",
+    data: "2026-07-24",
+    ora: "09:20",
+    durata: 20,
+    stato: "accettata",
+  },
+  {
+    id: "amb-024-005",
+    area: "ambulatorio",
+    sede: "modena",
+    medicoId: "bianchi",
+    paziente: "Alberto Barbolini",
+    prestazione: "Ecografia tiroide",
+    data: "2026-07-24",
+    ora: "09:40",
+    durata: 20,
+    stato: "completata",
+  },
+  {
+    id: "amb-024-006",
+    area: "ambulatorio",
+    sede: "modena",
+    medicoId: "gennari",
+    paziente: "Giulia Silvestri",
+    prestazione: "Valutazione fisiatrica",
+    data: "2026-07-24",
+    ora: "08:00",
+    durata: 20,
+    stato: "confermata",
+  },
+  {
+    id: "amb-024-007",
+    area: "ambulatorio",
+    sede: "modena",
+    medicoId: "leoni",
+    paziente: "Anna Maria Panico",
+    prestazione: "Ecografia muscolare",
+    data: "2026-07-24",
+    ora: "09:20",
+    durata: 20,
+    stato: "confermata",
+  },
+  {
+    id: "amb-024-008",
+    area: "ambulatorio",
+    sede: "sassuolo",
+    medicoId: "rosa",
+    paziente: "Andrea Aldrovandi",
+    prestazione: "Certificato sportivo",
+    data: "2026-07-24",
+    ora: "09:00",
+    durata: 25,
+    stato: "accettata",
+  },
+  {
+    id: "amb-024-009",
+    area: "ambulatorio",
+    sede: "sassuolo",
+    medicoId: "rosa",
+    paziente: "Gianluca Spina",
+    prestazione: "Medicina sportiva",
+    data: "2026-07-24",
+    ora: "09:25",
+    durata: 25,
+    stato: "confermata",
+  },
+  {
+    id: "amb-024-010",
+    area: "ambulatorio",
+    sede: "modena",
+    medicoId: "barbieri",
+    paziente: "Fabiano Righi",
+    prestazione: "Test sotto sforzo",
+    data: "2026-07-24",
+    ora: "10:35",
+    durata: 30,
+    stato: "confermata",
+  },
+  {
+    id: "lab-024-001",
+    area: "laboratorio",
+    sede: "modena",
+    medicoId: "moretti",
+    paziente: "Francesca Bergonzini",
+    prestazione: "Prelievo ematico",
+    data: "2026-07-24",
+    ora: "08:00",
+    durata: 15,
+    stato: "accettata",
+  },
+  {
+    id: "lab-024-002",
+    area: "laboratorio",
+    sede: "modena",
+    medicoId: "fontana",
+    paziente: "Paolo Galli",
+    prestazione: "Emocromo completo",
+    data: "2026-07-24",
+    ora: "09:40",
+    durata: 20,
+    stato: "completata",
+  },
+  {
+    id: "lab-024-003",
+    area: "laboratorio",
+    sede: "sassuolo",
+    medicoId: "rinaldi",
+    paziente: "Margherita Barbieri",
+    prestazione: "Curva glicemica",
+    data: "2026-07-24",
+    ora: "10:00",
+    durata: 60,
+    stato: "confermata",
+  },
+  {
+    id: "lab-024-004",
+    area: "laboratorio",
+    sede: "modena",
+    medicoId: "moc",
+    paziente: "Pietro Cirelli",
+    prestazione: "MOC femorale",
+    data: "2026-07-24",
+    ora: "11:00",
+    durata: 25,
+    stato: "confermata",
+  },
+  {
+    id: "lab-024-005",
+    area: "laboratorio",
+    sede: "modena",
+    medicoId: "costa",
+    paziente: "Andrea Braglia",
+    prestazione: "Profilo metabolico",
+    data: "2026-07-24",
+    ora: "10:30",
+    durata: 20,
+    stato: "accettata",
+  },
 ];
 
-const oreAgenda = Array.from({ length: ORA_FINE - ORA_INIZIO }, (_, index) => ORA_INIZIO + index);
+const agendaSlots = Array.from(
+  { length: ((ORA_FINE - ORA_INIZIO) * 60) / SLOT_MINUTES },
+  (_, index) => ORA_INIZIO * 60 + index * SLOT_MINUTES,
+);
 
 const dateKey = (date: Date) => format(date, "yyyy-MM-dd");
 
@@ -384,9 +619,12 @@ const minutiDaOra = (ora: string) => {
   return ore * 60 + minuti;
 };
 
+const formattaOraMinuti = (totale: number) =>
+  `${String(Math.floor(totale / 60)).padStart(2, "0")}:${String(totale % 60).padStart(2, "0")}`;
+
 const aggiungiMinutiOra = (ora: string, durata: number) => {
   const totale = minutiDaOra(ora) + durata;
-  return `${String(Math.floor(totale / 60)).padStart(2, "0")}:${String(totale % 60).padStart(2, "0")}`;
+  return formattaOraMinuti(totale);
 };
 
 const slugFile = (value: string) =>
@@ -410,16 +648,6 @@ const periodoVista = (view: CalendarView, date: Date) => {
   return giorni;
 };
 
-const rangeLabel = (view: CalendarView, date: Date) => {
-  if (view === "giorno") return format(date, "EEEE d MMMM yyyy", { locale: it });
-  if (view === "settimana") {
-    const start = startOfWeek(date, { weekStartsOn: 1 });
-    const end = addDays(start, 6);
-    return `${format(start, "d MMM", { locale: it })} - ${format(end, "d MMM yyyy", { locale: it })}`;
-  }
-  return format(date, "MMMM yyyy", { locale: it });
-};
-
 const statoLabel = (stato: StatoPrenotazione) => {
   if (stato === "completata") return "Completata";
   if (stato === "accettata") return "Accettata";
@@ -428,11 +656,13 @@ const statoLabel = (stato: StatoPrenotazione) => {
 };
 
 export function AdminBookingCalendar({ area }: { area: AreaId }) {
-  const [view, setView] = React.useState<CalendarView>("settimana");
+  const [view, setView] = React.useState<CalendarView>("giorno");
   const [currentDate, setCurrentDate] = React.useState(DEMO_TODAY);
   const [sede, setSede] = React.useState<SedeId>("tutte");
+  const [specialitaFiltro, setSpecialitaFiltro] = React.useState("tutte");
   const [medicoId, setMedicoId] = React.useState("tutti");
   const [search, setSearch] = React.useState("");
+  const [agendaSearch, setAgendaSearch] = React.useState("");
   const [soloMediciConPrenotazioni, setSoloMediciConPrenotazioni] = React.useState(false);
   const [workListDate, setWorkListDate] = React.useState<string | null>(null);
   const [workListDoctorId, setWorkListDoctorId] = React.useState("tutti");
@@ -444,14 +674,29 @@ export function AdminBookingCalendar({ area }: { area: AreaId }) {
     () =>
       MEDICI_AGENDA.filter((medico) => {
         const sedeCompatibile = sede === "tutte" || medico.sedi.includes(sede);
-        const query = normalizza(search);
-        const matchSearch =
+        const query = normalizza(agendaSearch);
+        const matchAgenda =
           !query ||
           [medico.nome, medico.specialita].some((campo) => normalizza(campo).includes(query));
-        return medico.area === area && sedeCompatibile && matchSearch;
+        const matchSpecialita = specialitaFiltro === "tutte" || medico.specialita === specialitaFiltro;
+        return medico.area === area && sedeCompatibile && matchAgenda && matchSpecialita;
       }),
-    [area, search, sede],
+    [agendaSearch, area, sede, specialitaFiltro],
   );
+
+  const specialitaDisponibili = React.useMemo(() => {
+    const nomi = MEDICI_AGENDA.filter((medico) => {
+      const sedeCompatibile = sede === "tutte" || medico.sedi.includes(sede);
+      return medico.area === area && sedeCompatibile;
+    }).map((medico) => medico.specialita);
+
+    return Array.from(new Set(nomi)).sort((a, b) => a.localeCompare(b, "it"));
+  }, [area, sede]);
+
+  React.useEffect(() => {
+    if (specialitaFiltro === "tutte" || specialitaDisponibili.includes(specialitaFiltro)) return;
+    setSpecialitaFiltro("tutte");
+  }, [specialitaDisponibili, specialitaFiltro]);
 
   const prenotazioniFiltrate = React.useMemo(() => {
     const mediciValidi = new Set(mediciArea.map((medico) => medico.id));
@@ -496,7 +741,6 @@ export function AdminBookingCalendar({ area }: { area: AreaId }) {
     setCurrentDate((date) => (view === "mese" ? addMonths(date, 1) : addDays(date, view === "giorno" ? 1 : 7)));
 
   const areaLabel = area === "ambulatorio" ? "Ambulatorio" : "Laboratorio";
-  const prenotazioniCompletate = prenotazioniFiltrate.filter((prenotazione) => prenotazione.stato === "completata").length;
 
   const mediciListaLavoro = React.useMemo(() => {
     if (!workListDate) return [];
@@ -684,147 +928,264 @@ export function AdminBookingCalendar({ area }: { area: AreaId }) {
     toast({ title: "Notifica", description: "Lista lavoro PDF preparata." });
   };
 
+  const miniCalendarDates = periodoVista("mese", currentDate);
+  const selectedDateKey = dateKey(currentDate);
+  const sedeLabel = SEDI.find((item) => item.id === sede)?.label ?? "Tutte le sedi";
+
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Agenda</h1>
-          <p className="text-sm text-muted-foreground">
-            Agenda {areaLabel.toLowerCase()} con vista giornaliera, settimanale e mensile.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={goPrevious} aria-label="Periodo precedente">
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => setCurrentDate(DEMO_TODAY)}>
-            Oggi
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={goNext} aria-label="Periodo successivo">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <div className="flex rounded-md border border-border bg-white p-1">
-            {VIEWS.map((item) => (
-              <button
-                key={item.id}
+    <div className="overflow-hidden rounded-md border border-border bg-white shadow-sm">
+      <div className="grid min-h-[760px] lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="border-b border-border bg-[#f7faf8] lg:border-b-0 lg:border-r">
+          <div className="space-y-5 p-4">
+            <div className="flex items-center justify-between">
+              <Button
                 type="button"
-                onClick={() => setView(item.id)}
-                className={`h-8 rounded px-3 text-sm font-medium transition-colors ${
-                  view === item.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
-                }`}
+                variant="ghost"
+                size="icon"
+                onClick={() => setCurrentDate((date) => addMonths(date, -1))}
+                aria-label="Mese precedente"
               >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <section className="rounded-md border border-border bg-card p-4">
-        <div className="grid gap-3 lg:grid-cols-[220px_260px_minmax(260px,1fr)_220px]">
-          <Field label="Agenda sede">
-            <Select value={sede} onValueChange={(value: SedeId) => setSede(value)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SEDI.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Medico">
-            <Select value={medicoId} onValueChange={setMedicoId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tutti">Tutti i medici</SelectItem>
-                {mediciArea.map((medico) => (
-                  <SelectItem key={medico.id} value={medico.id}>
-                    {medico.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Ricerca medico o specializzazione">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Es. Rossi, Cardiologia, Prelievi"
-                className="pl-9"
-              />
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <p className="text-sm font-semibold capitalize text-foreground">
+                {format(currentDate, "MMMM yyyy", { locale: it })}
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setCurrentDate((date) => addMonths(date, 1))}
+                aria-label="Mese successivo"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
             </div>
-          </Field>
-          <div className="flex items-end">
-            <label className="flex min-h-10 w-full items-center gap-3 rounded-md border border-border bg-white px-3 text-sm">
-              <Checkbox
-                checked={soloMediciConPrenotazioni}
-                onCheckedChange={(checked) => setSoloMediciConPrenotazioni(Boolean(checked))}
-              />
-              <span className="leading-tight">Solo medici del periodo</span>
-            </label>
-          </div>
-        </div>
-      </section>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric icon={<CalendarDays className="h-4 w-4" />} label="Periodo" value={rangeLabel(view, currentDate)} />
-        <Metric icon={<MapPin className="h-4 w-4" />} label="Sede" value={SEDI.find((item) => item.id === sede)?.label ?? "Sede"} />
-        <Metric icon={<Users className="h-4 w-4" />} label="Medici visibili" value={String(mediciVisibili.length)} />
-        <Metric icon={<CheckCircle2 className="h-4 w-4" />} label="Appuntamenti" value={`${prenotazioniFiltrate.length} (${prenotazioniCompletate} completati)`} />
+            <div className="grid grid-cols-7 gap-1 text-center">
+              {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((day) => (
+                <div key={day} className="py-1 text-[11px] font-medium text-muted-foreground">
+                  {day}
+                </div>
+              ))}
+              {miniCalendarDates.map((date) => {
+                const dayKey = dateKey(date);
+                const selected = dayKey === selectedDateKey;
+                const today = isSameDay(date, DEMO_TODAY);
+                const hasWork = PRENOTAZIONI_AGENDA.some(
+                  (prenotazione) =>
+                    prenotazione.area === area &&
+                    prenotazione.data === dayKey &&
+                    (sede === "tutte" || prenotazione.sede === sede),
+                );
+
+                return (
+                  <button
+                    key={dayKey}
+                    type="button"
+                    onClick={() => setCurrentDate(date)}
+                    className={`relative flex h-8 items-center justify-center rounded-md text-sm transition-colors ${
+                      selected
+                        ? "bg-primary text-primary-foreground"
+                        : isSameMonth(date, currentDate)
+                          ? "text-foreground hover:bg-white"
+                          : "text-muted-foreground/55 hover:bg-white"
+                    } ${today && !selected ? "ring-1 ring-primary/30" : ""}`}
+                  >
+                    {format(date, "d")}
+                    {hasWork && (
+                      <span
+                        className={`absolute bottom-1 h-1 w-1 rounded-full ${
+                          selected ? "bg-primary-foreground" : "bg-primary"
+                        }`}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="space-y-2 border-t border-border pt-4">
+              <button
+                type="button"
+                className="flex h-9 w-full items-center gap-3 rounded-md px-2 text-sm font-medium text-primary hover:bg-white"
+              >
+                <ClipboardList className="h-4 w-4" />
+                Lista d'attesa
+              </button>
+              <button
+                type="button"
+                className="flex h-9 w-full items-center gap-3 rounded-md px-2 text-sm font-medium text-primary hover:bg-white"
+              >
+                <CalendarDays className="h-4 w-4" />
+                Imposta blocchi e ferie
+              </button>
+            </div>
+
+            <div className="space-y-4 border-t border-border pt-4">
+              <Field label="Indirizzi">
+                <Select value={sede} onValueChange={(value: SedeId) => setSede(value)}>
+                  <SelectTrigger className="bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SEDI.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field label="Specializzazione">
+                <Select value={specialitaFiltro} onValueChange={setSpecialitaFiltro}>
+                  <SelectTrigger className="bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tutte">Tutte le specializzazioni</SelectItem>
+                    {specialitaDisponibili.map((specialita) => (
+                      <SelectItem key={specialita} value={specialita}>
+                        {specialita}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+
+            <div className="space-y-3 border-t border-border pt-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-foreground">Agende</p>
+                <Badge variant="secondary">{mediciVisibili.length}</Badge>
+              </div>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={agendaSearch}
+                  onChange={(event) => setAgendaSearch(event.target.value)}
+                  placeholder="Cerca per agenda"
+                  className="bg-white pl-9"
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-md bg-white px-3 py-2">
+                <span className="text-sm font-medium text-foreground">Lavorano oggi</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={soloMediciConPrenotazioni}
+                  onClick={() => setSoloMediciConPrenotazioni((current) => !current)}
+                  className={`relative h-6 w-11 rounded-full transition-colors ${
+                    soloMediciConPrenotazioni ? "bg-primary" : "bg-muted-foreground/35"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                      soloMediciConPrenotazioni ? "translate-x-5" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+              <div className="max-h-[250px] space-y-1 overflow-y-auto pr-1">
+                <button
+                  type="button"
+                  onClick={() => setMedicoId("tutti")}
+                  className={`flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm ${
+                    medicoId === "tutti" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-white"
+                  }`}
+                >
+                  <Users className="h-4 w-4 shrink-0" />
+                  Tutti i medici
+                </button>
+                {mediciArea.map((medico) => (
+                  <button
+                    key={medico.id}
+                    type="button"
+                    onClick={() => setMedicoId(medico.id)}
+                    className={`flex min-h-10 w-full items-center gap-2 rounded-md px-2 text-left text-sm ${
+                      medicoId === medico.id ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-white"
+                    }`}
+                  >
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${medico.colore}`} />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{medico.nome}</span>
+                      <span className="block truncate text-xs opacity-75">{medico.specialita}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <section className="flex min-w-0 flex-col">
+          <div className="flex flex-col gap-3 border-b border-border bg-white px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setCurrentDate(DEMO_TODAY)}>
+                Oggi
+              </Button>
+              <Button type="button" variant="ghost" size="icon" onClick={goPrevious} aria-label="Giorno precedente">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button type="button" variant="ghost" size="icon" onClick={goNext} aria-label="Giorno successivo">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <div className="min-w-[190px] px-2">
+                <p className="text-base font-semibold text-foreground">
+                  {format(currentDate, "EEE, d MMM yyyy", { locale: it })}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {areaLabel} · {sedeLabel} · {prenotazioniFiltrate.length} appuntamenti
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
+              <div className="relative min-w-[260px] flex-1 xl:max-w-[430px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Cerca il paziente per nome, numero di telefono..."
+                  className="pl-9"
+                />
+              </div>
+              <Button type="button" variant="outline" size="icon" aria-label="Cerca">
+                <Search className="h-4 w-4" />
+              </Button>
+              <Button type="button" variant="outline" size="icon" onClick={() => apriListaLavoro(currentDate)} aria-label="Stampa lista lavoro">
+                <Printer className="h-4 w-4" />
+              </Button>
+              <Select value={view} onValueChange={(value: CalendarView) => setView(value)}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {VIEWS.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button type="button" variant="ghost" size="icon" aria-label="Impostazioni agenda">
+                <Settings className="h-4 w-4" />
+              </Button>
+              <Button type="button" variant="ghost" size="icon" aria-label="Altre azioni">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <DayCalendar
+              date={currentDate}
+              doctors={mediciVisibili}
+              appointments={prenotazioniFiltrate}
+            />
+          </div>
+        </section>
       </div>
-
-      <section className="overflow-hidden rounded-md border border-border bg-white">
-        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
-          <div>
-            <h2 className="text-base font-semibold capitalize text-foreground">{rangeLabel(view, currentDate)}</h2>
-            <p className="text-sm text-muted-foreground">
-              Vista {view} · {areaLabel} · {SEDI.find((item) => item.id === sede)?.label}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {mediciVisibili.map((medico) => (
-              <Badge key={medico.id} variant="secondary" className="gap-2">
-                <span className={`h-2.5 w-2.5 rounded-full ${medico.colore}`} />
-                {medico.nome}
-              </Badge>
-            ))}
-          </div>
-        </div>
-
-        {view === "giorno" && (
-          <DayCalendar
-            date={currentDate}
-            doctors={mediciVisibili}
-            appointments={prenotazioniFiltrate}
-            onDayClick={apriListaLavoro}
-          />
-        )}
-        {view === "settimana" && (
-          <WeekCalendar
-            dates={visibleDates}
-            doctors={mediciVisibili}
-            appointments={prenotazioniFiltrate}
-            onDayClick={apriListaLavoro}
-          />
-        )}
-        {view === "mese" && (
-          <MonthCalendar
-            dates={visibleDates}
-            currentDate={currentDate}
-            doctors={mediciVisibili}
-            appointments={prenotazioniFiltrate}
-            onDayClick={apriListaLavoro}
-          />
-        )}
-      </section>
 
       <Dialog open={Boolean(workListDate)} onOpenChange={(open) => !open && chiudiListaLavoro()}>
         <DialogContent className="max-w-3xl">
@@ -938,12 +1299,10 @@ function DayCalendar({
   date,
   doctors,
   appointments,
-  onDayClick,
 }: {
   date: Date;
   doctors: MedicoAgenda[];
   appointments: PrenotazioneAgenda[];
-  onDayClick: (date: Date) => void;
 }) {
   const appointmentsByDoctor = new Map<string, PrenotazioneAgenda[]>();
   appointments.forEach((appointment) => {
@@ -951,47 +1310,79 @@ function DayCalendar({
     appointmentsByDoctor.set(appointment.medicoId, [...(appointmentsByDoctor.get(appointment.medicoId) ?? []), appointment]);
   });
 
+  const gridTemplateColumns = `76px repeat(${Math.max(doctors.length, 1)}, minmax(190px, 1fr))`;
+  const totalHeight = agendaSlots.length * SLOT_HEIGHT;
+  const currentLineTop = ((minutiDaOra(CURRENT_TIME) - ORA_INIZIO * 60) / SLOT_MINUTES) * SLOT_HEIGHT;
+
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[980px]">
-        <div className="flex justify-end border-b border-border bg-white px-4 py-3">
-          <Button type="button" variant="outline" size="sm" onClick={() => onDayClick(date)} className="gap-2">
-            <FileText className="h-4 w-4" />
-            Lista lavoro giorno
-          </Button>
-        </div>
+    <div className="h-full overflow-auto bg-white">
+      <div className="min-w-[1120px]">
         <div
-          className="grid border-b border-border bg-muted/30"
-          style={{ gridTemplateColumns: `72px repeat(${Math.max(doctors.length, 1)}, minmax(180px, 1fr))` }}
+          className="sticky top-0 z-20 grid border-b border-border bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)]"
+          style={{ gridTemplateColumns }}
         >
-          <div className="border-r border-border px-3 py-3 text-xs font-medium uppercase text-muted-foreground">Ora</div>
+          <div className="border-r border-border bg-white px-3 py-4 text-xs font-medium uppercase text-muted-foreground">
+            Ora
+          </div>
           {doctors.map((doctor) => (
-            <div key={doctor.id} className="border-r border-border px-3 py-3 last:border-r-0">
-              <p className="text-sm font-semibold text-foreground">{doctor.nome}</p>
-              <p className="text-xs text-muted-foreground">{doctor.specialita}</p>
+            <div key={doctor.id} className="min-w-0 border-r border-border px-3 py-3 last:border-r-0">
+              <div className="flex items-center gap-3">
+                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white ${doctor.colore}`}>
+                  <UserRound className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <p className="truncate text-sm font-semibold text-foreground">{doctor.nome}</p>
+                    <Printer className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </div>
+                  <p className="truncate text-xs font-medium text-muted-foreground">
+                    {doctor.specialita} · {doctor.sedi.map((item) => (item === "modena" ? "Modena" : "Sassuolo")).join(", ")}
+                  </p>
+                </div>
+              </div>
             </div>
           ))}
         </div>
+
         <div
           className="grid"
-          style={{
-            gridTemplateColumns: `72px repeat(${Math.max(doctors.length, 1)}, minmax(180px, 1fr))`,
-            minHeight: `${oreAgenda.length * SLOT_HEIGHT}px`,
-          }}
+          style={{ gridTemplateColumns, minHeight: `${totalHeight}px` }}
         >
-          <div className="border-r border-border">
-            {oreAgenda.map((ora) => (
-              <div key={ora} className="h-16 border-b border-border px-3 pt-1 text-xs text-muted-foreground">
-                {String(ora).padStart(2, "0")}:00
+          <div className="sticky left-0 z-10 border-r border-border bg-white">
+            {agendaSlots.map((slot) => (
+              <div
+                key={slot}
+                className="border-b border-border/75 px-3 pt-1 text-xs text-muted-foreground"
+                style={{ height: SLOT_HEIGHT }}
+              >
+                {formattaOraMinuti(slot)}
               </div>
             ))}
           </div>
+
           {doctors.length > 0 ? (
             doctors.map((doctor) => (
-              <div key={doctor.id} className="relative border-r border-border last:border-r-0">
-                {oreAgenda.map((ora) => (
-                  <div key={ora} className="h-16 border-b border-border" />
+              <div key={doctor.id} className="relative border-r border-border bg-white last:border-r-0">
+                <div
+                  className="absolute left-0 right-0 bg-emerald-50/60"
+                  style={{
+                    top: ((8 * 60 - ORA_INIZIO * 60) / SLOT_MINUTES) * SLOT_HEIGHT,
+                    height: ((13 * 60 - 8 * 60) / SLOT_MINUTES) * SLOT_HEIGHT,
+                  }}
+                />
+                {agendaSlots.map((slot) => (
+                  <div
+                    key={slot}
+                    className={`relative border-b border-border/70 ${slot % 60 === 30 ? "border-dashed" : ""}`}
+                    style={{ height: SLOT_HEIGHT }}
+                  />
                 ))}
+                {isSameDay(date, DEMO_TODAY) && currentLineTop >= 0 && currentLineTop <= totalHeight && (
+                  <div
+                    className="pointer-events-none absolute left-0 right-0 z-10 border-t-2 border-red-600"
+                    style={{ top: currentLineTop }}
+                  />
+                )}
                 {(appointmentsByDoctor.get(doctor.id) ?? []).map((appointment) => (
                   <PositionedAppointment
                     key={appointment.id}
@@ -1046,12 +1437,16 @@ function WeekCalendar({
         </div>
         <div
           className="grid grid-cols-[72px_repeat(7,minmax(140px,1fr))]"
-          style={{ minHeight: `${oreAgenda.length * SLOT_HEIGHT}px` }}
+          style={{ minHeight: `${agendaSlots.length * SLOT_HEIGHT}px` }}
         >
           <div className="border-r border-border">
-            {oreAgenda.map((ora) => (
-              <div key={ora} className="h-16 border-b border-border px-3 pt-1 text-xs text-muted-foreground">
-                {String(ora).padStart(2, "0")}:00
+            {agendaSlots.map((slot) => (
+              <div
+                key={slot}
+                className="border-b border-border px-3 pt-1 text-xs text-muted-foreground"
+                style={{ height: SLOT_HEIGHT }}
+              >
+                {formattaOraMinuti(slot)}
               </div>
             ))}
           </div>
@@ -1060,8 +1455,8 @@ function WeekCalendar({
             const dayAppointments = appointments.filter((appointment) => appointment.data === dayKey);
             return (
               <div key={dayKey} className="relative border-r border-border last:border-r-0">
-                {oreAgenda.map((ora) => (
-                  <div key={ora} className="h-16 border-b border-border" />
+                {agendaSlots.map((slot) => (
+                  <div key={slot} className="border-b border-border" style={{ height: SLOT_HEIGHT }} />
                 ))}
                 {dayAppointments.map((appointment) => {
                   const doctor = doctorsMap.get(appointment.medicoId);
@@ -1159,24 +1554,39 @@ function PositionedAppointment({
   compact?: boolean;
 }) {
   const start = minutiDaOra(appointment.ora);
-  const top = ((start - ORA_INIZIO * 60) / 60) * SLOT_HEIGHT;
-  const height = Math.max(34, (appointment.durata / 60) * SLOT_HEIGHT - 4);
+  const top = ((start - ORA_INIZIO * 60) / SLOT_MINUTES) * SLOT_HEIGHT;
+  const height = Math.max(28, (appointment.durata / SLOT_MINUTES) * SLOT_HEIGHT - 4);
+  const statusClass =
+    appointment.stato === "annullata"
+      ? "border-red-200 bg-red-50 text-red-900"
+      : appointment.stato === "accettata"
+        ? "border-amber-200 bg-amber-50 text-amber-950"
+        : appointment.stato === "completata"
+          ? "border-emerald-200 bg-emerald-100 text-emerald-950"
+          : "border-emerald-200 bg-emerald-50 text-emerald-950";
 
   return (
     <div
-      className={`absolute left-1 right-1 overflow-hidden rounded-md border border-white/80 p-2 text-white shadow-sm ${doctor.colore}`}
+      className={`absolute left-1.5 right-1.5 z-20 overflow-hidden rounded-md border p-1.5 shadow-sm ${statusClass}`}
       style={{ top, height }}
+      title={`${appointment.ora} ${appointment.paziente} - ${appointment.prestazione}`}
     >
-      <div className="flex items-center gap-1 text-[11px] font-semibold leading-none">
+      <div className="flex items-center gap-1 text-[10px] font-semibold leading-none">
         <Clock className="h-3 w-3" />
-        {appointment.ora} - {aggiungiMinutiOra(appointment.ora, appointment.durata)}
+        <span>
+          {appointment.ora}
+          {height > 42 ? ` - ${aggiungiMinutiOra(appointment.ora, appointment.durata)}` : ""}
+        </span>
       </div>
       <p className="mt-1 truncate text-xs font-semibold">{appointment.paziente}</p>
-      <p className="truncate text-[11px] opacity-90">{appointment.prestazione}</p>
+      <p className="truncate text-[10px] opacity-80">{appointment.prestazione}</p>
       {!compact && (
-        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] opacity-90">
-          <span className="truncate">{doctor.specialita}</span>
-          <span>{appointment.sede === "modena" ? "MO" : "SASS"}</span>
+        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] opacity-80">
+          <span className="truncate">{statoLabel(appointment.stato)}</span>
+          <span className="flex items-center gap-1">
+            <Building2 className="h-3 w-3" />
+            {appointment.sede === "modena" ? "MO" : "SASS"}
+          </span>
         </div>
       )}
     </div>
@@ -1188,18 +1598,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className="space-y-1.5">
       <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</Label>
       {children}
-    </div>
-  );
-}
-
-function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-border bg-white p-4">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {icon}
-        {label}
-      </div>
-      <p className="mt-2 truncate text-xl font-semibold text-foreground">{value}</p>
     </div>
   );
 }
