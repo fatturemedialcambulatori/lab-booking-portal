@@ -8,6 +8,7 @@ import {
   Euro,
   FileSpreadsheet,
   FileText,
+  Plane,
   Plus,
   Search,
   Stethoscope,
@@ -118,9 +119,20 @@ type EccezioneAgendaMedico = {
   note: string;
 };
 
+type PianoFerieMedico = {
+  id: string;
+  sedeId: SedeMedicoId | "tutte";
+  dal: string;
+  al: string;
+  dalle: string;
+  alle: string;
+  note: string;
+};
+
 type AgendaMedicoDraft = {
   fasceDisponibilitaPerSede: FasceDisponibilitaPerSedeMedico;
   eccezioniAgenda: EccezioneAgendaMedico[];
+  pianoFerie: PianoFerieMedico[];
 };
 
 type Medico = {
@@ -132,6 +144,7 @@ type Medico = {
   disponibilitaPerSede?: Partial<DisponibilitaPerSedeMedico>;
   fasceDisponibilitaPerSede?: Partial<FasceDisponibilitaPerSedeMedico>;
   eccezioniAgenda?: EccezioneAgendaMedico[];
+  pianoFerie?: PianoFerieMedico[];
   datiFatturazione?: DatiFatturazioneMedico;
 };
 
@@ -219,6 +232,8 @@ const SEDI_MEDICO: Array<{ id: SedeMedicoId; label: string; sigla: string }> = [
 
 const DEFAULT_FASCIA_DALLE = "09:00";
 const DEFAULT_FASCIA_ALLE = "13:00";
+const DEFAULT_FERIE_DALLE = "00:00";
+const DEFAULT_FERIE_ALLE = "23:59";
 
 const valuta = new Intl.NumberFormat("it-IT", {
   style: "currency",
@@ -279,6 +294,19 @@ const creaEccezioneAgenda = (sedeId: SedeMedicoId = "modena"): EccezioneAgendaMe
   note: "",
 });
 
+const creaPianoFerieMedico = (): PianoFerieMedico => {
+  const oggi = new Date().toISOString().slice(0, 10);
+  return {
+    id: creaIdAgenda("ferie"),
+    sedeId: "tutte",
+    dal: oggi,
+    al: oggi,
+    dalle: DEFAULT_FERIE_DALLE,
+    alle: DEFAULT_FERIE_ALLE,
+    note: "",
+  };
+};
+
 const normalizzaOrario = (orario: string | undefined, fallback: string) =>
   /^\d{2}:\d{2}$/.test(orario ?? "") ? orario as string : fallback;
 
@@ -304,6 +332,30 @@ const normalizzaEccezioneAgenda = (
   alle: normalizzaOrario(eccezione.alle, DEFAULT_FASCIA_ALLE),
   note: eccezione.note ?? "",
 });
+
+const normalizzaPianoFerieMedico = (
+  ferie: Partial<PianoFerieMedico>,
+  index = 0,
+): PianoFerieMedico => {
+  const oggi = new Date().toISOString().slice(0, 10);
+  const dal = ferie.dal || oggi;
+  const al = ferie.al && ferie.al >= dal ? ferie.al : dal;
+  const sedeCandidate = ferie.sedeId;
+  let sedeId: PianoFerieMedico["sedeId"] = "tutte";
+  if (sedeCandidate === "tutte" || sedeCandidate === "modena" || sedeCandidate === "sassuolo") {
+    sedeId = sedeCandidate;
+  }
+
+  return {
+    id: ferie.id || `ferie-${index}`,
+    sedeId,
+    dal,
+    al,
+    dalle: normalizzaOrario(ferie.dalle, DEFAULT_FERIE_DALLE),
+    alle: normalizzaOrario(ferie.alle, DEFAULT_FERIE_ALLE),
+    note: ferie.note ?? "",
+  };
+};
 
 const fasceDaGiorni = (giorni: string[]) =>
   giorni.map((giorno, index) =>
@@ -381,9 +433,13 @@ const normalizzaFasceDisponibilitaPerSede = (
 const normalizzaEccezioniAgenda = (medico: Pick<Medico, "eccezioniAgenda">) =>
   (medico.eccezioniAgenda ?? []).map((eccezione, index) => normalizzaEccezioneAgenda(eccezione, index));
 
+const normalizzaPianoFerie = (medico: Pick<Medico, "pianoFerie">) =>
+  (medico.pianoFerie ?? []).map((ferie, index) => normalizzaPianoFerieMedico(ferie, index));
+
 const creaAgendaDraftDaMedico = (medico: Medico): AgendaMedicoDraft => ({
   fasceDisponibilitaPerSede: copiaFasceDisponibilitaPerSede(normalizzaFasceDisponibilitaPerSede(medico)),
   eccezioniAgenda: normalizzaEccezioniAgenda(medico).map((eccezione) => ({ ...eccezione })),
+  pianoFerie: normalizzaPianoFerie(medico).map((ferie) => ({ ...ferie })),
 });
 
 const descriviFasciaDisponibilita = (fascia: FasciaDisponibilita) =>
@@ -402,6 +458,8 @@ const normalizzaMedico = (medico: Medico): Medico => {
     disponibilitaPerSede,
     fasceDisponibilitaPerSede,
     eccezioniAgenda: normalizzaEccezioniAgenda(medico),
+    agendaAperta: true,
+    pianoFerie: normalizzaPianoFerie(medico),
     datiFatturazione: {
       ...DATI_FATTURAZIONE_MEDICO_VUOTI,
       ...medico.datiFatturazione,
@@ -558,6 +616,21 @@ const leggiEccezioniAgenda = (row: ExcelRow) => {
   }
 };
 
+const leggiPianoFerie = (row: ExcelRow) => {
+  const testo = leggiTesto(row, ["pianoFerie", "piano ferie", "ferie"]);
+  if (!testo) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(testo);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((ferie, index) =>
+      normalizzaPianoFerieMedico(ferie as Partial<PianoFerieMedico>, index),
+    );
+  } catch {
+    return [];
+  }
+};
+
 const leggiCompensoTipo = (row: ExcelRow) => {
   const valore = normalizzaTesto(leggiTesto(row, ["compensoTipo", "tipo compenso", "tipo", "compenso tipo"], "percentuale"));
   return valore.startsWith("f") ? "fisso" : "percentuale";
@@ -603,6 +676,7 @@ const MEDICI_INIZIALI: Medico[] = [
     agendaAperta: true,
     disponibilita: ["Lun", "Mer", "Ven"],
     disponibilitaPerSede: { modena: ["Lun", "Mer"], sassuolo: ["Ven"] },
+    pianoFerie: [],
   },
   {
     id: "bianchi",
@@ -611,14 +685,16 @@ const MEDICI_INIZIALI: Medico[] = [
     agendaAperta: true,
     disponibilita: ["Mar", "Gio"],
     disponibilitaPerSede: { modena: ["Mar"], sassuolo: ["Gio"] },
+    pianoFerie: [],
   },
   {
     id: "verdi",
     nome: "Dott. Paolo Verdi",
     specialita: "Dermatologia",
-    agendaAperta: false,
+    agendaAperta: true,
     disponibilita: ["Lun", "Gio"],
     disponibilitaPerSede: { modena: ["Gio"], sassuolo: ["Lun"] },
+    pianoFerie: [],
   },
 ];
 
@@ -907,12 +983,14 @@ export function AdminSettings({
     ? normalizzaFasceDisponibilitaPerSede(medicoSelezionato)
     : creaFasceDisponibilitaPerSedeVuota();
   const eccezioniAgendaMedicoSelezionato = medicoSelezionato ? normalizzaEccezioniAgenda(medicoSelezionato) : [];
+  const pianoFerieMedicoSelezionato = medicoSelezionato ? normalizzaPianoFerie(medicoSelezionato) : [];
   const agendaMedicoInGestione: AgendaMedicoDraft =
     agendaMedicoModificaAttiva && agendaMedicoDraft
       ? agendaMedicoDraft
       : {
           fasceDisponibilitaPerSede: fasceDisponibilitaPerSedeMedicoSelezionato,
           eccezioniAgenda: eccezioniAgendaMedicoSelezionato,
+          pianoFerie: pianoFerieMedicoSelezionato,
         };
   const datiFatturazioneMedicoSelezionato: DatiFatturazioneMedico = {
     ...DATI_FATTURAZIONE_MEDICO_VUOTI,
@@ -1284,6 +1362,33 @@ export function AdminSettings({
     }));
   };
 
+  const aggiungiFerieMedico = () => {
+    aggiornaAgendaMedicoDraft((corrente) => ({
+      ...corrente,
+      pianoFerie: [...corrente.pianoFerie, creaPianoFerieMedico()],
+    }));
+  };
+
+  const aggiornaFerieMedico = <K extends keyof PianoFerieMedico>(
+    ferieId: string,
+    campo: K,
+    valore: PianoFerieMedico[K],
+  ) => {
+    aggiornaAgendaMedicoDraft((corrente) => ({
+      ...corrente,
+      pianoFerie: corrente.pianoFerie.map((ferie) =>
+        ferie.id === ferieId ? normalizzaPianoFerieMedico({ ...ferie, [campo]: valore }) : ferie,
+      ),
+    }));
+  };
+
+  const eliminaFerieMedico = (ferieId: string) => {
+    aggiornaAgendaMedicoDraft((corrente) => ({
+      ...corrente,
+      pianoFerie: corrente.pianoFerie.filter((ferie) => ferie.id !== ferieId),
+    }));
+  };
+
   const salvaModificaAgendaMedico = () => {
     if (!medicoSelezionato || !agendaMedicoDraft) return;
 
@@ -1292,16 +1397,21 @@ export function AdminSettings({
     const eccezioniAgenda = agendaMedicoDraft.eccezioniAgenda
       .filter((eccezione) => eccezione.data && eccezione.dalle && eccezione.alle)
       .map((eccezione, index) => normalizzaEccezioneAgenda(eccezione, index));
+    const pianoFerie = agendaMedicoDraft.pianoFerie
+      .filter((ferie) => ferie.dal && ferie.al)
+      .map((ferie, index) => normalizzaPianoFerieMedico(ferie, index));
 
     setMedici((correnti) =>
       correnti.map((medico) =>
         medico.id === medicoSelezionato.id
           ? normalizzaMedico({
               ...medico,
+              agendaAperta: true,
               disponibilita: unisciDisponibilitaSedi(disponibilitaPerSede),
               disponibilitaPerSede,
               fasceDisponibilitaPerSede,
               eccezioniAgenda,
+              pianoFerie,
             })
           : medico,
       ),
@@ -1309,10 +1419,6 @@ export function AdminSettings({
     setAgendaMedicoDraft(null);
     setAgendaMedicoModificaAttiva(false);
     mostraNotifica("Agenda medico salvata.");
-  };
-
-  const impostaTutteLeAgende = (aperte: boolean) => {
-    setMedici((correnti) => correnti.map((medico) => ({ ...medico, agendaAperta: aperte })));
   };
 
   const aggiungiMedico = () => {
@@ -1332,6 +1438,7 @@ export function AdminSettings({
         disponibilitaPerSede: creaDisponibilitaPerSedeVuota(),
         fasceDisponibilitaPerSede: creaFasceDisponibilitaPerSedeVuota(),
         eccezioniAgenda: [],
+        pianoFerie: [],
         datiFatturazione: { ...DATI_FATTURAZIONE_MEDICO_VUOTI },
       },
     ]);
@@ -2011,13 +2118,13 @@ export function AdminSettings({
         id: medico.id,
         nome: medico.nome,
         specialita: medico.specialita,
-        agendaAperta: medico.agendaAperta,
         disponibilita: unisciDisponibilitaSedi(disponibilitaPerSede).join(", "),
         disponibilitaModena: disponibilitaPerSede.modena.join(", "),
         disponibilitaSassuolo: disponibilitaPerSede.sassuolo.join(", "),
         fasceModena: fasceDisponibilitaPerSede.modena.map(descriviFasciaDisponibilita).join(", "),
         fasceSassuolo: fasceDisponibilitaPerSede.sassuolo.map(descriviFasciaDisponibilita).join(", "),
         eccezioniAgenda: JSON.stringify(normalizzaEccezioniAgenda(medico)),
+        pianoFerie: JSON.stringify(normalizzaPianoFerie(medico)),
         intestatarioFatturazione: datiFatturazione.intestatario,
         partitaIva: datiFatturazione.partitaIva,
         codiceFiscale: datiFatturazione.codiceFiscale,
@@ -2140,11 +2247,12 @@ export function AdminSettings({
               id: leggiTesto(row, ["id", "medicoId", "medico id"], slugId("medico", nome, index)),
               nome,
               specialita: leggiTesto(row, ["specialita", "specialità"], "Generale"),
-              agendaAperta: leggiBooleano(row, ["agendaAperta", "agenda aperta", "agenda"], true),
+              agendaAperta: true,
               disponibilita: unisciDisponibilitaSedi(disponibilitaSediDaFasce(fasceDisponibilitaPerSede)),
               disponibilitaPerSede: disponibilitaSediDaFasce(fasceDisponibilitaPerSede),
               fasceDisponibilitaPerSede,
               eccezioniAgenda: leggiEccezioniAgenda(row),
+              pianoFerie: leggiPianoFerie(row),
               datiFatturazione: {
                 intestatario: leggiTesto(
                   row,
@@ -2704,12 +2812,6 @@ export function AdminSettings({
             icon={<CalendarDays className="h-5 w-5" />}
             actions={
               <div className="flex flex-wrap justify-end gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => impostaTutteLeAgende(true)}>
-                  Apri tutte
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => impostaTutteLeAgende(false)}>
-                  Chiudi tutte
-                </Button>
                 <ImportExportActions onExport={esportaExcel} onImportClick={apriImportExcel} />
               </div>
             }
@@ -2798,9 +2900,6 @@ export function AdminSettings({
                                 </Badge>
                               </div>
                               <p className="mt-2 text-xs text-muted-foreground">
-                                Agenda {medico.agendaAperta ? "aperta" : "chiusa"}
-                              </p>
-                              <p className="mt-1 text-xs text-muted-foreground">
                                 {riepilogoSedi}
                               </p>
                             </button>
@@ -2870,15 +2969,6 @@ export function AdminSettings({
                             Modifica
                           </Button>
                         )}
-                        <Badge
-                          className={
-                            medicoSelezionato.agendaAperta
-                              ? "w-fit border-green-200 bg-green-100 text-green-700 hover:bg-green-100"
-                              : "w-fit border-border bg-muted text-muted-foreground hover:bg-muted"
-                          }
-                        >
-                          {medicoSelezionato.agendaAperta ? "Agenda aperta" : "Agenda chiusa"}
-                        </Badge>
                         <Button
                           type="button"
                           variant="outline"
@@ -3131,20 +3221,6 @@ export function AdminSettings({
                               Modifica
                             </Button>
                           )}
-                          <Button
-                            type="button"
-                            variant={medicoSelezionato.agendaAperta ? "outline" : "default"}
-                            size="sm"
-                            onClick={() =>
-                              aggiornaMedico(
-                                medicoSelezionato.id,
-                                "agendaAperta",
-                                !medicoSelezionato.agendaAperta,
-                              )
-                            }
-                          >
-                            {medicoSelezionato.agendaAperta ? "Chiudi agenda" : "Apri agenda"}
-                          </Button>
                         </div>
                       </div>
 
@@ -3342,6 +3418,114 @@ export function AdminSettings({
                           ) : (
                             <div className="rounded-md border border-dashed border-border bg-white p-3 text-sm text-muted-foreground">
                               Nessuna eccezione inserita.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-md border border-amber-200 bg-amber-50/60 p-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-amber-200 bg-white text-amber-700">
+                              <Plane className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-semibold text-foreground">Piano ferie</h4>
+                              <p className="text-xs text-muted-foreground">
+                                Blocca giorni o periodi in cui il medico non deve risultare disponibile in agenda.
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={!agendaMedicoModificaAttiva}
+                            onClick={aggiungiFerieMedico}
+                            className="gap-2 bg-white"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Aggiungi ferie
+                          </Button>
+                        </div>
+
+                        <div className="mt-3 space-y-2">
+                          {agendaMedicoInGestione.pianoFerie.length > 0 ? (
+                            agendaMedicoInGestione.pianoFerie.map((ferie) => (
+                              <div
+                                key={ferie.id}
+                                className="grid gap-2 rounded-md border border-amber-200 bg-white p-2 xl:grid-cols-[150px_150px_150px_120px_120px_minmax(180px,1fr)_auto]"
+                              >
+                                <Select
+                                  value={ferie.sedeId}
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onValueChange={(valore) =>
+                                    aggiornaFerieMedico(ferie.id, "sedeId", valore as PianoFerieMedico["sedeId"])
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="tutte">Tutte le sedi</SelectItem>
+                                    {SEDI_MEDICO.map((sede) => (
+                                      <SelectItem key={`${ferie.id}-${sede.id}`} value={sede.id}>
+                                        {sede.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Input
+                                  type="date"
+                                  value={ferie.dal}
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onChange={(event) => aggiornaFerieMedico(ferie.id, "dal", event.target.value)}
+                                  aria-label="Dal"
+                                />
+                                <Input
+                                  type="date"
+                                  value={ferie.al}
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onChange={(event) => aggiornaFerieMedico(ferie.id, "al", event.target.value)}
+                                  aria-label="Al"
+                                />
+                                <Input
+                                  type="time"
+                                  value={ferie.dalle}
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onChange={(event) => aggiornaFerieMedico(ferie.id, "dalle", event.target.value)}
+                                  aria-label="Dalle"
+                                />
+                                <Input
+                                  type="time"
+                                  value={ferie.alle}
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onChange={(event) => aggiornaFerieMedico(ferie.id, "alle", event.target.value)}
+                                  aria-label="Alle"
+                                />
+                                <Input
+                                  value={ferie.note}
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onChange={(event) => aggiornaFerieMedico(ferie.id, "note", event.target.value)}
+                                  placeholder="Es. ferie estive"
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onClick={() => eliminaFerieMedico(ferie.id)}
+                                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  aria-label="Elimina ferie"
+                                  title="Elimina ferie"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="rounded-md border border-dashed border-amber-200 bg-white p-3 text-sm text-muted-foreground">
+                              Nessun periodo ferie inserito.
                             </div>
                           )}
                         </div>
@@ -3805,7 +3989,7 @@ export function AdminSettings({
                             <TableCell className="min-w-[180px]">
                               <p className="font-medium text-foreground">{riga.medico.nome}</p>
                               <p className="text-xs text-muted-foreground">
-                                {riga.medico.specialita} · agenda {riga.medico.agendaAperta ? "aperta" : "chiusa"}
+                                {riga.medico.specialita}
                               </p>
                             </TableCell>
                             <TableCell>

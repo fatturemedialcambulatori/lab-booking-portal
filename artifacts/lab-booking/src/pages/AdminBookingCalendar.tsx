@@ -12,24 +12,37 @@ import {
 } from "date-fns";
 import { it } from "date-fns/locale";
 import {
+  AlertTriangle,
   Building2,
   CalendarDays,
+  Check,
   ChevronLeft,
   ChevronRight,
+  ChevronsUpDown,
   ClipboardList,
   Clock,
   Download,
   FileText,
   MoreVertical,
+  Plane,
+  Plus,
   Printer,
   Search,
   Settings,
+  UserPlus,
   UserRound,
   Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Dialog,
   DialogContent,
@@ -41,12 +54,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 
 type AreaId = "laboratorio" | "ambulatorio";
@@ -55,6 +74,7 @@ type SedeId = "tutte" | "modena" | "sassuolo";
 type SedeOperativa = Exclude<SedeId, "tutte">;
 type StatoPrenotazione = "confermata" | "accettata" | "completata" | "annullata";
 type PeriodoOrarioDisponibile = "tutto" | "mattina" | "pomeriggio";
+type WorkListPeriodo = "giorno" | "periodo";
 
 type FasciaDisponibilita = {
   id?: string;
@@ -74,6 +94,16 @@ type EccezioneAgendaMedico = {
   note?: string;
 };
 
+type PianoFerieMedico = {
+  id?: string;
+  sedeId: SedeOperativa | "tutte";
+  dal: string;
+  al: string;
+  dalle: string;
+  alle: string;
+  note?: string;
+};
+
 type MedicoSettings = {
   id: string;
   nome: string;
@@ -83,6 +113,7 @@ type MedicoSettings = {
   disponibilitaPerSede?: Partial<Record<SedeOperativa, string[]>>;
   fasceDisponibilitaPerSede?: Partial<FasceDisponibilitaPerSede>;
   eccezioniAgenda?: EccezioneAgendaMedico[];
+  pianoFerie?: PianoFerieMedico[];
 };
 
 type ListinoSettings = {
@@ -110,6 +141,7 @@ type MedicoAgenda = {
   durataSlot: number;
   fasceDisponibilitaPerSede: FasceDisponibilitaPerSede;
   eccezioniAgenda: EccezioneAgendaMedico[];
+  pianoFerie: PianoFerieMedico[];
 };
 
 type PrenotazioneAgenda = {
@@ -117,12 +149,51 @@ type PrenotazioneAgenda = {
   area: AreaId;
   sede: Exclude<SedeId, "tutte">;
   medicoId: string;
+  pazienteId?: number | string;
   paziente: string;
+  pazienteEmail?: string;
+  pazienteTelefono?: string;
   prestazione: string;
+  note?: string;
   data: string;
   ora: string;
   durata: number;
   stato: StatoPrenotazione;
+  overbooking?: boolean;
+};
+
+type PazienteAgenda = {
+  id: number;
+  firstName: string;
+  lastName: string;
+  dateOfBirth: string;
+  codiceFiscale?: string | null;
+  gender?: "M" | "F" | null;
+  email: string;
+  phone: string;
+  notes?: string | null;
+};
+
+type NuovoAppuntamentoDraft = {
+  medicoId: string;
+  data: string;
+  ora: string;
+  durata: number;
+  sede: SedeOperativa;
+  prestazioneId: string;
+  prestazioneNome: string;
+  pazienteId: string;
+  pazienteSearch: string;
+  creaNuovoPaziente: boolean;
+  firstName: string;
+  lastName: string;
+  dateOfBirth: string;
+  email: string;
+  phone: string;
+  notes: string;
+  notaPrenotazione: string;
+  overbooking: boolean;
+  overbookingReason: string;
 };
 
 const DEMO_TODAY = new Date("2026-07-24T12:00:00");
@@ -182,7 +253,7 @@ const VIEWS: Array<{ id: CalendarView; label: string }> = [
 ];
 
 const MEDICI_AGENDA: Array<
-  Omit<MedicoAgenda, "agendaAperta" | "durataSlot" | "fasceDisponibilitaPerSede" | "eccezioniAgenda">
+  Omit<MedicoAgenda, "agendaAperta" | "durataSlot" | "fasceDisponibilitaPerSede" | "eccezioniAgenda" | "pianoFerie">
 > = [
   {
     id: "rossi",
@@ -296,6 +367,7 @@ const MEDICI_AGENDA_DEMO: MedicoAgenda[] = MEDICI_AGENDA.map((medico, index) => 
   durataSlot: DEFAULT_DURATA_SLOT,
   fasceDisponibilitaPerSede: DEFAULT_FASCE_DEMO,
   eccezioniAgenda: [],
+  pianoFerie: [],
   colore: medico.colore || COLORI_MEDICI[index % COLORI_MEDICI.length],
 }));
 
@@ -680,6 +752,7 @@ const agendaSlots = Array.from(
 );
 
 const dateKey = (date: Date) => format(date, "yyyy-MM-dd");
+const AGENDA_APPOINTMENTS_STORAGE_KEY = "m-medical-agenda-appointments";
 
 const normalizza = (value: string) =>
   value
@@ -687,6 +760,73 @@ const normalizza = (value: string) =>
     .toLocaleLowerCase("it-IT")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+
+const isSedeOperativa = (value: unknown): value is SedeOperativa =>
+  value === "modena" || value === "sassuolo";
+
+const isStatoPrenotazione = (value: unknown): value is StatoPrenotazione =>
+  value === "confermata" || value === "accettata" || value === "completata" || value === "annullata";
+
+const isPrenotazioneAgenda = (value: unknown): value is PrenotazioneAgenda => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Partial<PrenotazioneAgenda>;
+  return (
+    typeof item.id === "string" &&
+    (item.area === "laboratorio" || item.area === "ambulatorio") &&
+    isSedeOperativa(item.sede) &&
+    typeof item.medicoId === "string" &&
+    typeof item.paziente === "string" &&
+    typeof item.prestazione === "string" &&
+    typeof item.data === "string" &&
+    typeof item.ora === "string" &&
+    typeof item.durata === "number" &&
+    isStatoPrenotazione(item.stato)
+  );
+};
+
+const normalizzaPrenotazioniAgenda = (value: unknown): PrenotazioneAgenda[] =>
+  Array.isArray(value) ? value.filter(isPrenotazioneAgenda) : [];
+
+const unisciPrenotazioniAgenda = (...fonti: PrenotazioneAgenda[][]) => {
+  const map = new Map<string, PrenotazioneAgenda>();
+  fonti.flat().forEach((prenotazione) => {
+    map.set(prenotazione.id, prenotazione);
+  });
+  return Array.from(map.values()).sort((a, b) => `${a.data}${a.ora}`.localeCompare(`${b.data}${b.ora}`));
+};
+
+const leggiPrenotazioniAgendaLocali = () => {
+  if (typeof window === "undefined") return [];
+  try {
+    return normalizzaPrenotazioniAgenda(JSON.parse(window.localStorage.getItem(AGENDA_APPOINTMENTS_STORAGE_KEY) ?? "[]"));
+  } catch {
+    return [];
+  }
+};
+
+const salvaPrenotazioniAgendaLocali = (prenotazioni: PrenotazioneAgenda[]) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(AGENDA_APPOINTMENTS_STORAGE_KEY, JSON.stringify(prenotazioni));
+};
+
+const isPazienteAgenda = (value: unknown): value is PazienteAgenda => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Partial<PazienteAgenda>;
+  return (
+    typeof item.id === "number" &&
+    typeof item.firstName === "string" &&
+    typeof item.lastName === "string" &&
+    typeof item.dateOfBirth === "string" &&
+    typeof item.email === "string" &&
+    typeof item.phone === "string"
+  );
+};
+
+const normalizzaPazientiAgenda = (value: unknown): PazienteAgenda[] =>
+  Array.isArray(value) ? value.filter(isPazienteAgenda) : [];
+
+const nomePazienteAgenda = (paziente: PazienteAgenda) =>
+  `${paziente.firstName} ${paziente.lastName}`.trim();
 
 const isAdminSettingsData = (value: unknown): value is AdminSettingsData => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -737,6 +877,27 @@ const normalizzaEccezioniAgenda = (medico: MedicoSettings): EccezioneAgendaMedic
       alle: normalizzaOrario(eccezione.alle, "13:00"),
     }));
 
+const normalizzaPianoFerie = (medico: MedicoSettings): PianoFerieMedico[] =>
+  (medico.pianoFerie ?? [])
+    .filter((ferie) => ferie.dal && ferie.al)
+    .map((ferie, index) => {
+      const dal = ferie.dal;
+      const al = ferie.al >= dal ? ferie.al : dal;
+      const sedeId = ferie.sedeId === "tutte" || SEDI_OPERATIVE.includes(ferie.sedeId as SedeOperativa)
+        ? ferie.sedeId
+        : "tutte";
+
+      return {
+        id: ferie.id ?? `ferie-${index}`,
+        sedeId,
+        dal,
+        al,
+        dalle: normalizzaOrario(ferie.dalle, "00:00"),
+        alle: normalizzaOrario(ferie.alle, "23:59"),
+        note: ferie.note ?? "",
+      };
+    });
+
 const mediciDaAdminSettings = (data: AdminSettingsData, area: AreaId): MedicoAgenda[] => {
   const listini = data.listini ?? [];
 
@@ -756,10 +917,11 @@ const mediciDaAdminSettings = (data: AdminSettingsData, area: AreaId): MedicoAge
         area,
         sedi: sediConfigurate.length > 0 ? sediConfigurate : SEDI_OPERATIVE,
         colore: COLORI_MEDICI[index % COLORI_MEDICI.length],
-        agendaAperta: medico.agendaAperta !== false,
+        agendaAperta: true,
         durataSlot: durateMedico.length > 0 ? Math.max(5, Math.min(...durateMedico)) : DEFAULT_DURATA_SLOT,
         fasceDisponibilitaPerSede,
         eccezioniAgenda: normalizzaEccezioniAgenda(medico),
+        pianoFerie: normalizzaPianoFerie(medico),
       } satisfies MedicoAgenda;
     });
 };
@@ -852,8 +1014,40 @@ const fasceMedicoNelGiorno = (doctor: MedicoAgenda, date: Date, sede: SedeId) =>
   });
 };
 
+const ferieMedicoNelGiorno = (doctor: MedicoAgenda, date: Date, sede: SedeId) => {
+  const dayKey = dateKey(date);
+  const sediFiltro = sediDaFiltro(doctor, sede);
+
+  return doctor.pianoFerie
+    .filter((ferie) => {
+      const sedeCompatibile = ferie.sedeId === "tutte" || sediFiltro.includes(ferie.sedeId);
+      return sedeCompatibile && ferie.dal <= dayKey && ferie.al >= dayKey;
+    })
+    .map((ferie) => ({
+      ...ferie,
+      start: Math.max(minutiDaOra(ferie.dalle), ORA_INIZIO * 60),
+      end: Math.min(minutiDaOra(ferie.alle), ORA_FINE * 60),
+    }))
+    .filter((ferie) => ferie.end > ferie.start);
+};
+
+const slotBloccatoDaFerie = (
+  doctor: MedicoAgenda,
+  date: Date,
+  sede: SedeId,
+  start: number,
+  end: number,
+) =>
+  ferieMedicoNelGiorno(doctor, date, sede).find((ferie) => start < ferie.end && end > ferie.start);
+
+const ferieCopreInteraAgenda = (doctor: MedicoAgenda, date: Date, sede: SedeId) => {
+  const start = ORA_INIZIO * 60;
+  const end = ORA_FINE * 60;
+  return ferieMedicoNelGiorno(doctor, date, sede).some((ferie) => ferie.start <= start && ferie.end >= end);
+};
+
 const medicoLavoraNelGiorno = (doctor: MedicoAgenda, date: Date, sede: SedeId) =>
-  doctor.agendaAperta && fasceMedicoNelGiorno(doctor, date, sede).length > 0;
+  fasceMedicoNelGiorno(doctor, date, sede).length > 0 && !ferieCopreInteraAgenda(doctor, date, sede);
 
 const slotInFasciaPreferita = (time: number, fascia: PeriodoOrarioDisponibile) => {
   if (fascia === "mattina") return time < 13 * 60;
@@ -867,15 +1061,73 @@ const slotHaConflitto = (
   start: number,
   end: number,
   appointments: PrenotazioneAgenda[],
+  sede?: SedeOperativa,
 ) =>
   appointments.some((appointment) => {
     if (appointment.medicoId !== doctorId || appointment.data !== dayKey || appointment.stato === "annullata") {
       return false;
     }
+    if (sede && appointment.sede !== sede) return false;
     const appointmentStart = minutiDaOra(appointment.ora);
     const appointmentEnd = appointmentStart + appointment.durata;
     return appointmentStart < end && appointmentEnd > start;
   });
+
+const dettaglioDisponibilitaSlot = (
+  doctor: MedicoAgenda,
+  date: Date,
+  sede: SedeId,
+  start: number,
+  durata: number,
+  appointments: PrenotazioneAgenda[],
+  sedeForzata?: SedeOperativa,
+) => {
+  const end = start + durata;
+  const fasce = fasceMedicoNelGiorno(doctor, date, sedeForzata ?? sede);
+  const fasceCompatibili = fasce.filter((fascia) => {
+    const inizioFascia = minutiDaOra(fascia.dalle);
+    const fineFascia = minutiDaOra(fascia.alle);
+    return start >= inizioFascia && end <= fineFascia;
+  });
+  const fasciaCompatibile =
+    fasceCompatibili.find((fascia) => !slotBloccatoDaFerie(doctor, date, fascia.sede, start, end)) ??
+    fasceCompatibili[0];
+  const sedeSlot = sedeForzata ?? fasciaCompatibile?.sede ?? (doctor.sedi[0] ?? "modena");
+  const ferie = slotBloccatoDaFerie(doctor, date, sedeSlot, start, end);
+  const haConflitto = slotHaConflitto(doctor.id, dateKey(date), start, end, appointments, sedeSlot);
+
+  if (ferie) {
+    return {
+      disponibile: false,
+      sede: sedeSlot,
+      reason: `Stai inserendo un overbooking: il medico risulta in ferie${
+        ferie.note ? ` (${ferie.note})` : ""
+      }.`,
+    };
+  }
+
+  if (!fasciaCompatibile) {
+    return {
+      disponibile: false,
+      sede: sedeSlot,
+      reason: "Stai inserendo un overbooking: il medico non risulta disponibile in questo orario.",
+    };
+  }
+
+  if (haConflitto) {
+    return {
+      disponibile: false,
+      sede: sedeSlot,
+      reason: "Stai inserendo un overbooking: esiste gia un appuntamento sovrapposto.",
+    };
+  }
+
+  return {
+    disponibile: true,
+    sede: sedeSlot,
+    reason: "",
+  };
+};
 
 const creaSlotDisponibili = (
   doctor: MedicoAgenda,
@@ -884,8 +1136,6 @@ const creaSlotDisponibili = (
   appointments: PrenotazioneAgenda[],
   fasciaPreferita: PeriodoOrarioDisponibile,
 ) => {
-  if (!doctor.agendaAperta) return [];
-
   const dayKey = dateKey(date);
   const durata = Math.max(5, doctor.durataSlot || DEFAULT_DURATA_SLOT);
   const fasce = fasceMedicoNelGiorno(doctor, date, sede);
@@ -897,6 +1147,7 @@ const creaSlotDisponibili = (
 
     for (let current = start; current + durata <= end; current += durata) {
       if (!slotInFasciaPreferita(current, fasciaPreferita)) continue;
+      if (slotBloccatoDaFerie(doctor, date, fascia.sede, current, current + durata)) continue;
       slots.push({
         time: formattaOraMinuti(current),
         sede: fascia.sede,
@@ -931,7 +1182,20 @@ export function AdminBookingCalendar({
   const [periodoOrario, setPeriodoOrario] = React.useState<PeriodoOrarioDisponibile>("tutto");
   const [soloMediciConPrenotazioni, setSoloMediciConPrenotazioni] = React.useState(false);
   const [workListDate, setWorkListDate] = React.useState<string | null>(null);
+  const [workListPeriodo, setWorkListPeriodo] = React.useState<WorkListPeriodo>("giorno");
+  const [workListDal, setWorkListDal] = React.useState(dateKey(DEMO_TODAY));
+  const [workListAl, setWorkListAl] = React.useState(dateKey(DEMO_TODAY));
+  const [workListSede, setWorkListSede] = React.useState<SedeId>("tutte");
   const [workListDoctorId, setWorkListDoctorId] = React.useState("tutti");
+  const [workListDoctorSearch, setWorkListDoctorSearch] = React.useState("");
+  const [workListDoctorOpen, setWorkListDoctorOpen] = React.useState(false);
+  const [prenotazioniSalvate, setPrenotazioniSalvate] = React.useState<PrenotazioneAgenda[]>(() =>
+    leggiPrenotazioniAgendaLocali(),
+  );
+  const [appuntamentoDraft, setAppuntamentoDraft] = React.useState<NuovoAppuntamentoDraft | null>(null);
+  const [pazientiAgenda, setPazientiAgenda] = React.useState<PazienteAgenda[]>([]);
+  const [pazientiLoading, setPazientiLoading] = React.useState(false);
+  const [salvataggioAppuntamento, setSalvataggioAppuntamento] = React.useState(false);
 
   React.useEffect(() => {
     let active = true;
@@ -971,6 +1235,80 @@ export function AdminBookingCalendar({
     };
   }, [area]);
 
+  React.useEffect(() => {
+    let active = true;
+
+    const caricaAppuntamenti = async () => {
+      try {
+        const response = await fetch("/api/agenda-appointments");
+        if (!response.ok) throw new Error("Appuntamenti agenda non disponibili");
+        const data: unknown = await response.json();
+        if (!active) return;
+
+        const remoteAppointments = normalizzaPrenotazioniAgenda(data);
+        setPrenotazioniSalvate((localAppointments) =>
+          unisciPrenotazioniAgenda(remoteAppointments, localAppointments),
+        );
+      } catch {
+        if (!active) return;
+        setPrenotazioniSalvate(leggiPrenotazioniAgendaLocali());
+      }
+    };
+
+    void caricaAppuntamenti();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    salvaPrenotazioniAgendaLocali(prenotazioniSalvate);
+  }, [prenotazioniSalvate]);
+
+  const caricaPazientiAgenda = React.useCallback(async (searchTerm = "") => {
+    setPazientiLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: "80" });
+      if (searchTerm.trim()) params.set("search", searchTerm.trim());
+      const response = await fetch(`/api/patients?${params.toString()}`);
+      if (!response.ok) throw new Error("Pazienti non disponibili");
+      const data: unknown = await response.json();
+      const nuoviPazienti = normalizzaPazientiAgenda(data);
+      setPazientiAgenda((correnti) => {
+        const map = new Map(correnti.map((paziente) => [paziente.id, paziente]));
+        nuoviPazienti.forEach((paziente) => map.set(paziente.id, paziente));
+        return Array.from(map.values()).sort((a, b) =>
+          `${a.lastName}${a.firstName}`.localeCompare(`${b.lastName}${b.firstName}`, "it"),
+        );
+      });
+    } catch {
+      setPazientiAgenda([]);
+      toast({
+        title: "Attenzione",
+        description: "Non riesco a caricare i pazienti dall'anagrafica.",
+        variant: "destructive",
+      });
+    } finally {
+      setPazientiLoading(false);
+    }
+  }, []);
+
+  const pazienteSearchDraft = appuntamentoDraft?.pazienteSearch ?? "";
+  const appuntamentoDialogAperto = Boolean(appuntamentoDraft);
+  const creaNuovoPazienteDraft = appuntamentoDraft?.creaNuovoPaziente ?? false;
+
+  React.useEffect(() => {
+    if (!appuntamentoDialogAperto || creaNuovoPazienteDraft) return;
+    if (pazienteSearchDraft.trim().length > 0 && pazienteSearchDraft.trim().length < 2) return;
+
+    const timer = window.setTimeout(() => {
+      void caricaPazientiAgenda(pazienteSearchDraft);
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [appuntamentoDialogAperto, caricaPazientiAgenda, creaNuovoPazienteDraft, pazienteSearchDraft]);
+
   const usaDatiDb = settingsCaricate && mediciConfigurati !== null;
   const mediciAgenda = React.useMemo(
     () => {
@@ -979,9 +1317,13 @@ export function AdminBookingCalendar({
     },
     [mediciConfigurati, settingsCaricate, usaDatiDb],
   );
-  const prenotazioniAgenda = React.useMemo(
+  const prenotazioniBaseAgenda = React.useMemo(
     () => (!settingsCaricate || usaDatiDb ? [] : PRENOTAZIONI_AGENDA),
     [settingsCaricate, usaDatiDb],
+  );
+  const prenotazioniAgenda = React.useMemo(
+    () => unisciPrenotazioniAgenda(prenotazioniBaseAgenda, prenotazioniSalvate),
+    [prenotazioniBaseAgenda, prenotazioniSalvate],
   );
 
   const visibleDates = React.useMemo(() => periodoVista(view, currentDate), [currentDate, view]);
@@ -1101,6 +1443,265 @@ export function AdminBookingCalendar({
     [mediciArea, medicoId, mediciConDisponibilita, soloMediciConPrenotazioni],
   );
 
+  const prestazioniPerMedico = React.useCallback(
+    (doctorId: string) => {
+      const medico = mediciAgenda.find((item) => item.id === doctorId);
+      const idsDaListino = new Set(
+        (settingsAgenda?.listini ?? [])
+          .filter((listino) => listino.medicoId === doctorId && listino.prestazioneId)
+          .map((listino) => listino.prestazioneId as string),
+      );
+
+      const prestazioni = prestazioniDisponibili.filter((prestazione) => {
+        const stessaSpecialita = medico
+          ? normalizza(prestazione.specialita) === normalizza(medico.specialita)
+          : false;
+        return idsDaListino.has(prestazione.id) || stessaSpecialita;
+      });
+
+      return Array.from(new Map(prestazioni.map((prestazione) => [prestazione.id, prestazione])).values());
+    },
+    [mediciAgenda, prestazioniDisponibili, settingsAgenda],
+  );
+
+  const calcolaDraftAppuntamento = React.useCallback(
+    (draft: NuovoAppuntamentoDraft): NuovoAppuntamentoDraft => {
+      const doctor = mediciAgenda.find((item) => item.id === draft.medicoId);
+      if (!doctor) return draft;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.data) || !/^\d{2}:\d{2}$/.test(draft.ora)) {
+        return {
+          ...draft,
+          overbooking: true,
+          overbookingReason: "Inserisci data e ora valide.",
+        };
+      }
+      const date = new Date(`${draft.data}T12:00:00`);
+      const start = minutiDaOra(draft.ora);
+      if (!Number.isFinite(start)) {
+        return {
+          ...draft,
+          overbooking: true,
+          overbookingReason: "Inserisci un orario valido.",
+        };
+      }
+      const dettaglio = dettaglioDisponibilitaSlot(
+        doctor,
+        date,
+        draft.sede,
+        start,
+        Math.max(5, Number(draft.durata) || DEFAULT_DURATA_SLOT),
+        prenotazioniAgenda,
+        draft.sede,
+      );
+
+      return {
+        ...draft,
+        sede: dettaglio.sede,
+        overbooking: !dettaglio.disponibile,
+        overbookingReason: dettaglio.reason,
+      };
+    },
+    [mediciAgenda, prenotazioniAgenda],
+  );
+
+  const aggiornaDraftAppuntamento = React.useCallback(
+    (patch: Partial<NuovoAppuntamentoDraft>) => {
+      setAppuntamentoDraft((current) => {
+        if (!current) return current;
+        return calcolaDraftAppuntamento({ ...current, ...patch });
+      });
+    },
+    [calcolaDraftAppuntamento],
+  );
+
+  const apriNuovoAppuntamento = React.useCallback(
+    (doctor: MedicoAgenda, date: Date, slot: number, sedeSlot?: SedeOperativa) => {
+      const durata = Math.max(5, doctor.durataSlot || DEFAULT_DURATA_SLOT);
+      const prestazioni = prestazioniPerMedico(doctor.id);
+      const prestazioneDefault = prestazioni[0];
+      const dettaglio = dettaglioDisponibilitaSlot(
+        doctor,
+        date,
+        sede,
+        slot,
+        durata,
+        prenotazioniAgenda,
+        sedeSlot,
+      );
+
+      setAppuntamentoDraft({
+        medicoId: doctor.id,
+        data: dateKey(date),
+        ora: formattaOraMinuti(slot),
+        durata,
+        sede: dettaglio.sede,
+        prestazioneId: prestazioneDefault?.id ?? "",
+        prestazioneNome: prestazioneDefault?.nome ?? "",
+        pazienteId: "",
+        pazienteSearch: "",
+        creaNuovoPaziente: false,
+        firstName: "",
+        lastName: "",
+        dateOfBirth: "",
+        email: "",
+        phone: "",
+        notes: "",
+        notaPrenotazione: "",
+        overbooking: !dettaglio.disponibile,
+        overbookingReason: dettaglio.reason,
+      });
+    },
+    [prenotazioniAgenda, prestazioniPerMedico, sede],
+  );
+
+  const medicoAppuntamento = React.useMemo(
+    () => mediciAgenda.find((medico) => medico.id === appuntamentoDraft?.medicoId) ?? null,
+    [appuntamentoDraft?.medicoId, mediciAgenda],
+  );
+  const prestazioniMedicoAppuntamento = React.useMemo(
+    () => (appuntamentoDraft ? prestazioniPerMedico(appuntamentoDraft.medicoId) : []),
+    [appuntamentoDraft, prestazioniPerMedico],
+  );
+  const pazientiFiltratiDialog = React.useMemo(() => {
+    const query = normalizza(appuntamentoDraft?.pazienteSearch ?? "");
+    if (!query) return pazientiAgenda.slice(0, 8);
+    return pazientiAgenda
+      .filter((paziente) =>
+        [
+          nomePazienteAgenda(paziente),
+          paziente.email,
+          paziente.phone,
+          paziente.codiceFiscale ?? "",
+        ].some((campo) => normalizza(campo).includes(query)),
+      )
+      .slice(0, 8);
+  }, [appuntamentoDraft?.pazienteSearch, pazientiAgenda]);
+  const pazienteSelezionatoDialog = React.useMemo(
+    () =>
+      pazientiAgenda.find((paziente) => String(paziente.id) === appuntamentoDraft?.pazienteId) ?? null,
+    [appuntamentoDraft?.pazienteId, pazientiAgenda],
+  );
+
+  const salvaNuovoAppuntamento = async () => {
+    if (!appuntamentoDraft || !medicoAppuntamento) return;
+
+    const prestazione = appuntamentoDraft.prestazioneNome.trim();
+    if (!prestazione) {
+      toast({
+        title: "Attenzione",
+        description: "Inserisci la prestazione dell'appuntamento.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!appuntamentoDraft.creaNuovoPaziente && !pazienteSelezionatoDialog) {
+      toast({
+        title: "Attenzione",
+        description: "Seleziona un paziente oppure creane uno nuovo.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (appuntamentoDraft.creaNuovoPaziente && (!appuntamentoDraft.firstName.trim() || !appuntamentoDraft.lastName.trim())) {
+      toast({
+        title: "Attenzione",
+        description: "Per creare un nuovo paziente servono nome e cognome.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSalvataggioAppuntamento(true);
+
+    try {
+      let pazienteId: number | string | undefined = pazienteSelezionatoDialog?.id;
+      let pazienteNome = pazienteSelezionatoDialog ? nomePazienteAgenda(pazienteSelezionatoDialog) : "";
+      let pazienteEmail = pazienteSelezionatoDialog?.email ?? "";
+      let pazienteTelefono = pazienteSelezionatoDialog?.phone ?? "";
+
+      if (appuntamentoDraft.creaNuovoPaziente) {
+        const firstName = appuntamentoDraft.firstName.trim();
+        const lastName = appuntamentoDraft.lastName.trim();
+        const response = await fetch("/api/patients", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            firstName,
+            lastName,
+            dateOfBirth: appuntamentoDraft.dateOfBirth || "1900-01-01",
+            codiceFiscale: null,
+            gender: null,
+            email: appuntamentoDraft.email.trim() || `${slugFile(`${firstName}-${lastName}`)}-${Date.now()}@mmedical.local`,
+            phone: appuntamentoDraft.phone.trim() || "N/D",
+            notes: appuntamentoDraft.notes.trim() || null,
+            billingAddress: null,
+            billingCap: null,
+            billingCity: null,
+            billingProvincia: null,
+          }),
+        });
+
+        if (!response.ok) throw new Error("Creazione paziente non riuscita");
+        const pazienteCreato: unknown = await response.json();
+        if (!isPazienteAgenda(pazienteCreato)) throw new Error("Risposta paziente non valida");
+
+        pazienteId = pazienteCreato.id;
+        pazienteNome = nomePazienteAgenda(pazienteCreato);
+        pazienteEmail = pazienteCreato.email;
+        pazienteTelefono = pazienteCreato.phone;
+        setPazientiAgenda((correnti) => [pazienteCreato, ...correnti.filter((paziente) => paziente.id !== pazienteCreato.id)]);
+      }
+
+      const appuntamento = calcolaDraftAppuntamento(appuntamentoDraft);
+      const nuovaPrenotazione: PrenotazioneAgenda = {
+        id: `agenda-${Date.now()}`,
+        area,
+        sede: appuntamento.sede,
+        medicoId: appuntamento.medicoId,
+        pazienteId,
+        paziente: pazienteNome,
+        pazienteEmail,
+        pazienteTelefono,
+        prestazione,
+        note: appuntamento.notaPrenotazione.trim() || undefined,
+        data: appuntamento.data,
+        ora: appuntamento.ora,
+        durata: Math.max(5, Number(appuntamento.durata) || DEFAULT_DURATA_SLOT),
+        stato: "confermata",
+        overbooking: appuntamento.overbooking,
+      };
+
+      const response = await fetch("/api/agenda-appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nuovaPrenotazione),
+      });
+      if (!response.ok) throw new Error("Salvataggio appuntamento non riuscito");
+
+      setPrenotazioniSalvate((correnti) => unisciPrenotazioniAgenda(correnti, [nuovaPrenotazione]));
+      setAppuntamentoDraft(null);
+      toast({
+        title: "Notifica",
+        description: appuntamento.overbooking
+          ? "Appuntamento salvato come overbooking."
+          : "Appuntamento salvato in agenda.",
+      });
+    } catch (error) {
+      toast({
+        title: "Attenzione",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Salvataggio appuntamento non riuscito. Verifica Supabase e Vercel.",
+        variant: "destructive",
+      });
+    } finally {
+      setSalvataggioAppuntamento(false);
+    }
+  };
+
   const goPrevious = () =>
     setCurrentDate((date) => addDays(date, view === "giorno" ? -1 : -7));
   const goNext = () =>
@@ -1108,19 +1709,44 @@ export function AdminBookingCalendar({
 
   const areaLabel = area === "ambulatorio" ? "Ambulatorio" : "Laboratorio";
 
-  const mediciListaLavoro = React.useMemo(() => {
-    if (!workListDate) return [];
-    const mediciConLavoro = new Set(
-      prenotazioniAgenda.filter(
-        (prenotazione) =>
-          prenotazione.area === area &&
-          prenotazione.data === workListDate &&
-          prenotazione.stato !== "annullata" &&
-          (sede === "tutte" || prenotazione.sede === sede),
-      ).map((prenotazione) => prenotazione.medicoId),
+  const workListRange = React.useMemo(() => {
+    const dal = workListDal || workListDate || dateKey(currentDate);
+    const al = workListPeriodo === "periodo" ? workListAl || dal : dal;
+    return dal <= al ? { dal, al } : { dal: al, al: dal };
+  }, [currentDate, workListAl, workListDal, workListDate, workListPeriodo]);
+
+  const workListSedeLabel = SEDI.find((item) => item.id === workListSede)?.label ?? "Tutte le sedi";
+  const workListPeriodoLabel =
+    workListRange.dal === workListRange.al
+      ? format(new Date(`${workListRange.dal}T12:00:00`), "EEEE d MMMM yyyy", { locale: it })
+      : `${format(new Date(`${workListRange.dal}T12:00:00`), "dd/MM/yyyy", { locale: it })} - ${format(
+          new Date(`${workListRange.al}T12:00:00`),
+          "dd/MM/yyyy",
+          { locale: it },
+        )}`;
+
+  const mediciListaLavoro = React.useMemo(
+    () =>
+      mediciAgenda.filter(
+        (medico) =>
+          medico.area === area &&
+          (workListSede === "tutte" || medico.sedi.includes(workListSede)),
+      ),
+    [area, mediciAgenda, workListSede],
+  );
+
+  const mediciListaLavoroFiltrati = React.useMemo(() => {
+    const query = normalizza(workListDoctorSearch);
+    if (!query) return mediciListaLavoro;
+    return mediciListaLavoro.filter((medico) =>
+      [medico.nome, medico.specialita].some((campo) => normalizza(campo).includes(query)),
     );
-    return mediciArea.filter((medico) => mediciConLavoro.has(medico.id));
-  }, [area, mediciArea, prenotazioniAgenda, sede, workListDate]);
+  }, [mediciListaLavoro, workListDoctorSearch]);
+
+  const medicoListaLavoroSelezionato = React.useMemo(
+    () => mediciListaLavoro.find((medico) => medico.id === workListDoctorId) ?? null,
+    [mediciListaLavoro, workListDoctorId],
+  );
 
   const prenotazioniListaLavoro = React.useMemo(() => {
     if (!workListDate) return [];
@@ -1128,38 +1754,47 @@ export function AdminBookingCalendar({
     return prenotazioniAgenda.filter(
       (prenotazione) =>
         prenotazione.area === area &&
-        prenotazione.data === workListDate &&
+        prenotazione.data >= workListRange.dal &&
+        prenotazione.data <= workListRange.al &&
         prenotazione.stato !== "annullata" &&
-        (sede === "tutte" || prenotazione.sede === sede) &&
+        (workListSede === "tutte" || prenotazione.sede === workListSede) &&
         (workListDoctorId === "tutti" || prenotazione.medicoId === workListDoctorId) &&
         mediciValidi.has(prenotazione.medicoId),
-    ).sort((a, b) => `${a.medicoId}${a.ora}`.localeCompare(`${b.medicoId}${b.ora}`));
-  }, [area, mediciListaLavoro, prenotazioniAgenda, sede, workListDate, workListDoctorId]);
+    ).sort((a, b) => `${a.medicoId}${a.data}${a.ora}`.localeCompare(`${b.medicoId}${b.data}${b.ora}`));
+  }, [area, mediciListaLavoro, prenotazioniAgenda, workListDate, workListDoctorId, workListRange, workListSede]);
 
   const apriListaLavoro = (date: Date) => {
     const day = dateKey(date);
-    const selectedDoctorHasWork =
+    const selectedDoctorStampabile =
       medicoId !== "tutti" &&
-      prenotazioniAgenda.some(
-        (prenotazione) =>
-          prenotazione.area === area &&
-          prenotazione.data === day &&
-          prenotazione.medicoId === medicoId &&
-          prenotazione.stato !== "annullata" &&
-          (sede === "tutte" || prenotazione.sede === sede),
+      mediciAgenda.some(
+        (medico) =>
+          medico.id === medicoId &&
+          medico.area === area &&
+          (sede === "tutte" || medico.sedi.includes(sede)),
       );
 
     setWorkListDate(day);
-    setWorkListDoctorId(selectedDoctorHasWork ? medicoId : "tutti");
+    setWorkListPeriodo("giorno");
+    setWorkListDal(day);
+    setWorkListAl(day);
+    setWorkListSede(sede);
+    setWorkListDoctorId(selectedDoctorStampabile ? medicoId : "tutti");
+    setWorkListDoctorSearch("");
   };
 
-  const chiudiListaLavoro = () => setWorkListDate(null);
+  const chiudiListaLavoro = () => {
+    setWorkListDate(null);
+    setWorkListDoctorSearch("");
+    setWorkListDoctorOpen(false);
+  };
 
   const nomeFileListaLavoro = (extension: string) => {
     const doctor = mediciAgenda.find((medico) => medico.id === workListDoctorId);
     const doctorLabel = doctor ? doctor.nome : "tutti-medici";
-    return `m-medical-lista-lavoro-${workListDate ?? "giorno"}-${slugFile(areaLabel)}-${slugFile(
-      SEDI.find((item) => item.id === sede)?.label ?? "sede",
+    const periodo = workListRange.dal === workListRange.al ? workListRange.dal : `${workListRange.dal}-${workListRange.al}`;
+    return `m-medical-lista-lavoro-${periodo}-${slugFile(areaLabel)}-${slugFile(
+      SEDI.find((item) => item.id === workListSede)?.label ?? "sede",
     )}-${slugFile(doctorLabel)}.${extension}`;
   };
 
@@ -1167,22 +1802,24 @@ export function AdminBookingCalendar({
     if (prenotazioniListaLavoro.length === 0) {
       toast({
         title: "Attenzione",
-        description: "Nessun appuntamento da scaricare per il giorno selezionato.",
+        description: "Nessun appuntamento da scaricare con il filtro selezionato.",
         variant: "destructive",
       });
       return;
     }
 
     const mediciMap = new Map(mediciAgenda.map((medico) => [medico.id, medico]));
-    const columns = ["Ora", "Paziente", "Medico", "Specializzazione", "Prestazione", "Sede", "Durata", "Stato"];
+    const columns = ["Data", "Ora", "Paziente", "Medico", "Specializzazione", "Prestazione", "Note", "Sede", "Durata", "Stato"];
     const rows = prenotazioniListaLavoro.map((prenotazione) => {
       const medico = mediciMap.get(prenotazione.medicoId);
       return [
+        prenotazione.data,
         prenotazione.ora,
         prenotazione.paziente,
         medico?.nome ?? "",
         medico?.specialita ?? "",
         prenotazione.prestazione,
+        prenotazione.note ?? "",
         prenotazione.sede === "modena" ? "Modena" : "Sassuolo",
         `${prenotazione.durata} min`,
         statoLabel(prenotazione.stato),
@@ -1197,7 +1834,7 @@ export function AdminBookingCalendar({
     if (prenotazioniListaLavoro.length === 0) {
       toast({
         title: "Attenzione",
-        description: "Nessun appuntamento da scaricare per il giorno selezionato.",
+        description: "Nessun appuntamento da scaricare con il filtro selezionato.",
         variant: "destructive",
       });
       return;
@@ -1208,19 +1845,21 @@ export function AdminBookingCalendar({
     prenotazioniListaLavoro.forEach((prenotazione) => {
       grouped.set(prenotazione.medicoId, [...(grouped.get(prenotazione.medicoId) ?? []), prenotazione]);
     });
-    const dayLabel = workListDate ? format(new Date(`${workListDate}T12:00:00`), "EEEE d MMMM yyyy", { locale: it }) : "";
-    const sedeLabel = SEDI.find((item) => item.id === sede)?.label ?? "Sede";
+    const periodoLabel = workListPeriodoLabel;
+    const sedeLabel = workListSedeLabel;
     const sections = Array.from(grouped.entries())
       .map(([doctorId, appointments]) => {
         const doctor = mediciMap.get(doctorId);
         const rows = appointments
-          .sort((a, b) => a.ora.localeCompare(b.ora))
+          .sort((a, b) => `${a.data}${a.ora}`.localeCompare(`${b.data}${b.ora}`))
           .map(
             (appointment) => `
               <tr>
+                <td>${escapeHtml(format(new Date(`${appointment.data}T12:00:00`), "dd/MM/yyyy", { locale: it }))}</td>
                 <td>${escapeHtml(appointment.ora)}</td>
                 <td>${escapeHtml(appointment.paziente)}</td>
                 <td>${escapeHtml(appointment.prestazione)}</td>
+                <td>${escapeHtml(appointment.note ?? "")}</td>
                 <td>${escapeHtml(appointment.sede === "modena" ? "Modena" : "Sassuolo")}</td>
                 <td>${escapeHtml(`${appointment.durata} min`)}</td>
                 <td>${escapeHtml(statoLabel(appointment.stato))}</td>
@@ -1236,9 +1875,11 @@ export function AdminBookingCalendar({
             <table>
               <thead>
                 <tr>
+                  <th>Data</th>
                   <th>Ora</th>
                   <th>Paziente</th>
                   <th>Prestazione</th>
+                  <th>Note</th>
                   <th>Sede</th>
                   <th>Durata</th>
                   <th>Stato</th>
@@ -1266,7 +1907,7 @@ export function AdminBookingCalendar({
       <html lang="it">
         <head>
           <meta charset="utf-8" />
-          <title>Lista lavoro ${escapeHtml(dayLabel)}</title>
+          <title>Lista lavoro ${escapeHtml(periodoLabel)}</title>
           <style>
             @page { size: A4; margin: 14mm; }
             * { box-sizing: border-box; }
@@ -1283,7 +1924,7 @@ export function AdminBookingCalendar({
         </head>
         <body>
           <h1>Lista lavoro</h1>
-          <div class="meta">${escapeHtml(dayLabel)} · ${escapeHtml(areaLabel)} · ${escapeHtml(sedeLabel)}</div>
+          <div class="meta">${escapeHtml(periodoLabel)} · ${escapeHtml(areaLabel)} · ${escapeHtml(sedeLabel)}</div>
           ${sections}
           <script>window.addEventListener("load", () => window.print());</script>
         </body>
@@ -1637,6 +2278,7 @@ export function AdminBookingCalendar({
                 giorniPreferiti={giorniPreferiti}
                 periodoOrario={periodoOrario}
                 onOpenDoctor={onOpenDoctor}
+                onSlotClick={apriNuovoAppuntamento}
               />
             ) : (
               <DayCalendar
@@ -1645,42 +2287,440 @@ export function AdminBookingCalendar({
                 appointments={prenotazioniFiltrate}
                 sede={sede}
                 onOpenDoctor={onOpenDoctor}
+                onSlotClick={apriNuovoAppuntamento}
               />
             )}
           </div>
         </section>
       </div>
 
-      <Dialog open={Boolean(workListDate)} onOpenChange={(open) => !open && chiudiListaLavoro()}>
-        <DialogContent className="max-w-3xl">
+      <Dialog open={Boolean(appuntamentoDraft)} onOpenChange={(open) => !open && setAppuntamentoDraft(null)}>
+        <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Lista lavoro</DialogTitle>
+            <DialogTitle>Nuovo appuntamento</DialogTitle>
             <DialogDescription>
-              Scarica la lista del giorno per un medico specifico o per tutti i medici visibili.
+              Assegna paziente, prestazione e orario direttamente dall'agenda del medico.
+            </DialogDescription>
+          </DialogHeader>
+
+          {appuntamentoDraft && medicoAppuntamento && (
+            <div className="space-y-5">
+              <div className="rounded-md border border-border bg-muted/30 p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Agenda medico</p>
+                <p className="mt-1 text-base font-semibold text-foreground">{medicoAppuntamento.nome}</p>
+                <p className="text-sm text-muted-foreground">
+                  {medicoAppuntamento.specialita} · {appuntamentoDraft.sede === "modena" ? "Modena" : "Sassuolo"}
+                </p>
+              </div>
+
+              {appuntamentoDraft.overbooking && (
+                <div className="flex gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-red-900">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold">Overbooking</p>
+                    <p className="text-sm">{appuntamentoDraft.overbookingReason}</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid gap-3 md:grid-cols-4">
+                <Field label="Data">
+                  <Input
+                    type="date"
+                    value={appuntamentoDraft.data}
+                    onChange={(event) => aggiornaDraftAppuntamento({ data: event.target.value })}
+                  />
+                </Field>
+                <Field label="Ora">
+                  <Input
+                    type="time"
+                    value={appuntamentoDraft.ora}
+                    onChange={(event) => aggiornaDraftAppuntamento({ ora: event.target.value })}
+                  />
+                </Field>
+                <Field label="Durata">
+                  <Input
+                    type="number"
+                    min={5}
+                    step={5}
+                    value={appuntamentoDraft.durata}
+                    onChange={(event) => aggiornaDraftAppuntamento({ durata: Number(event.target.value) })}
+                  />
+                </Field>
+                <Field label="Sede">
+                  <Select
+                    value={appuntamentoDraft.sede}
+                    onValueChange={(value: SedeOperativa) => aggiornaDraftAppuntamento({ sede: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {medicoAppuntamento.sedi.map((sedeMedico) => (
+                        <SelectItem key={sedeMedico} value={sedeMedico}>
+                          {sedeMedico === "modena" ? "Modena" : "Sassuolo"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-[260px_minmax(0,1fr)]">
+                <Field label="Prestazioni del medico">
+                  <Select
+                    value={appuntamentoDraft.prestazioneId || "manuale"}
+                    onValueChange={(value) => {
+                      if (value === "manuale") {
+                        aggiornaDraftAppuntamento({ prestazioneId: "" });
+                        return;
+                      }
+                      const prestazione = prestazioniMedicoAppuntamento.find((item) => item.id === value);
+                      const listino = settingsAgenda?.listini?.find(
+                        (item) => item.medicoId === appuntamentoDraft.medicoId && item.prestazioneId === value,
+                      );
+                      aggiornaDraftAppuntamento({
+                        prestazioneId: value,
+                        prestazioneNome: prestazione?.nome ?? appuntamentoDraft.prestazioneNome,
+                        durata: listino?.durata ?? prestazione?.durata ?? appuntamentoDraft.durata,
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="manuale">Prestazione manuale</SelectItem>
+                      {prestazioniMedicoAppuntamento.map((prestazione) => (
+                        <SelectItem key={prestazione.id} value={prestazione.id}>
+                          {prestazione.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Nome prestazione">
+                  <Input
+                    value={appuntamentoDraft.prestazioneNome}
+                    onChange={(event) => aggiornaDraftAppuntamento({ prestazioneNome: event.target.value })}
+                    placeholder="Es. Visita ortopedica"
+                  />
+                </Field>
+              </div>
+
+              <Field label="Nota prenotazione">
+                <Textarea
+                  value={appuntamentoDraft.notaPrenotazione}
+                  onChange={(event) => setAppuntamentoDraft((current) =>
+                    current ? { ...current, notaPrenotazione: event.target.value } : current,
+                  )}
+                  placeholder="Es. portare esami precedenti, urgenza, richiesta specifica..."
+                  className="min-h-20 resize-y"
+                />
+              </Field>
+
+              <div className="space-y-3 rounded-md border border-border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Paziente</p>
+                    <p className="text-xs text-muted-foreground">Seleziona dall'anagrafica o crea un paziente al volo.</p>
+                  </div>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground">
+                    <Checkbox
+                      checked={appuntamentoDraft.creaNuovoPaziente}
+                      onCheckedChange={(checked) =>
+                        setAppuntamentoDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                creaNuovoPaziente: checked === true,
+                                pazienteId: "",
+                                pazienteSearch: "",
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                    Nuovo paziente
+                  </label>
+                </div>
+
+                {!appuntamentoDraft.creaNuovoPaziente ? (
+                  <div className="space-y-3">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={appuntamentoDraft.pazienteSearch}
+                        onChange={(event) =>
+                          setAppuntamentoDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  pazienteSearch: event.target.value,
+                                  pazienteId: "",
+                                }
+                              : current,
+                          )
+                        }
+                        placeholder="Cerca paziente per nome, email o telefono..."
+                        className="pl-9"
+                      />
+                    </div>
+
+                    {pazienteSelezionatoDialog && (
+                      <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+                        <p className="text-sm font-semibold text-foreground">{nomePazienteAgenda(pazienteSelezionatoDialog)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {pazienteSelezionatoDialog.phone || "Telefono mancante"} · {pazienteSelezionatoDialog.email || "Email mancante"}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="max-h-52 overflow-y-auto rounded-md border border-border">
+                      {pazientiLoading ? (
+                        <div className="px-3 py-6 text-center text-sm text-muted-foreground">Carico pazienti...</div>
+                      ) : pazientiFiltratiDialog.length > 0 ? (
+                        <div className="divide-y divide-border">
+                          {pazientiFiltratiDialog.map((paziente) => (
+                            <button
+                              key={paziente.id}
+                              type="button"
+                              onClick={() =>
+                                setAppuntamentoDraft((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        pazienteId: String(paziente.id),
+                                        pazienteSearch: "",
+                                      }
+                                    : current,
+                                )
+                              }
+                              className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-muted ${
+                                appuntamentoDraft.pazienteId === String(paziente.id) ? "bg-primary/5" : "bg-white"
+                              }`}
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-medium text-foreground">
+                                  {nomePazienteAgenda(paziente)}
+                                </span>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                  {paziente.dateOfBirth} · {paziente.phone || paziente.email || "Recapito mancante"}
+                                </span>
+                              </span>
+                              {appuntamentoDraft.pazienteId === String(paziente.id) && (
+                                <Badge variant="secondary">Selezionato</Badge>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                          Nessun paziente trovato.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Field label="Nome">
+                      <Input
+                        value={appuntamentoDraft.firstName}
+                        onChange={(event) => setAppuntamentoDraft((current) => current ? { ...current, firstName: event.target.value } : current)}
+                        placeholder="Mario"
+                      />
+                    </Field>
+                    <Field label="Cognome">
+                      <Input
+                        value={appuntamentoDraft.lastName}
+                        onChange={(event) => setAppuntamentoDraft((current) => current ? { ...current, lastName: event.target.value } : current)}
+                        placeholder="Rossi"
+                      />
+                    </Field>
+                    <Field label="Data nascita">
+                      <Input
+                        type="date"
+                        value={appuntamentoDraft.dateOfBirth}
+                        onChange={(event) => setAppuntamentoDraft((current) => current ? { ...current, dateOfBirth: event.target.value } : current)}
+                      />
+                    </Field>
+                    <Field label="Telefono">
+                      <Input
+                        value={appuntamentoDraft.phone}
+                        onChange={(event) => setAppuntamentoDraft((current) => current ? { ...current, phone: event.target.value } : current)}
+                        placeholder="+39 333..."
+                      />
+                    </Field>
+                    <Field label="Email">
+                      <Input
+                        type="email"
+                        value={appuntamentoDraft.email}
+                        onChange={(event) => setAppuntamentoDraft((current) => current ? { ...current, email: event.target.value } : current)}
+                        placeholder="email@dominio.it"
+                      />
+                    </Field>
+                    <Field label="Note">
+                      <Input
+                        value={appuntamentoDraft.notes}
+                        onChange={(event) => setAppuntamentoDraft((current) => current ? { ...current, notes: event.target.value } : current)}
+                        placeholder="Nota rapida"
+                      />
+                    </Field>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => setAppuntamentoDraft(null)}>
+              Annulla
+            </Button>
+            <Button type="button" onClick={salvaNuovoAppuntamento} disabled={salvataggioAppuntamento} className="gap-2">
+              {appuntamentoDraft?.creaNuovoPaziente ? <UserPlus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+              {salvataggioAppuntamento ? "Salvo..." : "Salva appuntamento"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(workListDate)} onOpenChange={(open) => !open && chiudiListaLavoro()}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Stampa lista lavoro</DialogTitle>
+            <DialogDescription>
+              Seleziona medico, sede e giorno o periodo da stampare.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-[1fr_260px]">
+            <div className="grid gap-3 lg:grid-cols-[1fr_260px]">
               <div className="rounded-md border border-border bg-muted/30 p-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Giorno selezionato</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Filtro stampa</p>
                 <p className="mt-1 text-base font-semibold capitalize text-foreground">
-                  {workListDate ? format(new Date(`${workListDate}T12:00:00`), "EEEE d MMMM yyyy", { locale: it }) : ""}
+                  {workListPeriodoLabel}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {areaLabel} · {SEDI.find((item) => item.id === sede)?.label}
+                  {areaLabel} · {workListSedeLabel} · {medicoListaLavoroSelezionato?.nome ?? "Tutti i medici"}
                 </p>
               </div>
               <Field label="Medico">
-                <Select value={workListDoctorId} onValueChange={setWorkListDoctorId}>
-                  <SelectTrigger>
+                <Popover open={workListDoctorOpen} onOpenChange={setWorkListDoctorOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-between bg-white text-left font-normal"
+                    >
+                      <span className="truncate">
+                        {medicoListaLavoroSelezionato?.nome ?? "Tutti i medici"}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0" align="end">
+                    <Command shouldFilter={false}>
+                      <CommandInput
+                        value={workListDoctorSearch}
+                        onValueChange={setWorkListDoctorSearch}
+                        placeholder="Cerca medico..."
+                      />
+                      <CommandList>
+                        <CommandEmpty>Nessun medico trovato.</CommandEmpty>
+                        <CommandItem
+                          value="tutti"
+                          onSelect={() => {
+                            setWorkListDoctorId("tutti");
+                            setWorkListDoctorSearch("");
+                            setWorkListDoctorOpen(false);
+                          }}
+                        >
+                          <Check className={`h-4 w-4 ${workListDoctorId === "tutti" ? "opacity-100" : "opacity-0"}`} />
+                          Tutti i medici
+                        </CommandItem>
+                        {mediciListaLavoroFiltrati.map((medico) => (
+                          <CommandItem
+                            key={medico.id}
+                            value={`${medico.nome} ${medico.specialita}`}
+                            onSelect={() => {
+                              setWorkListDoctorId(medico.id);
+                              setWorkListDoctorSearch("");
+                              setWorkListDoctorOpen(false);
+                            }}
+                          >
+                            <Check className={`h-4 w-4 ${workListDoctorId === medico.id ? "opacity-100" : "opacity-0"}`} />
+                            <span className="min-w-0">
+                              <span className="block truncate">{medico.nome}</span>
+                              <span className="block truncate text-xs text-muted-foreground">{medico.specialita}</span>
+                            </span>
+                          </CommandItem>
+                        ))}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </Field>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-[190px_1fr_1fr_240px]">
+              <Field label="Periodo">
+                <div className="grid grid-cols-2 overflow-hidden rounded-md border border-border bg-white">
+                  {[
+                    ["giorno", "Giorno"],
+                    ["periodo", "Periodo"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setWorkListPeriodo(value as WorkListPeriodo)}
+                      className={`h-10 border-r border-border px-3 text-sm last:border-r-0 ${
+                        workListPeriodo === value ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <Field label={workListPeriodo === "giorno" ? "Giorno" : "Dal"}>
+                <Input
+                  type="date"
+                  value={workListDal}
+                  onChange={(event) => {
+                    setWorkListDal(event.target.value);
+                    if (workListPeriodo === "giorno") setWorkListAl(event.target.value);
+                  }}
+                />
+              </Field>
+              <Field label="Al">
+                <Input
+                  type="date"
+                  value={workListPeriodo === "giorno" ? workListDal : workListAl}
+                  disabled={workListPeriodo === "giorno"}
+                  onChange={(event) => setWorkListAl(event.target.value)}
+                />
+              </Field>
+              <Field label="Sede">
+                <Select
+                  value={workListSede}
+                  onValueChange={(value: SedeId) => {
+                    setWorkListSede(value);
+                    setWorkListDoctorId((current) => {
+                      if (current === "tutti") return current;
+                      const medico = mediciAgenda.find((item) => item.id === current);
+                      return medico && medico.area === area && (value === "tutte" || medico.sedi.includes(value))
+                        ? current
+                        : "tutti";
+                    });
+                  }}
+                >
+                  <SelectTrigger className="bg-white">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="tutti">Tutti i medici</SelectItem>
-                    {mediciListaLavoro.map((medico) => (
-                      <SelectItem key={medico.id} value={medico.id}>
-                        {medico.nome}
+                    {SEDI.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1699,7 +2739,12 @@ export function AdminBookingCalendar({
                     {prenotazioniListaLavoro.map((prenotazione) => {
                       const medico = mediciAgenda.find((item) => item.id === prenotazione.medicoId);
                       return (
-                        <div key={prenotazione.id} className="grid gap-3 px-4 py-3 md:grid-cols-[90px_minmax(0,1fr)_220px]">
+                        <div key={prenotazione.id} className="grid gap-3 px-4 py-3 md:grid-cols-[100px_80px_minmax(0,1fr)_220px]">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">
+                              {format(new Date(`${prenotazione.data}T12:00:00`), "dd/MM/yyyy", { locale: it })}
+                            </p>
+                          </div>
                           <div>
                             <p className="text-sm font-semibold text-foreground">{prenotazione.ora}</p>
                             <p className="text-xs text-muted-foreground">
@@ -1709,6 +2754,9 @@ export function AdminBookingCalendar({
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-foreground">{prenotazione.paziente}</p>
                             <p className="truncate text-xs text-muted-foreground">{prenotazione.prestazione}</p>
+                            {prenotazione.note && (
+                              <p className="truncate text-xs text-amber-700">{prenotazione.note}</p>
+                            )}
                           </div>
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium text-foreground">{medico?.nome}</p>
@@ -1767,6 +2815,7 @@ function AvailableHoursView({
   giorniPreferiti,
   periodoOrario,
   onOpenDoctor,
+  onSlotClick,
 }: {
   dates: Date[];
   doctors: MedicoAgenda[];
@@ -1775,6 +2824,7 @@ function AvailableHoursView({
   giorniPreferiti: string[];
   periodoOrario: PeriodoOrarioDisponibile;
   onOpenDoctor?: (doctorId: string) => void;
+  onSlotClick?: (doctor: MedicoAgenda, date: Date, slot: number, sede?: SedeOperativa) => void;
 }) {
   const slotDisponibili = dates
     .map((date) => {
@@ -1783,7 +2833,6 @@ function AvailableHoursView({
       if (!giorniPreferiti.includes(giorno)) return { date, righe: [] };
 
       const righe = doctors
-        .filter((doctor) => doctor.agendaAperta)
         .map((doctor) => {
           const sediDaLeggere =
             sede === "tutte" ? doctor.sedi : doctor.sedi.includes(sede) ? [sede] : [];
@@ -1808,6 +2857,7 @@ function AvailableHoursView({
             generaSlotDisponibili({
               fascia,
               doctor,
+              date,
               appointments: appuntamentiMedico,
               periodoOrario,
             }),
@@ -1864,11 +2914,12 @@ function AvailableHoursView({
                         key={`${dateKey(date)}-${doctor.id}-${item.sedeId}-${item.ora}`}
                         type="button"
                         disabled={item.occupato}
+                        onClick={() => onSlotClick?.(doctor, date, minutiDaOra(item.ora), item.sedeId)}
                         title={item.occupato ? item.appuntamento?.paziente : `${doctor.nome} ${item.ora}`}
                         className={`h-10 min-w-20 rounded-md border px-4 text-sm font-semibold transition-colors ${
                           item.occupato
                             ? "border-red-200 bg-red-100 text-red-800 line-through"
-                            : "border-emerald-200 bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                            : "border-emerald-300 bg-emerald-100 text-emerald-900 shadow-sm hover:bg-emerald-200"
                         }`}
                       >
                         {item.ora}
@@ -1888,11 +2939,13 @@ function AvailableHoursView({
 function generaSlotDisponibili({
   fascia,
   doctor,
+  date,
   appointments,
   periodoOrario,
 }: {
   fascia: FasciaDisponibilita & { sedeId: SedeOperativa };
   doctor: MedicoAgenda;
+  date: Date;
   appointments: PrenotazioneAgenda[];
   periodoOrario: PeriodoOrarioDisponibile;
 }) {
@@ -1909,6 +2962,7 @@ function generaSlotDisponibili({
   for (let cursor = inizio; cursor + durata <= fine; cursor += durata) {
     if (periodoOrario === "mattina" && cursor >= 13 * 60) continue;
     if (periodoOrario === "pomeriggio" && cursor < 13 * 60) continue;
+    if (slotBloccatoDaFerie(doctor, date, fascia.sedeId, cursor, cursor + durata)) continue;
 
     const appuntamento = appointments.find((item) => {
       if (item.sede !== fascia.sedeId) return false;
@@ -1934,12 +2988,14 @@ function DayCalendar({
   appointments,
   sede,
   onOpenDoctor,
+  onSlotClick,
 }: {
   date: Date;
   doctors: MedicoAgenda[];
   appointments: PrenotazioneAgenda[];
   sede: SedeId;
   onOpenDoctor?: (doctorId: string) => void;
+  onSlotClick?: (doctor: MedicoAgenda, date: Date, slot: number, sede?: SedeOperativa) => void;
 }) {
   const appointmentsByDoctor = new Map<string, PrenotazioneAgenda[]>();
   appointments.forEach((appointment) => {
@@ -1973,10 +3029,7 @@ function DayCalendar({
                   <UserRound className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <p className="truncate text-sm font-semibold text-foreground">{doctor.nome}</p>
-                    <Printer className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  </div>
+                  <p className="truncate text-sm font-semibold text-foreground">{doctor.nome}</p>
                   <p className="truncate text-xs font-medium text-muted-foreground">
                     {doctor.specialita} · {doctor.sedi.map((item) => (item === "modena" ? "Modena" : "Sassuolo")).join(", ")}
                   </p>
@@ -2005,30 +3058,78 @@ function DayCalendar({
           {doctors.length > 0 ? (
             doctors.map((doctor) => {
               const fasce = fasceMedicoNelGiorno(doctor, date, sede);
+              const ferie = ferieMedicoNelGiorno(doctor, date, sede);
 
               return (
                 <div key={doctor.id} className="relative border-r border-border bg-white last:border-r-0">
-                {fasce.map((fascia, index) => {
+                  {fasce.map((fascia, index) => {
                   const inizio = minutiDaOra(fascia.dalle);
                   const fine = minutiDaOra(fascia.alle);
                   return (
                     <div
                       key={`${doctor.id}-${fascia.sede}-${fascia.dalle}-${fascia.alle}-${index}`}
-                      className="absolute left-0 right-0 bg-emerald-50/60"
+                      className="absolute left-0 right-0 z-0 border-y border-emerald-200 bg-emerald-100/80 shadow-[inset_4px_0_0_rgb(16,185,129)]"
                       style={{
                         top: ((inizio - ORA_INIZIO * 60) / SLOT_MINUTES) * SLOT_HEIGHT,
                         height: ((fine - inizio) / SLOT_MINUTES) * SLOT_HEIGHT,
                       }}
+                    >
+                      <span className="pointer-events-none absolute left-2 top-1 rounded-sm bg-white/85 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 shadow-sm">
+                        Disponibile · {fascia.sede === "modena" ? "Modena" : "Sassuolo"}
+                      </span>
+                    </div>
+                  );
+                })}
+                {ferie.map((periodo, index) => (
+                  <div
+                    key={`${doctor.id}-ferie-${periodo.id ?? index}`}
+                    className="absolute left-0 right-0 z-20 flex items-start gap-2 border-y border-amber-300 bg-amber-100/90 px-2 py-1 text-amber-950 shadow-[inset_4px_0_0_rgb(245,158,11)]"
+                    style={{
+                      top: ((periodo.start - ORA_INIZIO * 60) / SLOT_MINUTES) * SLOT_HEIGHT,
+                      height: ((periodo.end - periodo.start) / SLOT_MINUTES) * SLOT_HEIGHT,
+                    }}
+                  >
+                    <Plane className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <div className="min-w-0 text-[11px] leading-tight">
+                      <p className="truncate font-semibold">Ferie</p>
+                      <p className="truncate opacity-80">
+                        {periodo.sedeId === "tutte"
+                          ? "Tutte le sedi"
+                          : periodo.sedeId === "modena"
+                            ? "Modena"
+                            : "Sassuolo"}
+                        {periodo.note ? ` · ${periodo.note}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                {agendaSlots.map((slot) => {
+                  const dettaglio = dettaglioDisponibilitaSlot(
+                    doctor,
+                    date,
+                    sede,
+                    slot,
+                    Math.max(5, doctor.durataSlot || DEFAULT_DURATA_SLOT),
+                    appointments,
+                  );
+
+                  return (
+                    <button
+                      key={slot}
+                      type="button"
+                      onClick={() => onSlotClick?.(doctor, date, slot, dettaglio.sede)}
+                      className={`relative z-10 block w-full border-b border-border/70 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                        slot % 60 === 30 ? "border-dashed" : ""
+                      } ${
+                        dettaglio.disponibile
+                          ? "hover:bg-emerald-200/55"
+                          : "hover:bg-red-50/80"
+                      }`}
+                      style={{ height: SLOT_HEIGHT }}
+                      aria-label={`Aggiungi appuntamento ${doctor.nome} alle ${formattaOraMinuti(slot)}`}
                     />
                   );
                 })}
-                {agendaSlots.map((slot) => (
-                  <div
-                    key={slot}
-                    className={`relative border-b border-border/70 ${slot % 60 === 30 ? "border-dashed" : ""}`}
-                    style={{ height: SLOT_HEIGHT }}
-                  />
-                ))}
                 {isSameDay(date, DEMO_TODAY) && currentLineTop >= 0 && currentLineTop <= totalHeight && (
                   <div
                     className="pointer-events-none absolute left-0 right-0 z-10 border-t-2 border-red-600"
@@ -2222,7 +3323,7 @@ function PositionedAppointment({
     <div
       className={`absolute left-1.5 right-1.5 z-20 overflow-hidden rounded-md border p-1.5 shadow-sm ${statusClass}`}
       style={{ top, height }}
-      title={`${appointment.ora} ${appointment.paziente} - ${appointment.prestazione}`}
+      title={`${appointment.ora} ${appointment.paziente} - ${appointment.prestazione}${appointment.note ? ` - ${appointment.note}` : ""}`}
     >
       <div className="flex items-center gap-1 text-[10px] font-semibold leading-none">
         <Clock className="h-3 w-3" />
@@ -2233,6 +3334,9 @@ function PositionedAppointment({
       </div>
       <p className="mt-1 truncate text-xs font-semibold">{appointment.paziente}</p>
       <p className="truncate text-[10px] opacity-80">{appointment.prestazione}</p>
+      {appointment.note && height > 58 && (
+        <p className="truncate text-[10px] font-medium opacity-80">{appointment.note}</p>
+      )}
       {!compact && (
         <div className="mt-1 flex items-center justify-between gap-2 text-[10px] opacity-80">
           <span className="truncate">{statoLabel(appointment.stato)}</span>
