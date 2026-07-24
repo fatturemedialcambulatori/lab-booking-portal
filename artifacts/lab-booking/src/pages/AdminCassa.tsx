@@ -92,6 +92,8 @@ type NuovaSpesaDraft = {
   note: string;
 };
 
+type MoneyDrafts = Record<string, string>;
+
 type TotaliCassa = {
   contanti: number;
   bancomat: number;
@@ -283,6 +285,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   const [saveState, setSaveState] = React.useState<SaveState>("loading");
   const [persistenzaAttiva, setPersistenzaAttiva] = React.useState(false);
   const [uploadingDocId, setUploadingDocId] = React.useState<string | null>(null);
+  const [moneyDrafts, setMoneyDrafts] = React.useState<MoneyDrafts>({});
   const [mobileCapture, setMobileCapture] = React.useState<{
     sedeId: SedeCassaId;
     tipo: TipoDocumentoCassa;
@@ -436,6 +439,19 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
       spese: current.spese.map((spesa) => spesa.id === id ? { ...spesa, [field]: value } : spesa),
     }));
   };
+
+  const updateMoneyDraft = React.useCallback((key: string, value: string) => {
+    setMoneyDrafts((current) => ({ ...current, [key]: value }));
+  }, []);
+
+  const clearMoneyDraft = React.useCallback((key: string) => {
+    setMoneyDrafts((current) => {
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
 
   const eliminaSpesa = (id: string) => {
     setState((current) => ({
@@ -659,6 +675,9 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             onUploadDocumento={uploadDocumento}
             onDeleteDocumento={eliminaDocumento}
             onOpenMobileCapture={(tipo) => setMobileCapture({ sedeId, tipo })}
+            moneyDrafts={moneyDrafts}
+            onMoneyDraftChange={updateMoneyDraft}
+            onMoneyDraftCommit={clearMoneyDraft}
             wideLayout={scope !== "tutte"}
           />
         ))}
@@ -744,6 +763,9 @@ function CassaSedePanel({
   onUploadDocumento,
   onDeleteDocumento,
   onOpenMobileCapture,
+  moneyDrafts,
+  onMoneyDraftChange,
+  onMoneyDraftCommit,
   wideLayout,
 }: {
   sedeId: SedeCassaId;
@@ -761,6 +783,9 @@ function CassaSedePanel({
   onUploadDocumento: (sedeId: SedeCassaId, tipo: TipoDocumentoCassa, file: File | undefined) => void | Promise<void>;
   onDeleteDocumento: (id: string) => void;
   onOpenMobileCapture: (tipo: TipoDocumentoCassa) => void;
+  moneyDrafts: MoneyDrafts;
+  onMoneyDraftChange: (key: string, value: string) => void;
+  onMoneyDraftCommit: (key: string) => void;
   wideLayout: boolean;
 }) {
   const speseTotale = spese.reduce((sum, spesa) => sum + spesa.importo, 0);
@@ -788,23 +813,39 @@ function CassaSedePanel({
         <div className="grid gap-3 sm:grid-cols-2">
           <MoneyField
             label="Contanti a fine chiusura"
+            draftKey={`${sedeId}-${giorno}-contanti`}
             value={chiusura.contanti}
             onChange={(value) => onUpdateChiusura(sedeId, "contanti", value)}
+            drafts={moneyDrafts}
+            onDraftChange={onMoneyDraftChange}
+            onDraftCommit={onMoneyDraftCommit}
           />
           <MoneyField
             label="Bancomat / POS"
+            draftKey={`${sedeId}-${giorno}-bancomat`}
             value={chiusura.bancomat}
             onChange={(value) => onUpdateChiusura(sedeId, "bancomat", value)}
+            drafts={moneyDrafts}
+            onDraftChange={onMoneyDraftChange}
+            onDraftCommit={onMoneyDraftCommit}
           />
           <MoneyField
             label="Assegni"
+            draftKey={`${sedeId}-${giorno}-assegni`}
             value={chiusura.assegni}
             onChange={(value) => onUpdateChiusura(sedeId, "assegni", value)}
+            drafts={moneyDrafts}
+            onDraftChange={onMoneyDraftChange}
+            onDraftCommit={onMoneyDraftCommit}
           />
           <MoneyField
             label="Fondo cassa lasciato"
+            draftKey={`${sedeId}-${giorno}-fondo-cassa`}
             value={chiusura.fondoCassa}
             onChange={(value) => onUpdateChiusura(sedeId, "fondoCassa", value)}
+            drafts={moneyDrafts}
+            onDraftChange={onMoneyDraftChange}
+            onDraftCommit={onMoneyDraftCommit}
           />
         </div>
 
@@ -935,11 +976,15 @@ function CassaSedePanel({
                     </SelectContent>
                   </Select>
                   <Input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={spesa.importo}
-                    onChange={(event) => onUpdateSpesa(spesa.id, "importo", parseImporto(event.target.value))}
+                    type="text"
+                    inputMode="decimal"
+                    value={moneyDrafts[`spesa-${spesa.id}-importo`] ?? String(spesa.importo).replace(".", ",")}
+                    onChange={(event) => {
+                      const key = `spesa-${spesa.id}-importo`;
+                      onMoneyDraftChange(key, event.target.value);
+                      onUpdateSpesa(spesa.id, "importo", parseImporto(event.target.value));
+                    }}
+                    onBlur={() => onMoneyDraftCommit(`spesa-${spesa.id}-importo`)}
                   />
                   <Select
                     value={spesa.metodoPagamento}
@@ -1312,21 +1357,34 @@ function MobileCaptureDialog({
 
 function MoneyField({
   label,
+  draftKey,
   value,
   onChange,
+  drafts,
+  onDraftChange,
+  onDraftCommit,
 }: {
   label: string;
+  draftKey: string;
   value: number;
   onChange: (value: number) => void;
+  drafts: MoneyDrafts;
+  onDraftChange: (key: string, value: string) => void;
+  onDraftCommit: (key: string) => void;
 }) {
+  const displayValue = drafts[draftKey] ?? String(value).replace(".", ",");
+
   return (
     <Field label={label}>
       <Input
-        type="number"
-        min={0}
-        step={0.01}
-        value={value}
-        onChange={(event) => onChange(parseImporto(event.target.value))}
+        type="text"
+        inputMode="decimal"
+        value={displayValue}
+        onChange={(event) => {
+          onDraftChange(draftKey, event.target.value);
+          onChange(parseImporto(event.target.value));
+        }}
+        onBlur={() => onDraftCommit(draftKey)}
       />
     </Field>
   );
