@@ -65,3 +65,6 @@ single-segment endpoint for Vercel routing.
 
 Latest agenda UI update changes the admin agenda to a day-by-doctor scheduler
 with mini calendar, agenda filters, and doctor columns.
+
+Latest settings update adds explicit edit/save flows for doctor details, doctor
+agenda time ranges, agenda exceptions, and doctor price list rows.

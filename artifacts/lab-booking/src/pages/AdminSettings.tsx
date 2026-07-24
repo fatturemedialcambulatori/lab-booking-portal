@@ -100,6 +100,29 @@ type SedeMedicoId = "modena" | "sassuolo";
 
 type DisponibilitaPerSedeMedico = Record<SedeMedicoId, string[]>;
 
+type FasciaDisponibilita = {
+  id: string;
+  giorno: string;
+  dalle: string;
+  alle: string;
+};
+
+type FasceDisponibilitaPerSedeMedico = Record<SedeMedicoId, FasciaDisponibilita[]>;
+
+type EccezioneAgendaMedico = {
+  id: string;
+  sedeId: SedeMedicoId;
+  data: string;
+  dalle: string;
+  alle: string;
+  note: string;
+};
+
+type AgendaMedicoDraft = {
+  fasceDisponibilitaPerSede: FasceDisponibilitaPerSedeMedico;
+  eccezioniAgenda: EccezioneAgendaMedico[];
+};
+
 type Medico = {
   id: string;
   nome: string;
@@ -107,6 +130,8 @@ type Medico = {
   agendaAperta: boolean;
   disponibilita: string[];
   disponibilitaPerSede?: Partial<DisponibilitaPerSedeMedico>;
+  fasceDisponibilitaPerSede?: Partial<FasceDisponibilitaPerSedeMedico>;
+  eccezioniAgenda?: EccezioneAgendaMedico[];
   datiFatturazione?: DatiFatturazioneMedico;
 };
 
@@ -191,6 +216,9 @@ const SEDI_MEDICO: Array<{ id: SedeMedicoId; label: string; sigla: string }> = [
   { id: "sassuolo", label: "Sassuolo", sigla: "SASS" },
 ];
 
+const DEFAULT_FASCIA_DALLE = "09:00";
+const DEFAULT_FASCIA_ALLE = "13:00";
+
 const valuta = new Intl.NumberFormat("it-IT", {
   style: "currency",
   currency: "EUR",
@@ -226,23 +254,153 @@ const creaDisponibilitaPerSedeVuota = (): DisponibilitaPerSedeMedico => ({
   sassuolo: [],
 });
 
-const normalizzaDisponibilitaPerSede = (
-  medico: Pick<Medico, "disponibilita" | "disponibilitaPerSede">,
-): DisponibilitaPerSedeMedico => ({
-  modena: medico.disponibilitaPerSede?.modena ?? medico.disponibilita ?? [],
-  sassuolo: medico.disponibilitaPerSede?.sassuolo ?? [],
+const creaIdAgenda = (prefisso: string) =>
+  `${prefisso}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const creaFasceDisponibilitaPerSedeVuota = (): FasceDisponibilitaPerSedeMedico => ({
+  modena: [],
+  sassuolo: [],
 });
+
+const creaFasciaDisponibilita = (giorno = GIORNI[0]): FasciaDisponibilita => ({
+  id: creaIdAgenda("fascia"),
+  giorno,
+  dalle: DEFAULT_FASCIA_DALLE,
+  alle: DEFAULT_FASCIA_ALLE,
+});
+
+const creaEccezioneAgenda = (sedeId: SedeMedicoId = "modena"): EccezioneAgendaMedico => ({
+  id: creaIdAgenda("eccezione"),
+  sedeId,
+  data: new Date().toISOString().slice(0, 10),
+  dalle: DEFAULT_FASCIA_DALLE,
+  alle: DEFAULT_FASCIA_ALLE,
+  note: "",
+});
+
+const normalizzaOrario = (orario: string | undefined, fallback: string) =>
+  /^\d{2}:\d{2}$/.test(orario ?? "") ? orario as string : fallback;
+
+const normalizzaFasciaDisponibilita = (
+  fascia: Partial<FasciaDisponibilita>,
+  fallbackGiorno = GIORNI[0],
+  index = 0,
+): FasciaDisponibilita => ({
+  id: fascia.id || `fascia-${fallbackGiorno}-${index}`,
+  giorno: GIORNI.includes(fascia.giorno ?? "") ? fascia.giorno as string : fallbackGiorno,
+  dalle: normalizzaOrario(fascia.dalle, DEFAULT_FASCIA_DALLE),
+  alle: normalizzaOrario(fascia.alle, DEFAULT_FASCIA_ALLE),
+});
+
+const normalizzaEccezioneAgenda = (
+  eccezione: Partial<EccezioneAgendaMedico>,
+  index = 0,
+): EccezioneAgendaMedico => ({
+  id: eccezione.id || `eccezione-${index}`,
+  sedeId: SEDI_MEDICO.some((sede) => sede.id === eccezione.sedeId) ? eccezione.sedeId as SedeMedicoId : "modena",
+  data: eccezione.data || new Date().toISOString().slice(0, 10),
+  dalle: normalizzaOrario(eccezione.dalle, DEFAULT_FASCIA_DALLE),
+  alle: normalizzaOrario(eccezione.alle, DEFAULT_FASCIA_ALLE),
+  note: eccezione.note ?? "",
+});
+
+const fasceDaGiorni = (giorni: string[]) =>
+  giorni.map((giorno, index) =>
+    normalizzaFasciaDisponibilita(
+      {
+        id: `fascia-${normalizzaTesto(giorno) || "giorno"}-${index}`,
+        giorno,
+        dalle: DEFAULT_FASCIA_DALLE,
+        alle: DEFAULT_FASCIA_ALLE,
+      },
+      GIORNI.includes(giorno) ? giorno : GIORNI[0],
+      index,
+    ),
+  );
+
+const copiaFasceDisponibilitaPerSede = (
+  fasceDisponibilitaPerSede: FasceDisponibilitaPerSedeMedico,
+): FasceDisponibilitaPerSedeMedico => ({
+  modena: fasceDisponibilitaPerSede.modena.map((fascia) => ({ ...fascia })),
+  sassuolo: fasceDisponibilitaPerSede.sassuolo.map((fascia) => ({ ...fascia })),
+});
+
+const disponibilitaSediDaFasce = (
+  fasceDisponibilitaPerSede: FasceDisponibilitaPerSedeMedico,
+): DisponibilitaPerSedeMedico => ({
+  modena: Array.from(new Set(fasceDisponibilitaPerSede.modena.map((fascia) => fascia.giorno))),
+  sassuolo: Array.from(new Set(fasceDisponibilitaPerSede.sassuolo.map((fascia) => fascia.giorno))),
+});
+
+const normalizzaDisponibilitaPerSede = (
+  medico: Pick<Medico, "disponibilita" | "disponibilitaPerSede" | "fasceDisponibilitaPerSede">,
+): DisponibilitaPerSedeMedico => {
+  if (medico.fasceDisponibilitaPerSede) {
+    return disponibilitaSediDaFasce({
+      modena: (medico.fasceDisponibilitaPerSede.modena ?? []).map((fascia, index) =>
+        normalizzaFasciaDisponibilita(fascia, GIORNI[0], index),
+      ),
+      sassuolo: (medico.fasceDisponibilitaPerSede.sassuolo ?? []).map((fascia, index) =>
+        normalizzaFasciaDisponibilita(fascia, GIORNI[0], index),
+      ),
+    });
+  }
+
+  return {
+    modena: medico.disponibilitaPerSede?.modena ?? medico.disponibilita ?? [],
+    sassuolo: medico.disponibilitaPerSede?.sassuolo ?? [],
+  };
+};
 
 const unisciDisponibilitaSedi = (disponibilitaPerSede: DisponibilitaPerSedeMedico) =>
   Array.from(new Set(SEDI_MEDICO.flatMap((sede) => disponibilitaPerSede[sede.id])));
 
+const normalizzaFasceDisponibilitaPerSede = (
+  medico: Pick<Medico, "disponibilita" | "disponibilitaPerSede" | "fasceDisponibilitaPerSede">,
+): FasceDisponibilitaPerSedeMedico => {
+  const disponibilitaLegacy: DisponibilitaPerSedeMedico = {
+    modena: medico.disponibilitaPerSede?.modena ?? medico.disponibilita ?? [],
+    sassuolo: medico.disponibilitaPerSede?.sassuolo ?? [],
+  };
+
+  return {
+    modena: Array.isArray(medico.fasceDisponibilitaPerSede?.modena)
+      ? medico.fasceDisponibilitaPerSede.modena.map((fascia, index) =>
+          normalizzaFasciaDisponibilita(fascia, disponibilitaLegacy.modena[index] ?? GIORNI[0], index),
+        )
+      : fasceDaGiorni(disponibilitaLegacy.modena),
+    sassuolo: Array.isArray(medico.fasceDisponibilitaPerSede?.sassuolo)
+      ? medico.fasceDisponibilitaPerSede.sassuolo.map((fascia, index) =>
+          normalizzaFasciaDisponibilita(fascia, disponibilitaLegacy.sassuolo[index] ?? GIORNI[0], index),
+        )
+      : fasceDaGiorni(disponibilitaLegacy.sassuolo),
+  };
+};
+
+const normalizzaEccezioniAgenda = (medico: Pick<Medico, "eccezioniAgenda">) =>
+  (medico.eccezioniAgenda ?? []).map((eccezione, index) => normalizzaEccezioneAgenda(eccezione, index));
+
+const creaAgendaDraftDaMedico = (medico: Medico): AgendaMedicoDraft => ({
+  fasceDisponibilitaPerSede: copiaFasceDisponibilitaPerSede(normalizzaFasceDisponibilitaPerSede(medico)),
+  eccezioniAgenda: normalizzaEccezioniAgenda(medico).map((eccezione) => ({ ...eccezione })),
+});
+
+const descriviFasciaDisponibilita = (fascia: FasciaDisponibilita) =>
+  `${fascia.giorno} ${fascia.dalle}-${fascia.alle}`;
+
+const descriviFasceDisponibilita = (fasce: FasciaDisponibilita[]) =>
+  fasce.length > 0 ? fasce.map(descriviFasciaDisponibilita).join(", ") : "Nessuna fascia";
+
 const normalizzaMedico = (medico: Medico): Medico => {
-  const disponibilitaPerSede = normalizzaDisponibilitaPerSede(medico);
+  const fasceDisponibilitaPerSede = normalizzaFasceDisponibilitaPerSede(medico);
+  const disponibilitaPerSede = disponibilitaSediDaFasce(fasceDisponibilitaPerSede);
 
   return {
     ...medico,
     disponibilita: unisciDisponibilitaSedi(disponibilitaPerSede),
     disponibilitaPerSede,
+    fasceDisponibilitaPerSede,
+    eccezioniAgenda: normalizzaEccezioniAgenda(medico),
     datiFatturazione: {
       ...DATI_FATTURAZIONE_MEDICO_VUOTI,
       ...medico.datiFatturazione,
@@ -347,6 +505,56 @@ const leggiGiorniDisponibilita = (row: ExcelRow, chiavi: string[], fallback: str
     .split(/[;,|]/)
     .map((giorno) => giorno.trim())
     .filter(Boolean);
+};
+
+const leggiFasceDisponibilita = (
+  row: ExcelRow,
+  chiavi: string[],
+  fallbackGiorni: string[] = [],
+) => {
+  const testo = leggiTesto(row, chiavi);
+  if (!testo) return fasceDaGiorni(fallbackGiorni);
+
+  return testo
+    .split(/[;,|]/)
+    .map((parte, index) => {
+      const testoFascia = parte.trim();
+      if (!testoFascia) return null;
+
+      const giorno = GIORNI.find((giornoDisponibile) =>
+        normalizzaTesto(testoFascia).startsWith(normalizzaTesto(giornoDisponibile)),
+      ) ?? GIORNI[0];
+      const orari = testoFascia.match(/(\d{1,2}:\d{2})\s*(?:-|alle|a)\s*(\d{1,2}:\d{2})/i);
+      const normalizzaOrarioExcel = (orario: string | undefined, fallback: string) =>
+        orario && /^\d:\d{2}$/.test(orario) ? `0${orario}` : normalizzaOrario(orario, fallback);
+
+      return normalizzaFasciaDisponibilita(
+        {
+          id: creaIdAgenda("fascia"),
+          giorno,
+          dalle: normalizzaOrarioExcel(orari?.[1], DEFAULT_FASCIA_DALLE),
+          alle: normalizzaOrarioExcel(orari?.[2], DEFAULT_FASCIA_ALLE),
+        },
+        giorno,
+        index,
+      );
+    })
+    .filter((fascia): fascia is FasciaDisponibilita => Boolean(fascia));
+};
+
+const leggiEccezioniAgenda = (row: ExcelRow) => {
+  const testo = leggiTesto(row, ["eccezioniAgenda", "eccezioni agenda", "eccezioni"]);
+  if (!testo) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(testo);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((eccezione, index) =>
+      normalizzaEccezioneAgenda(eccezione as Partial<EccezioneAgendaMedico>, index),
+    );
+  } catch {
+    return [];
+  }
 };
 
 const leggiCompensoTipo = (row: ExcelRow) => {
@@ -481,6 +689,12 @@ export function AdminSettings() {
   const [settingsSaveState, setSettingsSaveState] = React.useState<SettingsSaveState>("loading");
   const [selectedSpecialita, setSelectedSpecialita] = React.useState(SPECIALITA_INIZIALI[0]?.nome ?? "");
   const [selectedMedicoId, setSelectedMedicoId] = React.useState(MEDICI_INIZIALI[0]?.id ?? "");
+  const [schedaMedicoModificaAttiva, setSchedaMedicoModificaAttiva] = React.useState(false);
+  const [schedaMedicoDraft, setSchedaMedicoDraft] = React.useState<Medico | null>(null);
+  const [agendaMedicoModificaAttiva, setAgendaMedicoModificaAttiva] = React.useState(false);
+  const [agendaMedicoDraft, setAgendaMedicoDraft] = React.useState<AgendaMedicoDraft | null>(null);
+  const [listinoMedicoModificaAttiva, setListinoMedicoModificaAttiva] = React.useState(false);
+  const [listinoMedicoDraft, setListinoMedicoDraft] = React.useState<Listino[] | null>(null);
   const [nuovaSpecialita, setNuovaSpecialita] = React.useState("");
   const [nuovaPrestazioneSpecialita, setNuovaPrestazioneSpecialita] = React.useState({
     nome: "",
@@ -618,6 +832,16 @@ export function AdminSettings() {
     };
   }, [settingsCanSave, specialita, prestazioni, medici, listini]);
 
+  React.useEffect(() => {
+    setSchedaMedicoModificaAttiva(false);
+    setSchedaMedicoDraft(null);
+    setAgendaMedicoModificaAttiva(false);
+    setAgendaMedicoDraft(null);
+    setListinoMedicoModificaAttiva(false);
+    setListinoMedicoDraft(null);
+    setPrestazioneListinoOpen(false);
+  }, [selectedMedicoId]);
+
   const specialitaDisponibili = React.useMemo(() => {
     const nomi = new Map<string, string>();
     [...specialita.map((item) => item.nome), ...prestazioni.map((item) => item.specialita), ...medici.map((item) => item.specialita)]
@@ -655,13 +879,23 @@ export function AdminSettings() {
   );
 
   const medicoSelezionato = medici.find((medico) => medico.id === selectedMedicoId) ?? medici[0];
+  const medicoSchedaInGestione =
+    schedaMedicoModificaAttiva && schedaMedicoDraft ? schedaMedicoDraft : medicoSelezionato;
   const medicoDaEliminare = medici.find((medico) => medico.id === medicoDaEliminareId) ?? null;
-  const disponibilitaPerSedeMedicoSelezionato = medicoSelezionato
-    ? normalizzaDisponibilitaPerSede(medicoSelezionato)
-    : creaDisponibilitaPerSedeVuota();
+  const fasceDisponibilitaPerSedeMedicoSelezionato = medicoSelezionato
+    ? normalizzaFasceDisponibilitaPerSede(medicoSelezionato)
+    : creaFasceDisponibilitaPerSedeVuota();
+  const eccezioniAgendaMedicoSelezionato = medicoSelezionato ? normalizzaEccezioniAgenda(medicoSelezionato) : [];
+  const agendaMedicoInGestione: AgendaMedicoDraft =
+    agendaMedicoModificaAttiva && agendaMedicoDraft
+      ? agendaMedicoDraft
+      : {
+          fasceDisponibilitaPerSede: fasceDisponibilitaPerSedeMedicoSelezionato,
+          eccezioniAgenda: eccezioniAgendaMedicoSelezionato,
+        };
   const datiFatturazioneMedicoSelezionato: DatiFatturazioneMedico = {
     ...DATI_FATTURAZIONE_MEDICO_VUOTI,
-    ...medicoSelezionato?.datiFatturazione,
+    ...medicoSchedaInGestione?.datiFatturazione,
   };
 
   const prestazioniDelMedico = React.useMemo(() => {
@@ -673,7 +907,7 @@ export function AdminSettings() {
     );
   }, [medicoSelezionato, prestazioni]);
 
-  const listinoMedico = React.useMemo(
+  const listinoMedicoSalvato = React.useMemo(
     () =>
       medicoSelezionato
         ? listini.filter(
@@ -683,6 +917,11 @@ export function AdminSettings() {
           )
         : [],
     [listini, medicoSelezionato, prestazioniDelMedico],
+  );
+
+  const listinoMedico = React.useMemo(
+    () => (listinoMedicoModificaAttiva ? listinoMedicoDraft ?? listinoMedicoSalvato : listinoMedicoSalvato),
+    [listinoMedicoDraft, listinoMedicoModificaAttiva, listinoMedicoSalvato],
   );
 
   const prestazioniDisponibiliListino = React.useMemo(() => {
@@ -731,7 +970,7 @@ export function AdminSettings() {
   };
 
   const avvisaPrestazioniBloccate = () => {
-    mostraNotifica("Sblocca modifica prestazioni prima di cambiare l'elenco.");
+    mostraNotifica("Premi Modifica prestazioni prima di cambiare l'elenco.");
   };
 
   const aggiornaPrestazioniDraft = (updater: (correnti: Prestazione[]) => Prestazione[]) => {
@@ -770,6 +1009,10 @@ export function AdminSettings() {
   const aggiungiSpecialita = () => {
     const nome = nuovaSpecialita.trim();
     if (!nome) return;
+    if (!prestazioniModificaAttiva) {
+      avvisaPrestazioniBloccate();
+      return;
+    }
 
     const esisteGia = specialitaDisponibili.some((item) => stessaSpecialita(item, nome));
     if (!esisteGia) {
@@ -845,33 +1088,206 @@ export function AdminSettings() {
     aggiornaPrestazioniDraft((correnti) => correnti.filter((prestazione) => prestazione.id !== id));
   };
 
-  const aggiornaDisponibilitaSede = (
-    medicoId: string,
-    sedeId: SedeMedicoId,
-    giorno: string,
-    attivo: boolean,
+  const avvisaSchedaMedicoBloccata = () => {
+    mostraNotifica("Premi Modifica scheda prima di cambiare i dati del medico.");
+  };
+
+  const sbloccaModificaSchedaMedico = () => {
+    if (!medicoSelezionato) return;
+    setSchedaMedicoDraft(normalizzaMedico(medicoSelezionato));
+    setSchedaMedicoModificaAttiva(true);
+  };
+
+  const annullaModificaSchedaMedico = () => {
+    setSchedaMedicoDraft(null);
+    setSchedaMedicoModificaAttiva(false);
+    mostraNotifica("Modifiche scheda medico annullate.");
+  };
+
+  const aggiornaSchedaMedicoDraft = <K extends keyof Medico>(campo: K, valore: Medico[K]) => {
+    if (!medicoSelezionato) return;
+    if (!schedaMedicoModificaAttiva) {
+      avvisaSchedaMedicoBloccata();
+      return;
+    }
+
+    setSchedaMedicoDraft((corrente) => ({
+      ...(corrente ?? normalizzaMedico(medicoSelezionato)),
+      [campo]: valore,
+    }));
+  };
+
+  const aggiornaDatiFatturazioneMedicoDraft = <K extends keyof DatiFatturazioneMedico>(
+    campo: K,
+    valore: DatiFatturazioneMedico[K],
   ) => {
+    if (!medicoSelezionato) return;
+    if (!schedaMedicoModificaAttiva) {
+      avvisaSchedaMedicoBloccata();
+      return;
+    }
+
+    setSchedaMedicoDraft((corrente) => {
+      const medico = corrente ?? normalizzaMedico(medicoSelezionato);
+      return {
+        ...medico,
+        datiFatturazione: {
+          ...DATI_FATTURAZIONE_MEDICO_VUOTI,
+          ...medico.datiFatturazione,
+          [campo]: valore,
+        },
+      };
+    });
+  };
+
+  const salvaModificaSchedaMedico = () => {
+    if (!medicoSelezionato || !schedaMedicoDraft) return;
+
+    const nome = schedaMedicoDraft.nome.trim() || medicoSelezionato.nome;
+    const specialitaMedico = schedaMedicoDraft.specialita || medicoSelezionato.specialita || "Generale";
+
     setMedici((correnti) =>
-      correnti.map((medico) => {
-        if (medico.id !== medicoId) return medico;
-
-        const disponibilitaPerSede = normalizzaDisponibilitaPerSede(medico);
-        const giorniSede = disponibilitaPerSede[sedeId];
-        const prossimiGiorniSede = attivo
-          ? Array.from(new Set([...giorniSede, giorno]))
-          : giorniSede.filter((g) => g !== giorno);
-        const prossimaDisponibilitaPerSede = {
-          ...disponibilitaPerSede,
-          [sedeId]: prossimiGiorniSede,
-        };
-
-        return {
-          ...medico,
-          disponibilita: unisciDisponibilitaSedi(prossimaDisponibilitaPerSede),
-          disponibilitaPerSede: prossimaDisponibilitaPerSede,
-        };
+      correnti.map((medico) =>
+        medico.id === medicoSelezionato.id
+          ? normalizzaMedico({
+              ...medico,
+              nome,
+              specialita: specialitaMedico,
+              datiFatturazione: {
+                ...DATI_FATTURAZIONE_MEDICO_VUOTI,
+                ...schedaMedicoDraft.datiFatturazione,
+              },
+            })
+          : medico,
+      ),
+    );
+    setListini((correnti) =>
+      correnti.filter((listino) => {
+        if (listino.medicoId !== medicoSelezionato.id) return true;
+        const prestazione = prestazioni.find((item) => item.id === listino.prestazioneId);
+        return prestazione ? stessaSpecialita(prestazione.specialita, specialitaMedico) : false;
       }),
     );
+    setSchedaMedicoDraft(null);
+    setSchedaMedicoModificaAttiva(false);
+    mostraNotifica("Scheda medico salvata.");
+  };
+
+  const avvisaAgendaMedicoBloccata = () => {
+    mostraNotifica("Premi Modifica agenda prima di cambiare disponibilita o eccezioni.");
+  };
+
+  const sbloccaModificaAgendaMedico = () => {
+    if (!medicoSelezionato) return;
+    setAgendaMedicoDraft(creaAgendaDraftDaMedico(medicoSelezionato));
+    setAgendaMedicoModificaAttiva(true);
+  };
+
+  const annullaModificaAgendaMedico = () => {
+    setAgendaMedicoDraft(null);
+    setAgendaMedicoModificaAttiva(false);
+    mostraNotifica("Modifiche agenda medico annullate.");
+  };
+
+  const aggiornaAgendaMedicoDraft = (updater: (corrente: AgendaMedicoDraft) => AgendaMedicoDraft) => {
+    if (!medicoSelezionato) return;
+    if (!agendaMedicoModificaAttiva) {
+      avvisaAgendaMedicoBloccata();
+      return;
+    }
+
+    setAgendaMedicoDraft((corrente) => updater(corrente ?? creaAgendaDraftDaMedico(medicoSelezionato)));
+  };
+
+  const aggiungiFasciaDisponibilita = (sedeId: SedeMedicoId) => {
+    aggiornaAgendaMedicoDraft((corrente) => ({
+      ...corrente,
+      fasceDisponibilitaPerSede: {
+        ...corrente.fasceDisponibilitaPerSede,
+        [sedeId]: [...corrente.fasceDisponibilitaPerSede[sedeId], creaFasciaDisponibilita()],
+      },
+    }));
+  };
+
+  const aggiornaFasciaDisponibilita = <K extends keyof FasciaDisponibilita>(
+    sedeId: SedeMedicoId,
+    fasciaId: string,
+    campo: K,
+    valore: FasciaDisponibilita[K],
+  ) => {
+    aggiornaAgendaMedicoDraft((corrente) => ({
+      ...corrente,
+      fasceDisponibilitaPerSede: {
+        ...corrente.fasceDisponibilitaPerSede,
+        [sedeId]: corrente.fasceDisponibilitaPerSede[sedeId].map((fascia) =>
+          fascia.id === fasciaId ? { ...fascia, [campo]: valore } : fascia,
+        ),
+      },
+    }));
+  };
+
+  const eliminaFasciaDisponibilita = (sedeId: SedeMedicoId, fasciaId: string) => {
+    aggiornaAgendaMedicoDraft((corrente) => ({
+      ...corrente,
+      fasceDisponibilitaPerSede: {
+        ...corrente.fasceDisponibilitaPerSede,
+        [sedeId]: corrente.fasceDisponibilitaPerSede[sedeId].filter((fascia) => fascia.id !== fasciaId),
+      },
+    }));
+  };
+
+  const aggiungiEccezioneAgenda = () => {
+    aggiornaAgendaMedicoDraft((corrente) => ({
+      ...corrente,
+      eccezioniAgenda: [...corrente.eccezioniAgenda, creaEccezioneAgenda()],
+    }));
+  };
+
+  const aggiornaEccezioneAgenda = <K extends keyof EccezioneAgendaMedico>(
+    eccezioneId: string,
+    campo: K,
+    valore: EccezioneAgendaMedico[K],
+  ) => {
+    aggiornaAgendaMedicoDraft((corrente) => ({
+      ...corrente,
+      eccezioniAgenda: corrente.eccezioniAgenda.map((eccezione) =>
+        eccezione.id === eccezioneId ? { ...eccezione, [campo]: valore } : eccezione,
+      ),
+    }));
+  };
+
+  const eliminaEccezioneAgenda = (eccezioneId: string) => {
+    aggiornaAgendaMedicoDraft((corrente) => ({
+      ...corrente,
+      eccezioniAgenda: corrente.eccezioniAgenda.filter((eccezione) => eccezione.id !== eccezioneId),
+    }));
+  };
+
+  const salvaModificaAgendaMedico = () => {
+    if (!medicoSelezionato || !agendaMedicoDraft) return;
+
+    const fasceDisponibilitaPerSede = copiaFasceDisponibilitaPerSede(agendaMedicoDraft.fasceDisponibilitaPerSede);
+    const disponibilitaPerSede = disponibilitaSediDaFasce(fasceDisponibilitaPerSede);
+    const eccezioniAgenda = agendaMedicoDraft.eccezioniAgenda
+      .filter((eccezione) => eccezione.data && eccezione.dalle && eccezione.alle)
+      .map((eccezione, index) => normalizzaEccezioneAgenda(eccezione, index));
+
+    setMedici((correnti) =>
+      correnti.map((medico) =>
+        medico.id === medicoSelezionato.id
+          ? normalizzaMedico({
+              ...medico,
+              disponibilita: unisciDisponibilitaSedi(disponibilitaPerSede),
+              disponibilitaPerSede,
+              fasceDisponibilitaPerSede,
+              eccezioniAgenda,
+            })
+          : medico,
+      ),
+    );
+    setAgendaMedicoDraft(null);
+    setAgendaMedicoModificaAttiva(false);
+    mostraNotifica("Agenda medico salvata.");
   };
 
   const impostaTutteLeAgende = (aperte: boolean) => {
@@ -893,7 +1309,9 @@ export function AdminSettings() {
         agendaAperta: true,
         disponibilita: [],
         disponibilitaPerSede: creaDisponibilitaPerSedeVuota(),
-        datiFatturazione: DATI_FATTURAZIONE_MEDICO_VUOTI,
+        fasceDisponibilitaPerSede: creaFasceDisponibilitaPerSedeVuota(),
+        eccezioniAgenda: [],
+        datiFatturazione: { ...DATI_FATTURAZIONE_MEDICO_VUOTI },
       },
     ]);
     setSelectedMedicoId(id);
@@ -906,7 +1324,7 @@ export function AdminSettings() {
     const medicoId = medicoDaEliminare.id;
     const prossimiMedici = medici.filter((medico) => medico.id !== medicoId);
 
-    setMedici(prossimiMedici);
+    setMedici(prossimiMedici.map(normalizzaMedico));
     setListini((correnti) => correnti.filter((listino) => listino.medicoId !== medicoId));
     setSelectedMedicoId((corrente) =>
       corrente === medicoId ? prossimiMedici[0]?.id ?? "" : corrente,
@@ -921,12 +1339,22 @@ export function AdminSettings() {
     campo: K,
     valore: Medico[K],
   ) => {
+    if (id === medicoSelezionato?.id && campo !== "agendaAperta") {
+      aggiornaSchedaMedicoDraft(campo, valore);
+      return;
+    }
+
     setMedici((correnti) =>
       correnti.map((medico) => (medico.id === id ? { ...medico, [campo]: valore } : medico)),
     );
   };
 
   const aggiornaSpecialitaMedico = (id: string, nuovaSpecialitaMedico: string) => {
+    if (id === medicoSelezionato?.id) {
+      aggiornaSchedaMedicoDraft("specialita", nuovaSpecialitaMedico);
+      return;
+    }
+
     aggiornaMedico(id, "specialita", nuovaSpecialitaMedico);
     setListini((correnti) =>
       correnti.filter((listino) => {
@@ -942,6 +1370,11 @@ export function AdminSettings() {
     campo: K,
     valore: DatiFatturazioneMedico[K],
   ) => {
+    if (id === medicoSelezionato?.id) {
+      aggiornaDatiFatturazioneMedicoDraft(campo, valore);
+      return;
+    }
+
     setMedici((correnti) =>
       correnti.map((medico) =>
         medico.id === id
@@ -958,7 +1391,64 @@ export function AdminSettings() {
     );
   };
 
+  const creaListinoDraftDaMedico = (medicoId: string) =>
+    listini.filter((listino) => listino.medicoId === medicoId).map((listino) => ({ ...listino }));
+
+  const avvisaListinoMedicoBloccato = () => {
+    mostraNotifica("Premi Modifica listino prima di cambiare prezzi o compensi.");
+  };
+
+  const sbloccaModificaListinoMedico = () => {
+    if (!medicoSelezionato) return;
+    setListinoMedicoDraft(creaListinoDraftDaMedico(medicoSelezionato.id));
+    setListinoMedicoModificaAttiva(true);
+  };
+
+  const annullaModificaListinoMedico = () => {
+    setListinoMedicoDraft(null);
+    setListinoMedicoModificaAttiva(false);
+    mostraNotifica("Modifiche listino annullate.");
+  };
+
+  const aggiornaListinoMedicoDraft = (updater: (corrente: Listino[]) => Listino[]) => {
+    if (!medicoSelezionato) return;
+    if (!listinoMedicoModificaAttiva) {
+      avvisaListinoMedicoBloccato();
+      return;
+    }
+
+    setListinoMedicoDraft((corrente) => updater(corrente ?? creaListinoDraftDaMedico(medicoSelezionato.id)));
+  };
+
+  const salvaModificaListinoMedico = () => {
+    if (!medicoSelezionato) return;
+
+    const righeListino = (listinoMedicoDraft ?? []).map((listino) => ({
+      ...listino,
+      medicoId: medicoSelezionato.id,
+      durata: Math.max(5, listino.durata || 5),
+      prezzo: Math.max(0, listino.prezzo || 0),
+      compensoValore:
+        listino.compensoTipo === "percentuale"
+          ? limitaPercentuale(listino.compensoValore || 0)
+          : Math.max(0, listino.compensoValore || 0),
+    }));
+
+    setListini((correnti) => [
+      ...correnti.filter((listino) => listino.medicoId !== medicoSelezionato.id),
+      ...righeListino,
+    ]);
+    setListinoMedicoDraft(null);
+    setListinoMedicoModificaAttiva(false);
+    mostraNotifica("Listino medico salvato.");
+  };
+
   const aggiungiListino = () => {
+    if (!listinoMedicoModificaAttiva) {
+      avvisaListinoMedicoBloccato();
+      return;
+    }
+
     const medicoId = medicoSelezionato?.id;
     const prezzo = Number(nuovoListino.prezzo);
     const durata = Number(nuovoListino.durata);
@@ -984,7 +1474,7 @@ export function AdminSettings() {
       return;
     }
 
-    setListini((correnti) => {
+    aggiornaListinoMedicoDraft((correnti) => {
       const esisteGia = correnti.some(
         (listino) => listino.medicoId === medicoId && listino.prestazioneId === nuovoListino.prestazioneId,
       );
@@ -1015,19 +1505,19 @@ export function AdminSettings() {
   };
 
   const aggiornaDurataListino = (id: string, durata: number) => {
-    setListini((correnti) =>
+    aggiornaListinoMedicoDraft((correnti) =>
       correnti.map((listino) => (listino.id === id ? { ...listino, durata } : listino)),
     );
   };
 
   const aggiornaPrezzo = (id: string, prezzo: number) => {
-    setListini((correnti) =>
+    aggiornaListinoMedicoDraft((correnti) =>
       correnti.map((listino) => (listino.id === id ? { ...listino, prezzo } : listino)),
     );
   };
 
   const aggiornaCompensoTipo = (id: string, compensoTipo: CompensoTipo) => {
-    setListini((correnti) =>
+    aggiornaListinoMedicoDraft((correnti) =>
       correnti.map((listino) =>
         listino.id === id
           ? {
@@ -1044,7 +1534,7 @@ export function AdminSettings() {
   };
 
   const aggiornaCompensoValore = (id: string, valore: number) => {
-    setListini((correnti) =>
+    aggiornaListinoMedicoDraft((correnti) =>
       correnti.map((listino) =>
         listino.id === id
           ? {
@@ -1057,6 +1547,10 @@ export function AdminSettings() {
           : listino,
       ),
     );
+  };
+
+  const eliminaListino = (id: string) => {
+    aggiornaListinoMedicoDraft((correnti) => correnti.filter((listino) => listino.id !== id));
   };
 
   const nomePrestazione = (id: string) =>
@@ -1489,7 +1983,8 @@ export function AdminSettings() {
         ...DATI_FATTURAZIONE_MEDICO_VUOTI,
         ...medico.datiFatturazione,
       };
-      const disponibilitaPerSede = normalizzaDisponibilitaPerSede(medico);
+      const fasceDisponibilitaPerSede = normalizzaFasceDisponibilitaPerSede(medico);
+      const disponibilitaPerSede = disponibilitaSediDaFasce(fasceDisponibilitaPerSede);
 
       return {
         id: medico.id,
@@ -1499,6 +1994,9 @@ export function AdminSettings() {
         disponibilita: unisciDisponibilitaSedi(disponibilitaPerSede).join(", "),
         disponibilitaModena: disponibilitaPerSede.modena.join(", "),
         disponibilitaSassuolo: disponibilitaPerSede.sassuolo.join(", "),
+        fasceModena: fasceDisponibilitaPerSede.modena.map(descriviFasciaDisponibilita).join(", "),
+        fasceSassuolo: fasceDisponibilitaPerSede.sassuolo.map(descriviFasciaDisponibilita).join(", "),
+        eccezioniAgenda: JSON.stringify(normalizzaEccezioniAgenda(medico)),
         intestatarioFatturazione: datiFatturazione.intestatario,
         partitaIva: datiFatturazione.partitaIva,
         codiceFiscale: datiFatturazione.codiceFiscale,
@@ -1605,13 +2103,27 @@ export function AdminSettings() {
                 ["disponibilitaSassuolo", "disponibilità sassuolo", "giorni sassuolo", "sassuolo"],
               ),
             };
+            const fasceDisponibilitaPerSede: FasceDisponibilitaPerSedeMedico = {
+              modena: leggiFasceDisponibilita(
+                row,
+                ["fasceModena", "fasce modena", "orari modena", "disponibilita oraria modena"],
+                disponibilitaPerSede.modena,
+              ),
+              sassuolo: leggiFasceDisponibilita(
+                row,
+                ["fasceSassuolo", "fasce sassuolo", "orari sassuolo", "disponibilita oraria sassuolo"],
+                disponibilitaPerSede.sassuolo,
+              ),
+            };
             return {
               id: leggiTesto(row, ["id", "medicoId", "medico id"], slugId("medico", nome, index)),
               nome,
               specialita: leggiTesto(row, ["specialita", "specialità"], "Generale"),
               agendaAperta: leggiBooleano(row, ["agendaAperta", "agenda aperta", "agenda"], true),
-              disponibilita: unisciDisponibilitaSedi(disponibilitaPerSede),
-              disponibilitaPerSede,
+              disponibilita: unisciDisponibilitaSedi(disponibilitaSediDaFasce(fasceDisponibilitaPerSede)),
+              disponibilitaPerSede: disponibilitaSediDaFasce(fasceDisponibilitaPerSede),
+              fasceDisponibilitaPerSede,
+              eccezioniAgenda: leggiEccezioniAgenda(row),
               datiFatturazione: {
                 intestatario: leggiTesto(
                   row,
@@ -1786,11 +2298,17 @@ export function AdminSettings() {
                   <Field label="Nome">
                     <Input
                       value={nuovaSpecialita}
+                      disabled={!prestazioniModificaAttiva}
                       onChange={(event) => setNuovaSpecialita(event.target.value)}
                       placeholder="Es. Ortopedia"
                     />
                   </Field>
-                  <Button type="button" onClick={aggiungiSpecialita} className="w-full gap-2">
+                  <Button
+                    type="button"
+                    onClick={aggiungiSpecialita}
+                    disabled={!prestazioniModificaAttiva}
+                    className="w-full gap-2"
+                  >
                     <Plus className="h-4 w-4" />
                     Aggiungi specialita
                   </Button>
@@ -2227,10 +2745,10 @@ export function AdminSettings() {
                           const prestazione = prestazioni.find((item) => item.id === listino.prestazioneId);
                           return prestazione ? stessaSpecialita(prestazione.specialita, medico.specialita) : false;
                         }).length;
-                        const disponibilitaPerSede = normalizzaDisponibilitaPerSede(medico);
+                        const fasceDisponibilitaPerSede = normalizzaFasceDisponibilitaPerSede(medico);
                         const riepilogoSedi = SEDI_MEDICO.map((sede) => {
-                          const giorni = disponibilitaPerSede[sede.id];
-                          return `${sede.sigla}: ${giorni.length > 0 ? giorni.join(", ") : "-"}`;
+                          const fasce = fasceDisponibilitaPerSede[sede.id];
+                          return `${sede.sigla}: ${fasce.length > 0 ? fasce.map(descriviFasciaDisponibilita).join(", ") : "-"}`;
                         }).join(" · ");
 
                         return (
@@ -2291,10 +2809,42 @@ export function AdminSettings() {
                       <div>
                         <h3 className="text-base font-semibold text-foreground">Scheda medico</h3>
                         <p className="text-sm text-muted-foreground">
-                          Modifica dati, apertura agenda e giorni disponibili.
+                          Modifica dati anagrafici e profilo di fatturazione.
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
+                        {schedaMedicoModificaAttiva ? (
+                          <>
+                            <Badge variant="secondary" className="h-9 px-3">
+                              Modifica attiva
+                            </Badge>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={annullaModificaSchedaMedico}
+                              className="gap-2"
+                            >
+                              <X className="h-4 w-4" />
+                              Annulla
+                            </Button>
+                            <Button type="button" size="sm" onClick={salvaModificaSchedaMedico} className="gap-2">
+                              <Check className="h-4 w-4" />
+                              Salva
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={sbloccaModificaSchedaMedico}
+                            className="gap-2"
+                          >
+                            <Unlock className="h-4 w-4" />
+                            Modifica
+                          </Button>
+                        )}
                         <Badge
                           className={
                             medicoSelezionato.agendaAperta
@@ -2320,7 +2870,8 @@ export function AdminSettings() {
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       <Field label="Nome medico">
                         <Input
-                          value={medicoSelezionato.nome}
+                          value={medicoSchedaInGestione?.nome ?? ""}
+                          disabled={!schedaMedicoModificaAttiva}
                           onChange={(event) =>
                             aggiornaMedico(medicoSelezionato.id, "nome", event.target.value)
                           }
@@ -2329,7 +2880,8 @@ export function AdminSettings() {
                       </Field>
                       <Field label="Specialita">
                         <Select
-                          value={medicoSelezionato.specialita}
+                          value={medicoSchedaInGestione?.specialita ?? ""}
+                          disabled={!schedaMedicoModificaAttiva}
                           onValueChange={(valore) =>
                             aggiornaSpecialitaMedico(medicoSelezionato.id, valore)
                           }
@@ -2355,7 +2907,10 @@ export function AdminSettings() {
                           Profilo fiscale del medico per documenti e pagamenti.
                         </p>
                       </div>
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      <fieldset
+                        disabled={!schedaMedicoModificaAttiva}
+                        className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"
+                      >
                         <Field label="Ragione sociale / intestatario">
                           <Input
                             value={datiFatturazioneMedicoSelezionato.intestatario}
@@ -2366,7 +2921,7 @@ export function AdminSettings() {
                                 event.target.value,
                               )
                             }
-                            placeholder={medicoSelezionato.nome}
+                            placeholder={medicoSchedaInGestione?.nome ?? medicoSelezionato.nome}
                           />
                         </Field>
                         <Field label="Partita IVA">
@@ -2505,38 +3060,72 @@ export function AdminSettings() {
                             className="min-h-10 resize-y xl:col-span-1"
                           />
                         </Field>
-                      </div>
+                      </fieldset>
                     </div>
 
                     <div className="mt-5 rounded-md border border-border bg-white p-4">
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            Disponibilita per sede
+                            Agenda medico
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            Ogni sede puo avere giorni diversi per lo stesso medico.
+                            Imposta fasce orarie ricorrenti per sede ed eccezioni su giorno preciso.
                           </p>
                         </div>
-                        <Button
-                          type="button"
-                          variant={medicoSelezionato.agendaAperta ? "outline" : "default"}
-                          onClick={() =>
-                            aggiornaMedico(
-                              medicoSelezionato.id,
-                              "agendaAperta",
-                              !medicoSelezionato.agendaAperta,
-                            )
-                          }
-                          className="w-full lg:w-auto"
-                        >
-                          {medicoSelezionato.agendaAperta ? "Chiudi agenda" : "Apri agenda"}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          {agendaMedicoModificaAttiva ? (
+                            <>
+                              <Badge variant="secondary" className="h-9 px-3">
+                                Modifica attiva
+                              </Badge>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={annullaModificaAgendaMedico}
+                                className="gap-2"
+                              >
+                                <X className="h-4 w-4" />
+                                Annulla
+                              </Button>
+                              <Button type="button" size="sm" onClick={salvaModificaAgendaMedico} className="gap-2">
+                                <Check className="h-4 w-4" />
+                                Salva
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={sbloccaModificaAgendaMedico}
+                              className="gap-2"
+                            >
+                              <Unlock className="h-4 w-4" />
+                              Modifica
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant={medicoSelezionato.agendaAperta ? "outline" : "default"}
+                            size="sm"
+                            onClick={() =>
+                              aggiornaMedico(
+                                medicoSelezionato.id,
+                                "agendaAperta",
+                                !medicoSelezionato.agendaAperta,
+                              )
+                            }
+                          >
+                            {medicoSelezionato.agendaAperta ? "Chiudi agenda" : "Apri agenda"}
+                          </Button>
+                        </div>
                       </div>
 
                       <div className="mt-4 grid gap-4 xl:grid-cols-2">
                         {SEDI_MEDICO.map((sede) => {
-                          const giorniSede = disponibilitaPerSedeMedicoSelezionato[sede.id];
+                          const fasceSede = agendaMedicoInGestione.fasceDisponibilitaPerSede[sede.id];
 
                           return (
                             <div key={sede.id} className="rounded-md border border-border bg-muted/20 p-3">
@@ -2544,42 +3133,193 @@ export function AdminSettings() {
                                 <div>
                                   <h4 className="text-sm font-semibold text-foreground">{sede.label}</h4>
                                   <p className="text-xs text-muted-foreground">
-                                    {giorniSede.length > 0 ? giorniSede.join(", ") : "Nessun giorno impostato"}
+                                    {descriviFasceDisponibilita(fasceSede)}
                                   </p>
                                 </div>
                                 <Badge variant="secondary" className="shrink-0">
-                                  {giorniSede.length} giorni
+                                  {fasceSede.length} fasce
                                 </Badge>
                               </div>
-                              <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 xl:grid-cols-3">
-                                {GIORNI.map((giorno) => {
-                                  const selezionato = giorniSede.includes(giorno);
-                                  return (
-                                    <button
-                                      key={`${sede.id}-${giorno}`}
-                                      type="button"
-                                      onClick={() =>
-                                        aggiornaDisponibilitaSede(
-                                          medicoSelezionato.id,
-                                          sede.id,
-                                          giorno,
-                                          !selezionato,
-                                        )
-                                      }
-                                      className={`min-h-9 rounded-md border px-2 text-xs font-medium transition-colors ${
-                                        selezionato
-                                          ? "border-primary bg-primary text-primary-foreground"
-                                          : "border-border bg-white text-muted-foreground hover:bg-muted"
-                                      }`}
+                              <div className="space-y-2">
+                                {fasceSede.length > 0 ? (
+                                  fasceSede.map((fascia) => (
+                                    <div
+                                      key={fascia.id}
+                                      className="grid gap-2 rounded-md border border-border bg-white p-2 md:grid-cols-[140px_1fr_1fr_auto]"
                                     >
-                                      {giorno}
-                                    </button>
-                                  );
-                                })}
+                                      <Select
+                                        value={fascia.giorno}
+                                        disabled={!agendaMedicoModificaAttiva}
+                                        onValueChange={(valore) =>
+                                          aggiornaFasciaDisponibilita(sede.id, fascia.id, "giorno", valore)
+                                        }
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {GIORNI.map((giorno) => (
+                                            <SelectItem key={`${sede.id}-${fascia.id}-${giorno}`} value={giorno}>
+                                              {giorno}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      <Input
+                                        type="time"
+                                        value={fascia.dalle}
+                                        disabled={!agendaMedicoModificaAttiva}
+                                        onChange={(event) =>
+                                          aggiornaFasciaDisponibilita(sede.id, fascia.id, "dalle", event.target.value)
+                                        }
+                                        aria-label="Dalle"
+                                      />
+                                      <Input
+                                        type="time"
+                                        value={fascia.alle}
+                                        disabled={!agendaMedicoModificaAttiva}
+                                        onChange={(event) =>
+                                          aggiornaFasciaDisponibilita(sede.id, fascia.id, "alle", event.target.value)
+                                        }
+                                        aria-label="Alle"
+                                      />
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        disabled={!agendaMedicoModificaAttiva}
+                                        onClick={() => eliminaFasciaDisponibilita(sede.id, fascia.id)}
+                                        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                        aria-label="Elimina fascia"
+                                        title="Elimina fascia"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="rounded-md border border-dashed border-border bg-white p-3 text-sm text-muted-foreground">
+                                    Nessuna fascia impostata.
+                                  </div>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onClick={() => aggiungiFasciaDisponibilita(sede.id)}
+                                  className="w-full gap-2"
+                                >
+                                  <Plus className="h-4 w-4" />
+                                  Aggiungi fascia
+                                </Button>
                               </div>
                             </div>
                           );
                         })}
+                      </div>
+
+                      <div className="mt-4 rounded-md border border-border bg-muted/20 p-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <h4 className="text-sm font-semibold text-foreground">Eccezioni agenda</h4>
+                            <p className="text-xs text-muted-foreground">
+                              Aggiungi presenza o disponibilita su data e orario preciso.
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={!agendaMedicoModificaAttiva}
+                            onClick={aggiungiEccezioneAgenda}
+                            className="gap-2"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Aggiungi eccezione
+                          </Button>
+                        </div>
+
+                        <div className="mt-3 space-y-2">
+                          {agendaMedicoInGestione.eccezioniAgenda.length > 0 ? (
+                            agendaMedicoInGestione.eccezioniAgenda.map((eccezione) => (
+                              <div
+                                key={eccezione.id}
+                                className="grid gap-2 rounded-md border border-border bg-white p-2 lg:grid-cols-[150px_160px_120px_120px_minmax(180px,1fr)_auto]"
+                              >
+                                <Select
+                                  value={eccezione.sedeId}
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onValueChange={(valore) =>
+                                    aggiornaEccezioneAgenda(eccezione.id, "sedeId", valore as SedeMedicoId)
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {SEDI_MEDICO.map((sede) => (
+                                      <SelectItem key={`${eccezione.id}-${sede.id}`} value={sede.id}>
+                                        {sede.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Input
+                                  type="date"
+                                  value={eccezione.data}
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onChange={(event) =>
+                                    aggiornaEccezioneAgenda(eccezione.id, "data", event.target.value)
+                                  }
+                                  aria-label="Data eccezione"
+                                />
+                                <Input
+                                  type="time"
+                                  value={eccezione.dalle}
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onChange={(event) =>
+                                    aggiornaEccezioneAgenda(eccezione.id, "dalle", event.target.value)
+                                  }
+                                  aria-label="Dalle"
+                                />
+                                <Input
+                                  type="time"
+                                  value={eccezione.alle}
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onChange={(event) =>
+                                    aggiornaEccezioneAgenda(eccezione.id, "alle", event.target.value)
+                                  }
+                                  aria-label="Alle"
+                                />
+                                <Input
+                                  value={eccezione.note}
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onChange={(event) =>
+                                    aggiornaEccezioneAgenda(eccezione.id, "note", event.target.value)
+                                  }
+                                  placeholder="Note"
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled={!agendaMedicoModificaAttiva}
+                                  onClick={() => eliminaEccezioneAgenda(eccezione.id)}
+                                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  aria-label="Elimina eccezione"
+                                  title="Elimina eccezione"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="rounded-md border border-dashed border-border bg-white p-3 text-sm text-muted-foreground">
+                              Nessuna eccezione inserita.
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2597,9 +3337,43 @@ export function AdminSettings() {
                           </p>
                         </div>
                       </div>
-                      <Badge variant="secondary" className="w-fit">
-                        {listinoMedico.length} voci
-                      </Badge>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {listinoMedicoModificaAttiva ? (
+                          <>
+                            <Badge variant="secondary" className="h-9 px-3">
+                              Modifica attiva
+                            </Badge>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={annullaModificaListinoMedico}
+                              className="gap-2"
+                            >
+                              <X className="h-4 w-4" />
+                              Annulla
+                            </Button>
+                            <Button type="button" size="sm" onClick={salvaModificaListinoMedico} className="gap-2">
+                              <Check className="h-4 w-4" />
+                              Salva
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={sbloccaModificaListinoMedico}
+                            className="gap-2"
+                          >
+                            <Unlock className="h-4 w-4" />
+                            Modifica
+                          </Button>
+                        )}
+                        <Badge variant="secondary" className="w-fit">
+                          {listinoMedico.length} voci
+                        </Badge>
+                      </div>
                     </div>
 
                     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(280px,1fr)_120px_140px_180px_150px] 2xl:grid-cols-[minmax(320px,1fr)_120px_140px_190px_150px_auto]">
@@ -2617,7 +3391,7 @@ export function AdminSettings() {
                               variant="outline"
                               role="combobox"
                               aria-expanded={prestazioneListinoOpen}
-                              disabled={prestazioniDisponibiliListino.length === 0}
+                              disabled={!listinoMedicoModificaAttiva || prestazioniDisponibiliListino.length === 0}
                               className="w-full justify-between font-normal"
                             >
                               <span className="truncate">
@@ -2672,6 +3446,7 @@ export function AdminSettings() {
                           min={5}
                           step={5}
                           value={nuovoListino.durata}
+                          disabled={!listinoMedicoModificaAttiva}
                           onChange={(event) =>
                             setNuovoListino((corrente) => ({ ...corrente, durata: event.target.value }))
                           }
@@ -2683,6 +3458,7 @@ export function AdminSettings() {
                           min={1}
                           step={5}
                           value={nuovoListino.prezzo}
+                          disabled={!listinoMedicoModificaAttiva}
                           onChange={(event) =>
                             setNuovoListino((corrente) => ({ ...corrente, prezzo: event.target.value }))
                           }
@@ -2691,6 +3467,7 @@ export function AdminSettings() {
                       <Field label="Tipo compenso">
                         <Select
                           value={nuovoListino.compensoTipo}
+                          disabled={!listinoMedicoModificaAttiva}
                           onValueChange={(compensoTipo: CompensoTipo) =>
                             setNuovoListino((corrente) => ({
                               ...corrente,
@@ -2718,6 +3495,7 @@ export function AdminSettings() {
                           max={nuovoListino.compensoTipo === "percentuale" ? 100 : undefined}
                           step={nuovoListino.compensoTipo === "percentuale" ? 1 : 5}
                           value={nuovoListino.compensoValore}
+                          disabled={!listinoMedicoModificaAttiva}
                           onChange={(event) =>
                             setNuovoListino((corrente) => ({ ...corrente, compensoValore: event.target.value }))
                           }
@@ -2727,7 +3505,7 @@ export function AdminSettings() {
                         <Button
                           type="button"
                           onClick={aggiungiListino}
-                          disabled={!prestazioneNuovoListino}
+                          disabled={!listinoMedicoModificaAttiva || !prestazioneNuovoListino}
                           className="w-full gap-2"
                         >
                           <Plus className="h-4 w-4" />
@@ -2738,7 +3516,7 @@ export function AdminSettings() {
 
                     {listinoMedico.length > 0 ? (
                       <div className="mt-4 rounded-md border border-border">
-                        <Table className="min-w-[1180px]">
+                        <Table className="min-w-[1240px]">
                           <TableHeader>
                             <TableRow>
                               <TableHead className="min-w-[260px]">Prestazione</TableHead>
@@ -2747,6 +3525,7 @@ export function AdminSettings() {
                               <TableHead className="min-w-[240px]">Compenso</TableHead>
                               <TableHead className="min-w-[180px] whitespace-nowrap">Quota medico</TableHead>
                               <TableHead className="min-w-[160px] whitespace-nowrap">Netto studio</TableHead>
+                              <TableHead className="w-16">Azioni</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -2761,6 +3540,7 @@ export function AdminSettings() {
                                     min={5}
                                     step={5}
                                     value={listino.durata}
+                                    disabled={!listinoMedicoModificaAttiva}
                                     onChange={(event) =>
                                       aggiornaDurataListino(listino.id, Number(event.target.value) || 0)
                                     }
@@ -2772,6 +3552,7 @@ export function AdminSettings() {
                                     min={1}
                                     step={5}
                                     value={listino.prezzo}
+                                    disabled={!listinoMedicoModificaAttiva}
                                     onChange={(event) =>
                                       aggiornaPrezzo(listino.id, Number(event.target.value) || 0)
                                     }
@@ -2781,6 +3562,7 @@ export function AdminSettings() {
                                   <div className="grid grid-cols-[1fr_90px] gap-2">
                                     <Select
                                       value={listino.compensoTipo}
+                                      disabled={!listinoMedicoModificaAttiva}
                                       onValueChange={(compensoTipo: CompensoTipo) =>
                                         aggiornaCompensoTipo(listino.id, compensoTipo)
                                       }
@@ -2799,6 +3581,7 @@ export function AdminSettings() {
                                       max={listino.compensoTipo === "percentuale" ? 100 : undefined}
                                       step={listino.compensoTipo === "percentuale" ? 1 : 5}
                                       value={listino.compensoValore}
+                                      disabled={!listinoMedicoModificaAttiva}
                                       onChange={(event) =>
                                         aggiornaCompensoValore(listino.id, Number(event.target.value) || 0)
                                       }
@@ -2816,6 +3599,20 @@ export function AdminSettings() {
                                   <Badge className="whitespace-nowrap border-green-200 bg-green-100 text-green-700 hover:bg-green-100">
                                     {valuta.format(nettoStudio(listino))}
                                   </Badge>
+                                </TableCell>
+                                <TableCell className="w-16">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    disabled={!listinoMedicoModificaAttiva}
+                                    onClick={() => eliminaListino(listino.id)}
+                                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                    aria-label={`Elimina ${nomePrestazione(listino.prestazioneId)}`}
+                                    title="Elimina voce listino"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -3349,7 +4146,7 @@ function PrestazioniUnlockAction({
   ) : (
     <Button type="button" variant="outline" size="sm" onClick={onUnlock} className="gap-2">
       <Unlock className="h-4 w-4" />
-      Sblocca modifica
+      Modifica
     </Button>
   );
 }
