@@ -69,8 +69,6 @@ with mini calendar, agenda filters, and doctor columns.
 Latest settings update adds explicit edit/save flows for doctor details, doctor
 agenda time ranges, agenda exceptions, and doctor price list rows.
 
-Latest agenda settings update loads doctors, specializations, prestations, and
-availability slots from admin-settings instead of demo doctors when the DB is available.
-
-Latest agenda data update loads doctors and specializations from admin settings
-and adds the available-hours agenda view.
+Latest agenda settings update loads doctors, specializations, services, and
+availability slots from admin settings instead of hardcoded demo doctors, and
+adds the available-hours agenda view.
