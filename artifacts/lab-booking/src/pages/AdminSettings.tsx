@@ -200,6 +200,7 @@ type AdminSettingsData = {
 };
 
 type SettingsSaveState = "loading" | "saving" | "saved" | "error";
+type SettingsTabId = "specialita" | "prestazioni" | "medici" | "compensi";
 
 type Specialita = {
   id: string;
@@ -675,10 +676,19 @@ const colonneExportCompensi = (opzioni: OpzioniExportCompensi) => [
   "Numero fattura",
 ];
 
-export function AdminSettings() {
+export function AdminSettings({
+  initialTab = "prestazioni",
+  initialMedicoId = null,
+  focusKey = 0,
+}: {
+  initialTab?: SettingsTabId;
+  initialMedicoId?: string | null;
+  focusKey?: number;
+} = {}) {
   const importInputRef = React.useRef<HTMLInputElement | null>(null);
   const saveTimerRef = React.useRef<number | null>(null);
   const skipInitialSettingsSaveRef = React.useRef(true);
+  const [settingsTab, setSettingsTab] = React.useState<SettingsTabId>(initialTab);
   const [specialita, setSpecialita] = React.useState(SPECIALITA_INIZIALI);
   const [prestazioni, setPrestazioni] = React.useState(PRESTAZIONI_INIZIALI);
   const [prestazioniModificaAttiva, setPrestazioniModificaAttiva] = React.useState(false);
@@ -753,14 +763,20 @@ export function AdminSettings() {
         if (!active) return;
 
         if (isAdminSettingsData(data)) {
+          const prossimiMedici = data.medici.map(normalizzaMedico);
+          const medicoRichiesto =
+            initialMedicoId && prossimiMedici.some((medico) => medico.id === initialMedicoId)
+              ? initialMedicoId
+              : null;
+
           setSpecialita(data.specialita);
           setPrestazioni(data.prestazioni);
           setPrestazioniDraft(null);
           setPrestazioniModificaAttiva(false);
-          setMedici(data.medici.map(normalizzaMedico));
+          setMedici(prossimiMedici);
           setListini(data.listini);
           setSelectedSpecialita(data.specialita[0]?.nome ?? data.prestazioni[0]?.specialita ?? "");
-          setSelectedMedicoId(data.medici[0]?.id ?? "");
+          setSelectedMedicoId(medicoRichiesto ?? prossimiMedici[0]?.id ?? "");
         }
 
         setSettingsSaveState("saved");
@@ -777,7 +793,12 @@ export function AdminSettings() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [initialMedicoId]);
+
+  React.useEffect(() => {
+    setSettingsTab(initialTab);
+    if (initialMedicoId) setSelectedMedicoId(initialMedicoId);
+  }, [focusKey, initialMedicoId, initialTab]);
 
   React.useEffect(() => {
     if (!settingsCanSave) return;
@@ -2251,7 +2272,11 @@ export function AdminSettings() {
         onChange={gestisciImportExcel}
       />
 
-      <Tabs defaultValue="prestazioni" className="space-y-4">
+      <Tabs
+        value={settingsTab}
+        onValueChange={(value) => setSettingsTab(value as SettingsTabId)}
+        className="space-y-4"
+      >
         <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-md">
           <TabsTrigger value="specialita" className="gap-2">
             <Tags className="h-4 w-4" />

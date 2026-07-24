@@ -78,6 +78,13 @@ type TabId =
   | "impostazioni"
   | "utenti";
 type AreaId = "laboratorio" | "ambulatorio";
+type SettingsTabId = "specialita" | "prestazioni" | "medici" | "compensi";
+
+type SettingsTarget = {
+  tab: SettingsTabId;
+  medicoId: string | null;
+  key: number;
+};
 
 type MenuItem = {
   id: TabId;
@@ -158,6 +165,11 @@ function AdminDashboard({
 }) {
   const [activeArea, setActiveArea] = React.useState<AreaId>("laboratorio");
   const [activeTab, setActiveTab] = React.useState<TabId>("accettazione");
+  const [settingsTarget, setSettingsTarget] = React.useState<SettingsTarget>({
+    tab: "prestazioni",
+    medicoId: null,
+    key: 0,
+  });
 
   const can = React.useCallback(
     (permission: PermissionId) => roleHasPermission(accessConfig, role, permission),
@@ -223,6 +235,11 @@ function AdminDashboard({
     : activeTab === "anagrafiche"
       ? "Studio"
       : activeGroup.label;
+
+  const apriProfiloMedico = (medicoId: string) => {
+    setSettingsTarget({ tab: "medici", medicoId, key: Date.now() });
+    setActiveTab("impostazioni");
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground lg:flex">
@@ -334,7 +351,10 @@ function AdminDashboard({
                 {can("impostazioni") && (
                 <button
                   type="button"
-                  onClick={() => setActiveTab("impostazioni")}
+                  onClick={() => {
+                    setSettingsTarget({ tab: "prestazioni", medicoId: null, key: Date.now() });
+                    setActiveTab("impostazioni");
+                  }}
                   aria-current={activeTab === "impostazioni" ? "page" : undefined}
                   className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
                     activeTab === "impostazioni"
@@ -408,12 +428,18 @@ function AdminDashboard({
 
             {activeTab === "infortunistica" && <AdminInfortunistica />}
 
-            {activeTab === "impostazioni" && <AdminSettings />}
+            {activeTab === "impostazioni" && (
+              <AdminSettings
+                initialTab={settingsTarget.tab}
+                initialMedicoId={settingsTarget.medicoId}
+                focusKey={settingsTarget.key}
+              />
+            )}
 
             {activeTab === "utenti" && <AdminUsers />}
 
             {activeTab === "prenotazioni" && (
-              <AdminBookingCalendar area={activeArea} />
+              <AdminBookingCalendar area={activeArea} onOpenDoctor={apriProfiloMedico} />
             )}
 
             {activeTab === "listino" && (

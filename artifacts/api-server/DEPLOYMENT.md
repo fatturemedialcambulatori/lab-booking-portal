@@ -72,3 +72,6 @@ agenda time ranges, agenda exceptions, and doctor price list rows.
 Latest agenda settings update loads doctors, specializations, services, and
 availability slots from admin settings instead of hardcoded demo doctors, and
 adds the available-hours agenda view.
+
+Latest agenda interaction update opens doctor profiles from agenda doctor clicks
+and filters "Lavorano oggi" by configured availability.

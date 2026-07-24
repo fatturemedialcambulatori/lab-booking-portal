@@ -909,7 +909,13 @@ const creaSlotDisponibili = (
   });
 };
 
-export function AdminBookingCalendar({ area }: { area: AreaId }) {
+export function AdminBookingCalendar({
+  area,
+  onOpenDoctor,
+}: {
+  area: AreaId;
+  onOpenDoctor?: (doctorId: string) => void;
+}) {
   const [view, setView] = React.useState<CalendarView>("giorno");
   const [currentDate, setCurrentDate] = React.useState(DEMO_TODAY);
   const [settingsAgenda, setSettingsAgenda] = React.useState<AdminSettingsData | null>(null);
@@ -1075,32 +1081,24 @@ export function AdminBookingCalendar({ area }: { area: AreaId }) {
     }).sort((a, b) => `${a.data}${a.ora}`.localeCompare(`${b.data}${b.ora}`));
   }, [area, medicoId, mediciAgenda, mediciArea, prenotazioniAgenda, search, sede, visibleDateKeys]);
 
-  const mediciConPrenotazioni = React.useMemo(
-    () => new Set(prenotazioniFiltrate.map((prenotazione) => prenotazione.medicoId)),
-    [prenotazioniFiltrate],
-  );
-
   const mediciConDisponibilita = React.useMemo(
     () =>
       new Set(
         mediciArea
-          .filter((medico) =>
-            visibleDates.some((date) => medicoLavoraNelGiorno(medico, date, sede)),
-          )
+          .filter((medico) => medicoLavoraNelGiorno(medico, currentDate, sede))
           .map((medico) => medico.id),
       ),
-    [mediciArea, prenotazioniFiltrate, sede, visibleDates],
+    [currentDate, mediciArea, sede],
   );
 
   const mediciVisibili = React.useMemo(
     () =>
       mediciArea.filter((medico) => {
         const matchMedico = medicoId === "tutti" || medico.id === medicoId;
-        const mediciConAttivita = view === "ore-disponibili" ? mediciConDisponibilita : mediciConPrenotazioni;
-        const matchAttivita = !soloMediciConPrenotazioni || mediciConAttivita.has(medico.id);
+        const matchAttivita = !soloMediciConPrenotazioni || mediciConDisponibilita.has(medico.id);
         return matchMedico && matchAttivita;
       }),
-    [mediciArea, medicoId, mediciConDisponibilita, mediciConPrenotazioni, soloMediciConPrenotazioni, view],
+    [mediciArea, medicoId, mediciConDisponibilita, soloMediciConPrenotazioni],
   );
 
   const goPrevious = () =>
@@ -1518,21 +1516,21 @@ export function AdminBookingCalendar({ area }: { area: AreaId }) {
                   className="bg-white pl-9"
                 />
               </div>
-              <div className="flex items-center justify-between rounded-md bg-white px-3 py-2">
-                <span className="text-sm font-medium text-foreground">
-                  {view === "ore-disponibili" ? "Con disponibilita" : "Lavorano oggi"}
-                </span>
+              <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-white px-3 py-2 shadow-sm">
+                <span className="min-w-0 text-sm font-semibold text-foreground">Lavorano oggi</span>
                 <button
                   type="button"
                   role="switch"
                   aria-checked={soloMediciConPrenotazioni}
                   onClick={() => setSoloMediciConPrenotazioni((current) => !current)}
-                  className={`relative h-6 w-11 rounded-full transition-colors ${
-                    soloMediciConPrenotazioni ? "bg-primary" : "bg-muted-foreground/35"
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border p-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                    soloMediciConPrenotazioni
+                      ? "border-primary bg-primary"
+                      : "border-border bg-muted-foreground/25"
                   }`}
                 >
                   <span
-                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                    className={`pointer-events-none block h-5 w-5 rounded-full bg-white shadow transition-transform ${
                       soloMediciConPrenotazioni ? "translate-x-5" : "translate-x-0.5"
                     }`}
                   />
@@ -1638,6 +1636,7 @@ export function AdminBookingCalendar({ area }: { area: AreaId }) {
                 sede={sede}
                 giorniPreferiti={giorniPreferiti}
                 periodoOrario={periodoOrario}
+                onOpenDoctor={onOpenDoctor}
               />
             ) : (
               <DayCalendar
@@ -1645,6 +1644,7 @@ export function AdminBookingCalendar({ area }: { area: AreaId }) {
                 doctors={mediciVisibili}
                 appointments={prenotazioniFiltrate}
                 sede={sede}
+                onOpenDoctor={onOpenDoctor}
               />
             )}
           </div>
@@ -1766,6 +1766,7 @@ function AvailableHoursView({
   sede,
   giorniPreferiti,
   periodoOrario,
+  onOpenDoctor,
 }: {
   dates: Date[];
   doctors: MedicoAgenda[];
@@ -1773,6 +1774,7 @@ function AvailableHoursView({
   sede: SedeId;
   giorniPreferiti: string[];
   periodoOrario: PeriodoOrarioDisponibile;
+  onOpenDoctor?: (doctorId: string) => void;
 }) {
   const slotDisponibili = dates
     .map((date) => {
@@ -1844,13 +1846,18 @@ function AvailableHoursView({
             <div className="divide-y divide-border">
               {righe.map(({ doctor, slot }) => (
                 <div key={`${dateKey(date)}-${doctor.id}`} className="grid gap-4 py-4 lg:grid-cols-[230px_minmax(0,1fr)]">
-                  <div className="min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => onOpenDoctor?.(doctor.id)}
+                    className="min-w-0 rounded-md p-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    title={`Apri profilo ${doctor.nome}`}
+                  >
                     <p className="truncate text-sm font-semibold text-foreground">{doctor.nome}</p>
                     <p className="mt-1 text-sm text-muted-foreground">{doctor.specialita}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {doctor.sedi.map((item) => (item === "modena" ? "Modena" : "Sassuolo")).join(", ")}
                     </p>
-                  </div>
+                  </button>
                   <div className="flex flex-wrap gap-2">
                     {slot.map((item) => (
                       <button
@@ -1926,11 +1933,13 @@ function DayCalendar({
   doctors,
   appointments,
   sede,
+  onOpenDoctor,
 }: {
   date: Date;
   doctors: MedicoAgenda[];
   appointments: PrenotazioneAgenda[];
   sede: SedeId;
+  onOpenDoctor?: (doctorId: string) => void;
 }) {
   const appointmentsByDoctor = new Map<string, PrenotazioneAgenda[]>();
   appointments.forEach((appointment) => {
@@ -1954,7 +1963,12 @@ function DayCalendar({
           </div>
           {doctors.map((doctor) => (
             <div key={doctor.id} className="min-w-0 border-r border-border px-3 py-3 last:border-r-0">
-              <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => onOpenDoctor?.(doctor.id)}
+                className="flex w-full min-w-0 items-center gap-3 rounded-md p-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                title={`Apri profilo ${doctor.nome}`}
+              >
                 <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white ${doctor.colore}`}>
                   <UserRound className="h-4 w-4" />
                 </div>
@@ -1967,7 +1981,7 @@ function DayCalendar({
                     {doctor.specialita} · {doctor.sedi.map((item) => (item === "modena" ? "Modena" : "Sassuolo")).join(", ")}
                   </p>
                 </div>
-              </div>
+              </button>
             </div>
           ))}
         </div>
