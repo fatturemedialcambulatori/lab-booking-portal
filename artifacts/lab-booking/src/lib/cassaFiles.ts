@@ -102,14 +102,13 @@ export async function uploadCassaDocument(params: UploadParams) {
       throw new Error("Link firmato Supabase non valido.");
     }
 
-    const supabaseBody = new FormData();
-    supabaseBody.append("cacheControl", "3600");
-    supabaseBody.append("", file);
-
     const uploadResponse = await fetch(signData.signedUrl, {
       method: "PUT",
-      headers: { "x-upsert": "true" },
-      body: supabaseBody,
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "true",
+      },
+      body: file,
     });
 
     if (!uploadResponse.ok) {

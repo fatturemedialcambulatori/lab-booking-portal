@@ -5,6 +5,7 @@ import {
   CreditCard,
   Download,
   Landmark,
+  Pencil,
   Plus,
   QrCode,
   RefreshCw,
@@ -383,6 +384,36 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
     return () => window.clearInterval(timer);
   }, [aggiornaDaDb, mobileCapture]);
 
+  const salvaCassa = React.useCallback(async (payload?: CassaState, showToast = true) => {
+    const dataToSave = payload ?? state;
+    writeLocalState(dataToSave);
+    setSaveState("saving");
+
+    try {
+      const response = await fetch("/api/cassa-state", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dataToSave),
+      });
+      if (!response.ok) throw new Error("Salvataggio non riuscito");
+      const saved: unknown = await response.json();
+      setState(normalizeState(saved));
+      setSaveState("saved");
+      if (showToast) mostraNotifica("Cassa salvata.");
+    } catch {
+      setSaveState("error");
+      if (showToast) mostraNotifica("Salvataggio cassa non riuscito.", "destructive");
+    }
+  }, [mostraNotifica, state]);
+
+  const eliminaDocumentoRemoto = React.useCallback(async (id: string) => {
+    await fetch("/api/cassa-file-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ documentId: id }),
+    }).catch(() => null);
+  }, []);
+
   const getChiusura = React.useCallback(
     (sedeId: SedeCassaId, data: string): ChiusuraCassa =>
       state.giorni.find((item) => item.sedeId === sedeId && item.data === data) ?? {
@@ -508,7 +539,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         bucket: data.bucket,
         storagePath: data.storagePath,
         fileName: data.fileName ?? file.name,
-        fileUrl: data.fileUrl ?? `/api/cassa-files/${encodeURIComponent(id)}`,
+        fileUrl: data.fileUrl ?? `/api/cassa-file-download?id=${encodeURIComponent(id)}`,
         contentType: data.contentType ?? file.type,
         sizeBytes: data.sizeBytes ?? file.size,
         uploadedAt: data.uploadedAt ?? new Date().toISOString(),
@@ -532,11 +563,36 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
     }
   };
 
-  const eliminaDocumento = (id: string) => {
+  const eliminaDocumento = async (id: string) => {
+    await eliminaDocumentoRemoto(id);
     setState((current) => ({
       ...current,
       documenti: current.documenti.filter((documento) => documento.id !== id),
     }));
+  };
+
+  const eliminaChiusura = async (sedeId: SedeCassaId, data: string) => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Eliminare la chiusura ${sedeLabel(sedeId)} del ${formatDate(data)}?`)
+    ) {
+      return;
+    }
+
+    const documentiDaEliminare = state.documenti.filter(
+      (documento) => documento.sedeId === sedeId && documento.data === data,
+    );
+    await Promise.all(documentiDaEliminare.map((documento) => eliminaDocumentoRemoto(documento.id)));
+
+    const nextState: CassaState = {
+      ...state,
+      giorni: state.giorni.filter((item) => !(item.sedeId === sedeId && item.data === data)),
+      spese: state.spese.filter((item) => !(item.sedeId === sedeId && item.data === data)),
+      documenti: state.documenti.filter((item) => !(item.sedeId === sedeId && item.data === data)),
+    };
+    setState(nextState);
+    await salvaCassa(nextState, false);
+    mostraNotifica(`Chiusura ${sedeLabel(sedeId)} del ${formatDate(data)} eliminata.`);
   };
 
   const chiusureGiorno = sediVisibili.map((sedeId) => getChiusura(sedeId, giorno));
@@ -574,6 +630,36 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         };
       });
   }, [periodoAl, periodoDal, sediVisibili, state.documenti, state.giorni, state.spese]);
+
+  const elencoChiusure = React.useMemo(() => {
+    const keys = new Set<string>();
+    state.giorni.forEach((item) => {
+      if (sediVisibili.includes(item.sedeId)) keys.add(`${item.sedeId}|${item.data}`);
+    });
+    state.spese.forEach((item) => {
+      if (sediVisibili.includes(item.sedeId)) keys.add(`${item.sedeId}|${item.data}`);
+    });
+    state.documenti.forEach((item) => {
+      if (sediVisibili.includes(item.sedeId)) keys.add(`${item.sedeId}|${item.data}`);
+    });
+
+    return Array.from(keys)
+      .map((key) => {
+        const [sedeId, data] = key.split("|") as [SedeCassaId, string];
+        const giorni = state.giorni.filter((item) => item.sedeId === sedeId && item.data === data);
+        const spese = state.spese.filter((item) => item.sedeId === sedeId && item.data === data);
+        const documenti = state.documenti.filter((item) => item.sedeId === sedeId && item.data === data);
+        return {
+          key,
+          sedeId,
+          data,
+          totali: sommaTotali(giorni, spese),
+          speseCount: spese.length,
+          documentiCount: documenti.length,
+        };
+      })
+      .sort((a, b) => `${b.data}${b.sedeId}`.localeCompare(`${a.data}${a.sedeId}`));
+  }, [sediVisibili, state.documenti, state.giorni, state.spese]);
 
   const statusLabel =
     saveState === "loading"
@@ -678,10 +764,24 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             moneyDrafts={moneyDrafts}
             onMoneyDraftChange={updateMoneyDraft}
             onMoneyDraftCommit={clearMoneyDraft}
+            onSaveChiusura={() => void salvaCassa()}
+            onDeleteChiusura={() => void eliminaChiusura(sedeId, giorno)}
             wideLayout={scope !== "tutte"}
           />
         ))}
       </div>
+
+      <ElencoChiusure
+        rows={elencoChiusure}
+        activeData={giorno}
+        onEdit={(sedeId, data) => {
+          setGiorno(data);
+          setMobileCapture(null);
+          mostraNotifica(`Chiusura ${sedeLabel(sedeId)} del ${formatDate(data)} aperta in modifica.`);
+        }}
+        onSave={() => void salvaCassa()}
+        onDelete={(sedeId, data) => void eliminaChiusura(sedeId, data)}
+      />
 
       <div className="rounded-md border border-border bg-white">
         <div className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -766,6 +866,8 @@ function CassaSedePanel({
   moneyDrafts,
   onMoneyDraftChange,
   onMoneyDraftCommit,
+  onSaveChiusura,
+  onDeleteChiusura,
   wideLayout,
 }: {
   sedeId: SedeCassaId;
@@ -786,6 +888,8 @@ function CassaSedePanel({
   moneyDrafts: MoneyDrafts;
   onMoneyDraftChange: (key: string, value: string) => void;
   onMoneyDraftCommit: (key: string) => void;
+  onSaveChiusura: () => void;
+  onDeleteChiusura: () => void;
   wideLayout: boolean;
 }) {
   const speseTotale = spese.reduce((sum, spesa) => sum + spesa.importo, 0);
@@ -804,9 +908,25 @@ function CassaSedePanel({
           <h2 className="text-lg font-semibold text-foreground">{sedeLabel(sedeId)}</h2>
           <p className="text-sm text-muted-foreground">Chiusura del {formatDate(giorno)}</p>
         </div>
-        <Badge className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100">
-          Saldo {valuta.format(totali.saldo)}
-        </Badge>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Badge className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100">
+            Saldo {valuta.format(totali.saldo)}
+          </Badge>
+          <Button type="button" variant="outline" size="sm" onClick={onSaveChiusura} className="gap-2 bg-white">
+            <Save className="h-4 w-4" />
+            Salva
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onDeleteChiusura}
+            className="gap-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="h-4 w-4" />
+            Elimina
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-5 p-4">
@@ -916,9 +1036,8 @@ function CassaSedePanel({
               </SelectContent>
             </Select>
             <Input
-              type="number"
-              min={0}
-              step={0.01}
+              type="text"
+              inputMode="decimal"
               value={nuovaSpesa.importo}
               onChange={(event) => onUpdateNuovaSpesa({ importo: event.target.value })}
               placeholder="Importo"
@@ -1028,6 +1147,115 @@ function CassaSedePanel({
           <SpeseMiniChart spese={spese} />
         </div>
       </div>
+    </section>
+  );
+}
+
+function ElencoChiusure({
+  rows,
+  activeData,
+  onEdit,
+  onSave,
+  onDelete,
+}: {
+  rows: Array<{
+    key: string;
+    sedeId: SedeCassaId;
+    data: string;
+    totali: TotaliCassa;
+    speseCount: number;
+    documentiCount: number;
+  }>;
+  activeData: string;
+  onEdit: (sedeId: SedeCassaId, data: string) => void;
+  onSave: () => void;
+  onDelete: (sedeId: SedeCassaId, data: string) => void;
+}) {
+  return (
+    <section className="rounded-md border border-border bg-white">
+      <div className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Elenco chiusure</h2>
+          <p className="text-sm text-muted-foreground">
+            Apri, salva o elimina una chiusura gia inserita.
+          </p>
+        </div>
+        <Badge variant="secondary">{rows.length} chiusure</Badge>
+      </div>
+
+      {rows.length > 0 ? (
+        <div className="divide-y divide-border">
+          {rows.map((row) => {
+            const incassi = row.totali.contanti + row.totali.bancomat + row.totali.assegni;
+            const active = row.data === activeData;
+            return (
+              <div
+                key={row.key}
+                className={`grid gap-3 px-4 py-3 md:grid-cols-[140px_120px_1fr_1fr_1fr_150px_auto] md:items-center ${
+                  active ? "bg-primary/5" : "bg-white"
+                }`}
+              >
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Data</p>
+                  <p className="font-semibold text-foreground">{formatDate(row.data)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Sede</p>
+                  <p className="font-medium text-foreground">{sedeLabel(row.sedeId)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Incassi</p>
+                  <p className="font-semibold text-foreground">{valuta.format(incassi)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Spese</p>
+                  <p className="font-semibold text-red-700">{valuta.format(row.totali.spese)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Saldo</p>
+                  <p className="font-semibold text-foreground">{valuta.format(row.totali.saldo)}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">{row.speseCount} spese</Badge>
+                  <Badge variant="outline">{row.documentiCount} allegati</Badge>
+                </div>
+                <div className="flex flex-wrap gap-2 md:justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onEdit(row.sedeId, row.data)}
+                    className="gap-2 bg-white"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Modifica
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={onSave} className="gap-2 bg-white">
+                    <Save className="h-4 w-4" />
+                    Salva
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onDelete(row.sedeId, row.data)}
+                    className="gap-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Elimina
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="p-4">
+          <div className="rounded-md border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+            Nessuna chiusura salvata. Compila una sede e premi Salva per inserirla nell'elenco.
+          </div>
+        </div>
+      )}
     </section>
   );
 }

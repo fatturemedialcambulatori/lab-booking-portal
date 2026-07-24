@@ -220,7 +220,7 @@ const loadCassaState = async (): Promise<CassaState> => {
     : { giorni: [], spese: [], documenti: [] };
 };
 
-const saveCassaState = async (state: CassaState) => {
+const saveCassaState = async (state: CassaState): Promise<CassaState> => {
   const now = new Date();
   const [settings] = await db
     .insert(adminSettingsTable)
@@ -238,7 +238,7 @@ const saveCassaState = async (state: CassaState) => {
     })
     .returning();
 
-  return settings.value;
+  return settings.value as CassaState;
 };
 
 const ensureStorageBucket = async (config: NonNullable<ReturnType<typeof getStorageConfig>>) => {
@@ -319,13 +319,29 @@ const saveCassaDocument = async (document: CassaDocument) => {
   return withFileUrl(document);
 };
 
+const mergeStateDocuments = async (incoming: CassaState) => {
+  const current = await loadCassaState();
+  const currentDocuments = Array.isArray(current.documenti) ? current.documenti.filter(isCassaDocument) : [];
+  const incomingDocuments = Array.isArray(incoming.documenti) ? incoming.documenti.filter(isCassaDocument) : [];
+  const incomingIds = new Set(incomingDocuments.map((document) => document.id));
+
+  return {
+    ...incoming,
+    documenti: [
+      ...currentDocuments.filter((document) => !incomingIds.has(document.id)),
+      ...incomingDocuments,
+    ],
+  };
+};
+
+const withPublicDocumentUrls = (state: CassaState): CassaState => ({
+  ...state,
+  documenti: Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument).map(withFileUrl) : [],
+});
+
 router.get("/cassa-state", async (req, res) => {
   try {
-    const state = await loadCassaState();
-    res.json({
-      ...state,
-      documenti: Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument).map(withFileUrl) : [],
-    });
+    res.json(withPublicDocumentUrls(await loadCassaState()));
   } catch (err) {
     req.log.error({ err }, "Failed to load cassa state");
     res.status(500).json({ error: "Internal server error" });
@@ -339,7 +355,7 @@ router.put("/cassa-state", async (req, res) => {
   }
 
   try {
-    res.json(await saveCassaState(req.body as CassaState));
+    res.json(withPublicDocumentUrls(await saveCassaState(await mergeStateDocuments(req.body as CassaState))));
   } catch (err) {
     req.log.error({ err }, "Failed to save cassa state");
     res.status(500).json({ error: "Internal server error" });
@@ -444,6 +460,23 @@ const uploadCassaFileJson: RequestHandler = async (req, res) => {
 
 router.post("/cassa-file-upload", uploadCassaFileJson);
 router.post("/cassa-file-uploads/:documentId", uploadCassaFileJson);
+
+router.post("/cassa-file-delete", async (req, res) => {
+  const documentId = sanitizeSegment(readBodyString(req.body?.documentId), "documento");
+
+  try {
+    const state = await loadCassaState();
+    const documenti = (Array.isArray(state.documenti) ? state.documenti : [])
+      .filter(isCassaDocument)
+      .filter((document) => document.id !== documentId);
+
+    await saveCassaState({ ...state, documenti });
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete cassa document");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 const uploadCassaFile: RequestHandler = async (req, res) => {
   const config = getStorageConfig();
