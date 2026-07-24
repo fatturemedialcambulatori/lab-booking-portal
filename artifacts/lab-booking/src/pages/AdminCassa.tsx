@@ -577,8 +577,9 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   }, [giorno, mobileCapture]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="rounded-md border border-border bg-white p-4 sm:border-0 sm:bg-transparent sm:p-0">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Cassa</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -589,9 +590,10 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
           <Save className="h-3.5 w-3.5" />
           {statusLabel}
         </Badge>
+        </div>
       </div>
 
-      <div className="grid gap-3 rounded-md border border-border bg-white p-4 lg:grid-cols-[220px_1fr_1fr_220px]">
+      <div className="grid gap-3 rounded-md border border-border bg-white p-3 sm:p-4 lg:grid-cols-[220px_1fr_1fr_220px]">
         <Field label="Giorno chiusura">
           <Input type="date" value={giorno} onChange={(event) => setGiorno(event.target.value)} />
         </Field>
@@ -607,7 +609,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         </div>
       </div>
 
-      <section className="rounded-md border border-border bg-white p-4">
+      <section className="rounded-md border border-border bg-white p-3 sm:p-4">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-foreground">Dati giornalieri</h2>
@@ -617,7 +619,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
           </div>
           <Badge variant="secondary">{valuta.format(totaliGiorno.saldo)} saldo</Badge>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
           <StatCard icon={<Banknote className="h-5 w-5" />} label="Contanti" value={valuta.format(totaliGiorno.contanti)} />
           <StatCard icon={<CreditCard className="h-5 w-5" />} label="Bancomat/POS" value={valuta.format(totaliGiorno.bancomat)} />
           <StatCard icon={<Landmark className="h-5 w-5" />} label="Assegni" value={valuta.format(totaliGiorno.assegni)} />
@@ -630,6 +632,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             strong
           />
         </div>
+        <DailyTotalsChart totali={totaliGiorno} />
       </section>
 
       <div className={scope === "tutte" ? "grid gap-4 xl:grid-cols-2" : "grid gap-4"}>
@@ -668,6 +671,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
           </div>
           <Badge variant="secondary">{righePeriodo.length} giorni</Badge>
         </div>
+        <RiepilogoPeriodoChart righe={righePeriodo} />
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-sm">
             <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
@@ -1078,6 +1082,106 @@ function DocumentoUploader({
       ) : (
         <div className="mt-3 rounded-md border border-dashed border-border bg-white p-3 text-sm text-muted-foreground">
           Nessun documento caricato.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DailyTotalsChart({ totali }: { totali: TotaliCassa }) {
+  const rows = [
+    { label: "Contanti", value: totali.contanti, color: "bg-emerald-500" },
+    { label: "Bancomat", value: totali.bancomat, color: "bg-sky-500" },
+    { label: "Assegni", value: totali.assegni, color: "bg-violet-500" },
+    { label: "Fondo", value: totali.fondoCassa, color: "bg-amber-500" },
+    { label: "Spese", value: totali.spese, color: "bg-red-500" },
+  ];
+  const max = Math.max(...rows.map((row) => row.value), 1);
+
+  return (
+    <div className="mt-4 rounded-md border border-border bg-muted/20 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Grafico giornaliero</h3>
+          <p className="text-xs text-muted-foreground">Incassi, fondo cassa e spese del giorno selezionato.</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-5 items-end gap-2">
+        {rows.map((row) => (
+          <div key={row.label} className="flex min-w-0 flex-col items-center gap-2">
+            <div className="flex h-28 w-full items-end rounded-md bg-white p-1">
+              <div
+                className={`w-full rounded-sm ${row.color}`}
+                style={{ height: `${Math.max(6, (row.value / max) * 100)}%` }}
+              />
+            </div>
+            <div className="w-full text-center">
+              <p className="truncate text-[11px] font-medium text-muted-foreground">{row.label}</p>
+              <p className="truncate text-xs font-semibold text-foreground">{valuta.format(row.value)}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RiepilogoPeriodoChart({
+  righe,
+}: {
+  righe: Array<{ data: string; totali: TotaliCassa; documenti: DocumentoCassa[] }>;
+}) {
+  const rows = righe.slice(0, 10).reverse();
+  const max = Math.max(
+    ...rows.flatMap((row) => [
+      row.totali.contanti + row.totali.bancomat + row.totali.assegni,
+      row.totali.spese,
+    ]),
+    1,
+  );
+
+  return (
+    <div className="border-b border-border p-3 sm:p-4">
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Andamento giornaliero</h3>
+          <p className="text-xs text-muted-foreground">Ultimi {rows.length} giorni nel filtro corrente.</p>
+        </div>
+        <div className="flex gap-3 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-primary" /> Incassi</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> Spese</span>
+        </div>
+      </div>
+
+      {rows.length > 0 ? (
+        <div className="flex min-h-40 gap-2 overflow-x-auto pb-1">
+          {rows.map((row) => {
+            const incassi = row.totali.contanti + row.totali.bancomat + row.totali.assegni;
+            return (
+              <div key={row.data} className="flex min-w-16 flex-1 flex-col items-center justify-end gap-2">
+                <div className="flex h-28 w-full items-end justify-center gap-1 rounded-md bg-muted/40 p-1.5">
+                  <div
+                    className="w-4 rounded-sm bg-primary"
+                    style={{ height: `${Math.max(4, (incassi / max) * 100)}%` }}
+                    title={`Incassi ${valuta.format(incassi)}`}
+                  />
+                  <div
+                    className="w-4 rounded-sm bg-red-500"
+                    style={{ height: `${Math.max(4, (row.totali.spese / max) * 100)}%` }}
+                    title={`Spese ${valuta.format(row.totali.spese)}`}
+                  />
+                </div>
+                <div className="text-center">
+                  <p className="text-[11px] font-medium text-muted-foreground">{formatDate(row.data).slice(0, 5)}</p>
+                  <p className="text-xs font-semibold text-foreground">{valuta.format(row.totali.saldo)}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+          Nessun dato giornaliero da rappresentare.
         </div>
       )}
     </div>

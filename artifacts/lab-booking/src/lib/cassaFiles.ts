@@ -22,6 +22,16 @@ type UploadParams = {
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
+const apiUrl = (path: string) => new URL(path, window.location.origin).toString();
+
+const fileToDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Lettura file non riuscita."));
+    reader.readAsDataURL(file);
+  });
+
 const readErrorMessage = async (response: Response) => {
   const data = await response.json().catch(() => null);
   if (data && typeof data === "object") {
@@ -31,16 +41,19 @@ const readErrorMessage = async (response: Response) => {
   return `Errore ${response.status}`;
 };
 
-const uploadWithApiFallback = async ({ id, sedeId, data, tipo, file }: UploadParams) => {
-  const formData = new FormData();
-  formData.append("sedeId", sedeId);
-  formData.append("data", data);
-  formData.append("tipo", tipo);
-  formData.append("file", file, file.name);
-
-  const response = await fetch(`/api/cassa-files/${encodeURIComponent(id)}`, {
+const uploadWithJsonFallback = async ({ id, sedeId, data, tipo, file }: UploadParams) => {
+  const response = await fetch(apiUrl(`/api/cassa-file-uploads/${encodeURIComponent(id)}`), {
     method: "POST",
-    body: formData,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sedeId,
+      data,
+      tipo,
+      fileName: file.name,
+      contentType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+      fileBase64: await fileToDataUrl(file),
+    }),
   });
 
   if (!response.ok) {
@@ -58,9 +71,10 @@ export async function uploadCassaDocument(params: UploadParams) {
   }
 
   let directUploadError = "";
+  let jsonUploadError = "";
 
   try {
-    const signResponse = await fetch(`/api/cassa-files/${encodeURIComponent(id)}/sign`, {
+    const signResponse = await fetch(apiUrl(`/api/cassa-files/${encodeURIComponent(id)}/sign`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -100,7 +114,7 @@ export async function uploadCassaDocument(params: UploadParams) {
       throw new Error(await uploadResponse.text());
     }
 
-    const completeResponse = await fetch(`/api/cassa-files/${encodeURIComponent(id)}/complete`, {
+    const completeResponse = await fetch(apiUrl(`/api/cassa-files/${encodeURIComponent(id)}/complete`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(signData.document),
@@ -116,9 +130,11 @@ export async function uploadCassaDocument(params: UploadParams) {
   }
 
   try {
-    return await uploadWithApiFallback(params);
+    return await uploadWithJsonFallback(params);
   } catch (err) {
-    const fallbackError = err instanceof Error ? err.message : "Upload fallback non riuscito.";
-    throw new Error(`${fallbackError}${directUploadError ? ` (${directUploadError})` : ""}`);
+    jsonUploadError = err instanceof Error ? err.message : "Upload JSON non riuscito.";
   }
+
+  const details = [directUploadError, jsonUploadError].filter(Boolean).join(" / ");
+  throw new Error(details || "Upload documento cassa non riuscito.");
 }

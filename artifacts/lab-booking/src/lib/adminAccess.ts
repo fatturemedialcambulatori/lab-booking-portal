@@ -8,6 +8,8 @@ export type PermissionId =
   | "anagrafiche"
   | "infortunistica"
   | "cassa"
+  | "cassa.modena"
+  | "cassa.sassuolo"
   | "impostazioni"
   | "utenti";
 
@@ -60,7 +62,9 @@ export const PERMESSI_GRUPPI: Array<{
     permessi: [
       { id: "anagrafiche", label: "Anagrafiche" },
       { id: "infortunistica", label: "Infortunistica stradale" },
-      { id: "cassa", label: "Cassa" },
+      { id: "cassa", label: "Cassa tutte le sedi" },
+      { id: "cassa.modena", label: "Cassa Modena" },
+      { id: "cassa.sassuolo", label: "Cassa Sassuolo" },
       { id: "impostazioni", label: "Impostazioni" },
       { id: "utenti", label: "Utenti e permessi" },
     ],
@@ -70,6 +74,11 @@ export const PERMESSI_GRUPPI: Array<{
 export const TUTTI_I_PERMESSI = PERMESSI_GRUPPI.flatMap((gruppo) =>
   gruppo.permessi.map((permesso) => permesso.id),
 );
+
+const permessiSegreteriaSede = (sede: "modena" | "sassuolo") =>
+  TUTTI_I_PERMESSI.filter((permesso) => !permesso.startsWith("cassa")).concat(
+    sede === "modena" ? "cassa.modena" : "cassa.sassuolo",
+  );
 
 const DEFAULT_ACCESS_CONFIG: AdminAccessConfig = {
   ruoli: [
@@ -104,6 +113,18 @@ const DEFAULT_ACCESS_CONFIG: AdminAccessConfig = {
       permessi: ["anagrafiche", "infortunistica", "cassa", "impostazioni"],
     },
     {
+      id: "segreteria-modena",
+      nome: "Segreteria Modena",
+      descrizione: "Segreteria completa con cassa limitata alla sede di Modena.",
+      permessi: permessiSegreteriaSede("modena"),
+    },
+    {
+      id: "segreteria-sassuolo",
+      nome: "Segreteria Sassuolo",
+      descrizione: "Segreteria completa con cassa limitata alla sede di Sassuolo.",
+      permessi: permessiSegreteriaSede("sassuolo"),
+    },
+    {
       id: "admin",
       nome: "Amministratore",
       descrizione: "Accesso tecnico completo.",
@@ -136,6 +157,24 @@ const DEFAULT_ACCESS_CONFIG: AdminAccessConfig = {
       username: "avvocato",
       password: "Avvocato!26",
       ruoloId: "avvocato",
+      stato: "attivo",
+    },
+    {
+      id: "segreteria-modena",
+      nome: "Segreteria Modena",
+      email: "segreteria.modena@mmedical.local",
+      username: "segreteria-modena",
+      password: "Modena!26",
+      ruoloId: "segreteria-modena",
+      stato: "attivo",
+    },
+    {
+      id: "segreteria-sassuolo",
+      nome: "Segreteria Sassuolo",
+      email: "segreteria.sassuolo@mmedical.local",
+      username: "segreteria-sassuolo",
+      password: "Sassuolo!26",
+      ruoloId: "segreteria-sassuolo",
       stato: "attivo",
     },
   ],
@@ -226,4 +265,9 @@ export const roleHasPermission = (
   config: AdminAccessConfig,
   ruoloId: string | null | undefined,
   permesso: PermissionId,
-) => Boolean(getRoleById(config, ruoloId)?.permessi.includes(permesso));
+) => {
+  const permessi = getRoleById(config, ruoloId)?.permessi ?? [];
+  if (permesso === "cassa.modena") return permessi.includes("cassa") || permessi.includes("cassa.modena");
+  if (permesso === "cassa.sassuolo") return permessi.includes("cassa") || permessi.includes("cassa.sassuolo");
+  return permessi.includes(permesso);
+};

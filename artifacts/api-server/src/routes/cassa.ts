@@ -70,6 +70,11 @@ const readHeader = (value: string | string[] | undefined, fallback = "") =>
 const readBodyString = (value: unknown, fallback = "") =>
   typeof value === "string" && value.trim() ? value.trim() : fallback;
 
+const readBodyNumber = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 const inferContentType = (fileName: string, providedType: string) => {
   if (providedType && providedType !== "application/octet-stream") return providedType;
 
@@ -182,6 +187,21 @@ const withFileUrl = (document: CassaDocument): CassaDocument => ({
   ...document,
   fileUrl: document.fileUrl ?? `/api/cassa-files/${encodeURIComponent(document.id)}`,
 });
+
+const decodeBase64File = (value: string, fallbackContentType: string) => {
+  const match = value.match(/^data:([^;]+);base64,(.+)$/);
+  if (match) {
+    return {
+      contentType: match[1] || fallbackContentType,
+      body: Buffer.from(match[2] || "", "base64"),
+    };
+  }
+
+  return {
+    contentType: fallbackContentType,
+    body: Buffer.from(value, "base64"),
+  };
+};
 
 const loadCassaState = async (): Promise<CassaState> => {
   const [settings] = await db
@@ -317,6 +337,99 @@ router.put("/cassa-state", async (req, res) => {
     res.json(await saveCassaState(req.body as CassaState));
   } catch (err) {
     req.log.error({ err }, "Failed to save cassa state");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/cassa-file-uploads/:documentId", async (req, res) => {
+  const config = getStorageConfig();
+  if (!config) {
+    res.status(503).json({
+      error: "Supabase Storage non configurato",
+      details: "Imposta SUPABASE_SERVICE_ROLE_KEY su Vercel.",
+    });
+    return;
+  }
+
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    res.status(400).json({ error: "Upload documento cassa non valido" });
+    return;
+  }
+
+  const documentId = sanitizeSegment(readHeader(req.params.documentId), "documento");
+  const sedeId = sanitizeSegment(readBodyString(req.body.sedeId, "sede"), "sede");
+  const data = sanitizeSegment(readBodyString(req.body.data, new Date().toISOString().slice(0, 10)), "data");
+  const tipo = sanitizeSegment(readBodyString(req.body.tipo, "documento"), "documento");
+  const fileName = sanitizeSegment(readBodyString(req.body.fileName, "documento.pdf"), "documento.pdf");
+  const fallbackContentType = inferContentType(
+    fileName,
+    readBodyString(req.body.contentType, "application/octet-stream"),
+  );
+  const fileBase64 = readBodyString(req.body.fileBase64, "");
+  const reportedSize = readBodyNumber(req.body.sizeBytes, 0);
+
+  if (!fileBase64) {
+    res.status(400).json({ error: "File mancante" });
+    return;
+  }
+
+  if (reportedSize > MAX_FILE_BYTES) {
+    res.status(413).json({ error: "File troppo grande. Il piano Free consente massimo 50 MB per file." });
+    return;
+  }
+
+  const decodedFile = decodeBase64File(fileBase64, fallbackContentType);
+  if (decodedFile.body.length === 0) {
+    res.status(400).json({ error: "File mancante" });
+    return;
+  }
+
+  if (decodedFile.body.length > MAX_FILE_BYTES) {
+    res.status(413).json({ error: "File troppo grande. Il piano Free consente massimo 50 MB per file." });
+    return;
+  }
+
+  const contentType = inferContentType(fileName, decodedFile.contentType);
+  const storagePath = ["cassa", sedeId, data, tipo, `${Date.now()}-${fileName}`].join("/");
+
+  try {
+    await ensureStorageBucket(config);
+
+    const uploadResponse = await fetch(
+      `${config.supabaseUrl}/storage/v1/object/${config.bucket}/${encodeURI(storagePath)}`,
+      {
+        method: "POST",
+        headers: storageHeaders(config.serviceRoleKey, {
+          "Content-Type": contentType,
+          "Cache-Control": "3600",
+          "x-upsert": "true",
+        }),
+        body: decodedFile.body,
+      },
+    );
+
+    if (!uploadResponse.ok) {
+      const message = await uploadResponse.text();
+      req.log.error({ status: uploadResponse.status, message }, "Supabase Storage cassa JSON upload failed");
+      res.status(502).json({ error: "Upload Supabase Storage non riuscito" });
+      return;
+    }
+
+    const document = buildDocument({
+      documentId,
+      data,
+      sedeId,
+      tipo,
+      bucket: config.bucket,
+      storagePath,
+      fileName,
+      contentType,
+      sizeBytes: decodedFile.body.length,
+    });
+
+    res.json(await saveCassaDocument(document));
+  } catch (err) {
+    req.log.error({ err }, "Failed to upload cassa JSON document");
     res.status(500).json({ error: "Internal server error" });
   }
 });

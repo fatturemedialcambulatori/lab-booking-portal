@@ -151,7 +151,11 @@ const MENU_GROUPS: MenuGroup[] = [
 ];
 
 const permessoVoce = (area: AreaId, tab: TabId): PermissionId | null => {
-  if (area === "cassa" && tab.startsWith("cassa-")) return "cassa";
+  if (area === "cassa") {
+    if (tab === "cassa-totale") return "cassa";
+    if (tab === "cassa-modena") return "cassa.modena";
+    if (tab === "cassa-sassuolo") return "cassa.sassuolo";
+  }
   if (area === "laboratorio") {
     if (tab === "accettazione") return "laboratorio.accettazione";
     if (tab === "prenotazioni") return "laboratorio.agenda";
@@ -259,10 +263,11 @@ function AdminDashboard({
     setSettingsTarget({ tab: "medici", medicoId, key: Date.now() });
     setActiveTab("impostazioni");
   };
+  const isCassaTab = activeTab.startsWith("cassa-");
 
   return (
     <div className="min-h-screen bg-background text-foreground lg:flex">
-      <aside className="bg-white border-b border-border lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:shrink-0 lg:border-b-0 lg:border-r">
+      <aside className={`${isCassaTab ? "hidden lg:block" : ""} bg-white border-b border-border lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:shrink-0 lg:border-b-0 lg:border-r`}>
         <div className="flex h-full flex-col">
           <div className="border-b border-border px-5 py-5">
             <div className="flex items-center gap-3">
@@ -433,7 +438,7 @@ function AdminDashboard({
           </div>
         </header>
 
-        <main className="flex-1 px-4 py-8 sm:px-6">
+        <main className={`flex-1 ${isCassaTab ? "px-3 py-4 sm:px-6 sm:py-8" : "px-4 py-8 sm:px-6"}`}>
           <div className="mx-auto max-w-[1600px]">
             {!firstAllowedTarget && (
               <div className="rounded-md border border-border bg-white p-6 text-sm text-muted-foreground">
