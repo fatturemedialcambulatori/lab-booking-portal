@@ -224,7 +224,10 @@ const normalizeDocumento = (value: unknown): DocumentoCassa | null => {
     bucket: item.bucket,
     storagePath: item.storagePath,
     fileName: item.fileName,
-    fileUrl: typeof item.fileUrl === "string" ? item.fileUrl : `/api/cassa-files/${encodeURIComponent(id)}`,
+    fileUrl:
+      typeof item.fileUrl === "string" && item.fileUrl.includes("cassa-file-download")
+        ? item.fileUrl
+        : `/api/cassa-file-download?id=${encodeURIComponent(id)}`,
     contentType: item.contentType,
     sizeBytes: item.sizeBytes,
     uploadedAt: item.uploadedAt ?? new Date().toISOString(),

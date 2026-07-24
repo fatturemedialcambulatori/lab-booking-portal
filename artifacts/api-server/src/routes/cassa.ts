@@ -67,6 +67,11 @@ const sanitizeSegment = (value: string, fallback: string) => {
 const readHeader = (value: string | string[] | undefined, fallback = "") =>
   Array.isArray(value) ? value[0] ?? fallback : value ?? fallback;
 
+const readQueryValue = (value: unknown, fallback = ""): string => {
+  if (Array.isArray(value)) return readQueryValue(value[0], fallback);
+  return typeof value === "string" ? value : fallback;
+};
+
 const readBodyString = (value: unknown, fallback = "") =>
   typeof value === "string" && value.trim() ? value.trim() : fallback;
 
@@ -185,7 +190,7 @@ const isCassaDocument = (value: unknown): value is CassaDocument => {
 
 const withFileUrl = (document: CassaDocument): CassaDocument => ({
   ...document,
-  fileUrl: document.fileUrl ?? `/api/cassa-files/${encodeURIComponent(document.id)}`,
+  fileUrl: document.fileUrl ?? `/api/cassa-file-download?id=${encodeURIComponent(document.id)}`,
 });
 
 const decodeBase64File = (value: string, fallbackContentType: string) => {
@@ -296,7 +301,7 @@ const buildDocument = ({
   bucket,
   storagePath,
   fileName,
-  fileUrl: `/api/cassa-files/${encodeURIComponent(documentId)}`,
+  fileUrl: `/api/cassa-file-download?id=${encodeURIComponent(documentId)}`,
   contentType,
   sizeBytes,
   uploadedAt: new Date().toISOString(),
@@ -341,7 +346,7 @@ router.put("/cassa-state", async (req, res) => {
   }
 });
 
-router.post("/cassa-file-uploads/:documentId", async (req, res) => {
+const uploadCassaFileJson: RequestHandler = async (req, res) => {
   const config = getStorageConfig();
   if (!config) {
     res.status(503).json({
@@ -356,7 +361,10 @@ router.post("/cassa-file-uploads/:documentId", async (req, res) => {
     return;
   }
 
-  const documentId = sanitizeSegment(readHeader(req.params.documentId), "documento");
+  const documentId = sanitizeSegment(
+    readBodyString(req.body.documentId) || readHeader(req.params.documentId),
+    "documento",
+  );
   const sedeId = sanitizeSegment(readBodyString(req.body.sedeId, "sede"), "sede");
   const data = sanitizeSegment(readBodyString(req.body.data, new Date().toISOString().slice(0, 10)), "data");
   const tipo = sanitizeSegment(readBodyString(req.body.tipo, "documento"), "documento");
@@ -432,7 +440,10 @@ router.post("/cassa-file-uploads/:documentId", async (req, res) => {
     req.log.error({ err }, "Failed to upload cassa JSON document");
     res.status(500).json({ error: "Internal server error" });
   }
-});
+};
+
+router.post("/cassa-file-upload", uploadCassaFileJson);
+router.post("/cassa-file-uploads/:documentId", uploadCassaFileJson);
 
 const uploadCassaFile: RequestHandler = async (req, res) => {
   const config = getStorageConfig();
@@ -524,7 +535,7 @@ const uploadCassaFile: RequestHandler = async (req, res) => {
   }
 };
 
-router.post("/cassa-files/:documentId/sign", async (req, res) => {
+const signCassaFileUpload: RequestHandler = async (req, res) => {
   const config = getStorageConfig();
   if (!config) {
     res.status(503).json({
@@ -537,7 +548,10 @@ router.post("/cassa-files/:documentId/sign", async (req, res) => {
   try {
     await ensureStorageBucket(config);
 
-    const documentId = sanitizeSegment(readHeader(req.params.documentId), "documento");
+    const documentId = sanitizeSegment(
+      readBodyString(req.body?.documentId) || readHeader(req.params.documentId),
+      "documento",
+    );
     const sedeId = sanitizeSegment(readBodyString(req.body?.sedeId, "sede"), "sede");
     const data = sanitizeSegment(readBodyString(req.body?.data, new Date().toISOString().slice(0, 10)), "data");
     const tipo = sanitizeSegment(readBodyString(req.body?.tipo, "documento"), "documento");
@@ -597,16 +611,19 @@ router.post("/cassa-files/:documentId/sign", async (req, res) => {
     req.log.error({ err }, "Failed to create cassa signed upload URL");
     res.status(500).json({ error: "Internal server error" });
   }
-});
+};
 
-router.post("/cassa-files/:documentId/complete", async (req, res) => {
+router.post("/cassa-file-sign", signCassaFileUpload);
+router.post("/cassa-files/:documentId/sign", signCassaFileUpload);
+
+const completeCassaFileUpload: RequestHandler = async (req, res) => {
   if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
     res.status(400).json({ error: "Documento cassa non valido" });
     return;
   }
 
   const candidate = req.body as Partial<CassaDocument>;
-  const documentId = sanitizeSegment(readHeader(req.params.documentId), "documento");
+  const documentId = sanitizeSegment(readBodyString(candidate.id) || readHeader(req.params.documentId), "documento");
   if (
     candidate.id !== documentId ||
     !candidate.data ||
@@ -632,7 +649,7 @@ router.post("/cassa-files/:documentId/complete", async (req, res) => {
       bucket: candidate.bucket,
       storagePath: candidate.storagePath,
       fileName: candidate.fileName,
-      fileUrl: `/api/cassa-files/${encodeURIComponent(documentId)}`,
+      fileUrl: `/api/cassa-file-download?id=${encodeURIComponent(documentId)}`,
       contentType: candidate.contentType,
       sizeBytes: candidate.sizeBytes,
       uploadedAt: candidate.uploadedAt,
@@ -641,7 +658,10 @@ router.post("/cassa-files/:documentId/complete", async (req, res) => {
     req.log.error({ err }, "Failed to complete cassa document upload");
     res.status(500).json({ error: "Internal server error" });
   }
-});
+};
+
+router.post("/cassa-file-complete", completeCassaFileUpload);
+router.post("/cassa-files/:documentId/complete", completeCassaFileUpload);
 
 const downloadCassaFile: RequestHandler = async (req, res) => {
   const config = getStorageConfig();
@@ -654,7 +674,10 @@ const downloadCassaFile: RequestHandler = async (req, res) => {
   }
 
   try {
-    const documentId = sanitizeSegment(readHeader(req.params.documentId), "documento");
+    const documentId = sanitizeSegment(
+      readHeader(req.params.documentId) || readQueryValue(req.query["id"]),
+      "documento",
+    );
     const state = await loadCassaState();
     const document = (Array.isArray(state.documenti) ? state.documenti : [])
       .filter(isCassaDocument)
@@ -693,6 +716,7 @@ const downloadCassaFile: RequestHandler = async (req, res) => {
 const rawCassaFile = express.raw({ type: "*/*", limit: "50mb" });
 
 router.post("/cassa-files/:documentId", rawCassaFile, uploadCassaFile);
+router.get("/cassa-file-download", downloadCassaFile);
 router.get("/cassa-files/:documentId", downloadCassaFile);
 
 export default router;

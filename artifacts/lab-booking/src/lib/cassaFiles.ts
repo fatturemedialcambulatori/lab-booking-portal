@@ -42,10 +42,11 @@ const readErrorMessage = async (response: Response) => {
 };
 
 const uploadWithJsonFallback = async ({ id, sedeId, data, tipo, file }: UploadParams) => {
-  const response = await fetch(apiUrl(`/api/cassa-file-uploads/${encodeURIComponent(id)}`), {
+  const response = await fetch(apiUrl("/api/cassa-file-upload"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      documentId: id,
       sedeId,
       data,
       tipo,
@@ -74,10 +75,11 @@ export async function uploadCassaDocument(params: UploadParams) {
   let jsonUploadError = "";
 
   try {
-    const signResponse = await fetch(apiUrl(`/api/cassa-files/${encodeURIComponent(id)}/sign`), {
+    const signResponse = await fetch(apiUrl("/api/cassa-file-sign"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        documentId: id,
         sedeId,
         data,
         tipo,
@@ -114,7 +116,7 @@ export async function uploadCassaDocument(params: UploadParams) {
       throw new Error(await uploadResponse.text());
     }
 
-    const completeResponse = await fetch(apiUrl(`/api/cassa-files/${encodeURIComponent(id)}/complete`), {
+    const completeResponse = await fetch(apiUrl("/api/cassa-file-complete"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(signData.document),
