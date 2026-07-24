@@ -263,7 +263,7 @@ const csvCell = (value: string | number | undefined) => `"${String(value ?? "").
 const isPraticaAttiva = (pratica: PraticaSinistro) => pratica.stato === "aperta";
 
 const certFileUrl = (certificatoId: string) =>
-  `/api/infortunistica-certificato-file/${encodeURIComponent(certificatoId)}`;
+  `/api/infortunistica-certificato-file?certificatoId=${encodeURIComponent(certificatoId)}`;
 
 const isInfortunisticaState = (value: unknown): value is InfortunisticaState => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;

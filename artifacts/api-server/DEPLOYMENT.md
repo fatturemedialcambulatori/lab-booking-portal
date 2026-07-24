@@ -59,3 +59,6 @@ server-side patient list.
 
 Latest CRM fixes add single-segment infortunistica certificate file endpoints
 and draft-based prestazioni edit unlock/save controls.
+
+Latest infortunistica upload fix moves certificate file transfer to a query-id
+single-segment endpoint for Vercel routing.

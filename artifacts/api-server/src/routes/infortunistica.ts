@@ -54,6 +54,19 @@ const sanitizeSegment = (value: string, fallback: string) => {
 const readHeader = (value: string | string[] | undefined, fallback = "") =>
   Array.isArray(value) ? value[0] ?? fallback : value ?? fallback;
 
+const readQueryValue = (value: unknown, fallback = ""): string => {
+  if (Array.isArray(value)) return readQueryValue(value[0], fallback);
+  return typeof value === "string" ? value : fallback;
+};
+
+const readCertificatoId = (req: Parameters<RequestHandler>[0]) =>
+  sanitizeSegment(
+    readHeader(req.params.certificatoId) ||
+      readQueryValue(req.query["certificatoId"]) ||
+      readQueryValue(req.query["id"]),
+    "certificato",
+  );
+
 const inferContentType = (fileName: string, providedType: string) => {
   if (providedType && providedType !== "application/octet-stream") return providedType;
 
@@ -146,7 +159,7 @@ const caricaCertificatoFile: RequestHandler = async (req, res) => {
     return;
   }
 
-  const certificatoId = sanitizeSegment(readHeader(req.params.certificatoId), "certificato");
+  const certificatoId = readCertificatoId(req);
   const clienteId = sanitizeSegment(readHeader(req.headers["x-cliente-id"]), "cliente");
   const praticaId = sanitizeSegment(readHeader(req.headers["x-pratica-id"]), "pratica");
   const fileName = sanitizeSegment(readHeader(req.headers["x-file-name"], "certificato.pdf"), "certificato.pdf");
@@ -214,7 +227,7 @@ const caricaCertificatoFile: RequestHandler = async (req, res) => {
 
     res.json({
       ...file,
-      fileUrl: `/api/infortunistica-certificato-file/${encodeURIComponent(certificatoId)}`,
+      fileUrl: `/api/infortunistica-certificato-file?certificatoId=${encodeURIComponent(certificatoId)}`,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to upload infortunistica certificate");
@@ -233,7 +246,7 @@ const scaricaCertificatoFile: RequestHandler = async (req, res) => {
   }
 
   try {
-    const certificatoId = sanitizeSegment(readHeader(req.params.certificatoId), "certificato");
+    const certificatoId = readCertificatoId(req);
     const [file] = await db
       .select()
       .from(infortunisticaCertificatiFilesTable)
@@ -275,9 +288,11 @@ const rawCertificatoFile = express.raw({ type: "*/*", limit: "50mb" });
 router.get("/infortunistica-certificati-files", listaCertificatiFiles);
 router.get("/infortunistica/certificati/files", listaCertificatiFiles);
 
+router.post("/infortunistica-certificato-file", rawCertificatoFile, caricaCertificatoFile);
 router.post("/infortunistica-certificato-file/:certificatoId", rawCertificatoFile, caricaCertificatoFile);
 router.post("/infortunistica/certificati/:certificatoId/file", rawCertificatoFile, caricaCertificatoFile);
 
+router.get("/infortunistica-certificato-file", scaricaCertificatoFile);
 router.get("/infortunistica-certificato-file/:certificatoId", scaricaCertificatoFile);
 router.get("/infortunistica/certificati/:certificatoId/file", scaricaCertificatoFile);
 
