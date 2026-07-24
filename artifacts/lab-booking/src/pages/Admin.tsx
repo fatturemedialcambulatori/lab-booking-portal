@@ -12,6 +12,7 @@ import {
   UserCheck,
   KeyRound,
   Users,
+  WalletCards,
   type LucideIcon,
 } from "lucide-react";
 import { Login } from "./Login";
@@ -22,6 +23,7 @@ import { AdminBookingCalendar } from "./AdminBookingCalendar";
 import { AdminSettings } from "./AdminSettings";
 import { AdminUsers } from "./AdminUsers";
 import { AdminInfortunistica } from "./AdminInfortunistica";
+import { AdminCassa } from "./AdminCassa";
 import {
   getRoleById,
   readAdminAccessConfig,
@@ -75,9 +77,13 @@ type TabId =
   | "listino"
   | "anagrafiche"
   | "infortunistica"
+  | "cassa-totale"
+  | "cassa-modena"
+  | "cassa-sassuolo"
   | "impostazioni"
   | "utenti";
-type AreaId = "laboratorio" | "ambulatorio";
+type OperationalAreaId = "laboratorio" | "ambulatorio";
+type AreaId = OperationalAreaId | "cassa";
 type SettingsTabId = "specialita" | "prestazioni" | "medici" | "compensi";
 
 type SettingsTarget = {
@@ -114,6 +120,11 @@ const ANAGRAFICHE_ITEM: MenuItem = { id: "anagrafiche", label: "Anagrafiche", Ic
 const INFORTUNISTICA_ITEM: MenuItem = { id: "infortunistica", label: "Infortunistica stradale", Icon: Car };
 const SETTINGS_ITEM: MenuItem = { id: "impostazioni", label: "Impostazioni", Icon: Settings };
 const UTENTI_ITEM: MenuItem = { id: "utenti", label: "Utenti", Icon: KeyRound };
+const CASSA_ITEMS: MenuItem[] = [
+  { id: "cassa-totale", label: "Totale sedi", Icon: WalletCards },
+  { id: "cassa-modena", label: "Modena", Icon: WalletCards },
+  { id: "cassa-sassuolo", label: "Sassuolo", Icon: WalletCards },
+];
 
 const MENU_GROUPS: MenuGroup[] = [
   {
@@ -130,9 +141,17 @@ const MENU_GROUPS: MenuGroup[] = [
     Icon: UserCheck,
     items: AMBULATORIO_ITEMS,
   },
+  {
+    id: "cassa",
+    label: "Cassa",
+    subtitle: "Incassi e chiusure",
+    Icon: WalletCards,
+    items: CASSA_ITEMS,
+  },
 ];
 
 const permessoVoce = (area: AreaId, tab: TabId): PermissionId | null => {
+  if (area === "cassa" && tab.startsWith("cassa-")) return "cassa";
   if (area === "laboratorio") {
     if (tab === "accettazione") return "laboratorio.accettazione";
     if (tab === "prenotazioni") return "laboratorio.agenda";
@@ -439,7 +458,10 @@ function AdminDashboard({
             {activeTab === "utenti" && <AdminUsers />}
 
             {activeTab === "prenotazioni" && (
-              <AdminBookingCalendar area={activeArea} onOpenDoctor={apriProfiloMedico} />
+              <AdminBookingCalendar
+                area={activeArea === "ambulatorio" ? "ambulatorio" : "laboratorio"}
+                onOpenDoctor={apriProfiloMedico}
+              />
             )}
 
             {activeTab === "listino" && (
@@ -453,6 +475,12 @@ function AdminDashboard({
                 <AdminExams />
               </div>
             )}
+
+            {activeTab === "cassa-totale" && <AdminCassa scope="tutte" />}
+
+            {activeTab === "cassa-modena" && <AdminCassa scope="modena" />}
+
+            {activeTab === "cassa-sassuolo" && <AdminCassa scope="sassuolo" />}
 
           </div>
         </main>

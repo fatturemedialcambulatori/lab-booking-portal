@@ -9,6 +9,7 @@ import ocrRouter from "./ocr";
 import referenceRangesRouter from "./referenceRanges";
 import adminSettingsRouter from "./adminSettings";
 import infortunisticaRouter from "./infortunistica";
+import cassaRouter from "./cassa";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(refertiRouter);
 router.use(ocrRouter);
 router.use(adminSettingsRouter);
 router.use(infortunisticaRouter);
+router.use(cassaRouter);
 
 export default router;

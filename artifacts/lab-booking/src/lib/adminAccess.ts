@@ -7,6 +7,7 @@ export type PermissionId =
   | "ambulatorio.prestazioni"
   | "anagrafiche"
   | "infortunistica"
+  | "cassa"
   | "impostazioni"
   | "utenti";
 
@@ -59,6 +60,7 @@ export const PERMESSI_GRUPPI: Array<{
     permessi: [
       { id: "anagrafiche", label: "Anagrafiche" },
       { id: "infortunistica", label: "Infortunistica stradale" },
+      { id: "cassa", label: "Cassa" },
       { id: "impostazioni", label: "Impostazioni" },
       { id: "utenti", label: "Utenti e permessi" },
     ],
@@ -99,7 +101,7 @@ const DEFAULT_ACCESS_CONFIG: AdminAccessConfig = {
       id: "amministrazione",
       nome: "Amministrazione",
       descrizione: "Gestione amministrativa e impostazioni.",
-      permessi: ["anagrafiche", "infortunistica", "impostazioni"],
+      permessi: ["anagrafiche", "infortunistica", "cassa", "impostazioni"],
     },
     {
       id: "admin",
