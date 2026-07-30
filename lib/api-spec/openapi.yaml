@@ -817,6 +817,24 @@ components:
           format: date
         conventionText:
           type: ["string", "null"]
+        conventionServices:
+          type: array
+          items:
+            type: object
+            required: [id, prestazioneId, nome, prezzo]
+            properties:
+              id:
+                type: string
+              prestazioneId:
+                type: string
+              nome:
+                type: string
+              specialita:
+                type: string
+              durata:
+                type: number
+              prezzo:
+                type: number
         linkedConventionIds:
           type: array
           items:
@@ -871,6 +889,24 @@ components:
           format: date
         conventionText:
           type: ["string", "null"]
+        conventionServices:
+          type: array
+          items:
+            type: object
+            required: [id, prestazioneId, nome, prezzo]
+            properties:
+              id:
+                type: string
+              prestazioneId:
+                type: string
+              nome:
+                type: string
+              specialita:
+                type: string
+              durata:
+                type: number
+              prezzo:
+                type: number
         linkedConventionIds:
           type: array
           items:

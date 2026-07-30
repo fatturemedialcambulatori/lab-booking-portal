@@ -398,6 +398,14 @@ export const ListPatientsResponseItem = zod.object({
   "conventionActive": zod.boolean().optional(),
   "conventionExpiresAt": zod.coerce.date().nullish(),
   "conventionText": zod.string().nullish(),
+  "conventionServices": zod.array(zod.object({
+  "id": zod.string(),
+  "prestazioneId": zod.string(),
+  "nome": zod.string(),
+  "specialita": zod.string().optional(),
+  "durata": zod.number().optional(),
+  "prezzo": zod.number()
+})).optional(),
   "linkedConventionIds": zod.array(zod.number()).optional(),
   "email": zod.string(),
   "phone": zod.string(),
@@ -427,6 +435,14 @@ export const CreatePatientBody = zod.object({
   "conventionActive": zod.boolean().optional(),
   "conventionExpiresAt": zod.coerce.date().nullish(),
   "conventionText": zod.string().nullish(),
+  "conventionServices": zod.array(zod.object({
+  "id": zod.string(),
+  "prestazioneId": zod.string(),
+  "nome": zod.string(),
+  "specialita": zod.string().optional(),
+  "durata": zod.number().optional(),
+  "prezzo": zod.number()
+})).optional(),
   "linkedConventionIds": zod.array(zod.number()).optional(),
   "email": zod.string(),
   "phone": zod.string(),
@@ -453,6 +469,14 @@ export const CreatePatientResponse = zod.object({
   "conventionActive": zod.boolean().optional(),
   "conventionExpiresAt": zod.coerce.date().nullish(),
   "conventionText": zod.string().nullish(),
+  "conventionServices": zod.array(zod.object({
+  "id": zod.string(),
+  "prestazioneId": zod.string(),
+  "nome": zod.string(),
+  "specialita": zod.string().optional(),
+  "durata": zod.number().optional(),
+  "prezzo": zod.number()
+})).optional(),
   "linkedConventionIds": zod.array(zod.number()).optional(),
   "email": zod.string(),
   "phone": zod.string(),
@@ -485,6 +509,14 @@ export const UpdatePatientBody = zod.object({
   "conventionActive": zod.boolean().optional(),
   "conventionExpiresAt": zod.coerce.date().nullish(),
   "conventionText": zod.string().nullish(),
+  "conventionServices": zod.array(zod.object({
+  "id": zod.string(),
+  "prestazioneId": zod.string(),
+  "nome": zod.string(),
+  "specialita": zod.string().optional(),
+  "durata": zod.number().optional(),
+  "prezzo": zod.number()
+})).optional(),
   "linkedConventionIds": zod.array(zod.number()).optional(),
   "email": zod.string(),
   "phone": zod.string(),
@@ -511,6 +543,14 @@ export const UpdatePatientResponse = zod.object({
   "conventionActive": zod.boolean().optional(),
   "conventionExpiresAt": zod.coerce.date().nullish(),
   "conventionText": zod.string().nullish(),
+  "conventionServices": zod.array(zod.object({
+  "id": zod.string(),
+  "prestazioneId": zod.string(),
+  "nome": zod.string(),
+  "specialita": zod.string().optional(),
+  "durata": zod.number().optional(),
+  "prezzo": zod.number()
+})).optional(),
   "linkedConventionIds": zod.array(zod.number()).optional(),
   "email": zod.string(),
   "phone": zod.string(),

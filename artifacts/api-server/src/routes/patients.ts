@@ -30,6 +30,7 @@ type BulkPatient = {
   conventionActive: boolean;
   conventionExpiresAt: string | null;
   conventionText: string | null;
+  conventionServices: string | null;
   linkedConventionIds: string | null;
   notes: string | null;
   billingAddress: string | null;
@@ -55,6 +56,7 @@ const ensurePatientRegistryColumns = () => {
       add column if not exists convention_active boolean not null default false,
       add column if not exists convention_expires_at text,
       add column if not exists convention_text text,
+      add column if not exists convention_services text,
       add column if not exists linked_convention_ids text
   `).then(() => undefined);
   return patientRegistryColumnsPromise;
@@ -116,6 +118,84 @@ const normalizeLinkedConventionIds = (value: unknown) => {
   return ids.length ? JSON.stringify(ids) : null;
 };
 
+const readAmount = (value: unknown) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const parsed = Number(String(value ?? "").replace(/\./g, "").replace(",", ".").trim());
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const normalizeConventionServices = (value: unknown) => {
+  const normalizeList = (items: unknown[]) => {
+    const services = items
+      .map((item, index) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+        const row = item as Record<string, unknown>;
+        const prestazioneId = String(row["prestazioneId"] ?? row["id"] ?? "").trim();
+        const nome = String(row["nome"] ?? row["prestazione"] ?? "").trim();
+        const specialita = String(row["specialita"] ?? "").trim();
+        const durata = Number(row["durata"] ?? 0);
+        const prezzo = readAmount(row["prezzo"] ?? row["importo"]);
+        if (!prestazioneId && !nome) return null;
+
+        return {
+          id: String(row["id"] ?? "").trim() || prestazioneId || `convenzione-${index}`,
+          prestazioneId,
+          nome,
+          specialita,
+          durata: Number.isFinite(durata) ? Math.max(0, durata) : 0,
+          prezzo: Number.isFinite(prezzo) ? Math.max(0, prezzo) : 0,
+        };
+      })
+      .filter(Boolean);
+
+    return services.length ? JSON.stringify(services) : null;
+  };
+
+  if (Array.isArray(value)) return normalizeList(value);
+
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return Array.isArray(parsed) ? normalizeList(parsed) : null;
+  } catch {
+    return null;
+  }
+};
+
+const parseConventionServices = (value: string | null) => {
+  if (!value) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((item, index) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+        const row = item as Record<string, unknown>;
+        const prestazioneId = String(row["prestazioneId"] ?? row["id"] ?? "").trim();
+        const nome = String(row["nome"] ?? "").trim();
+        const durata = Number(row["durata"] ?? 0);
+        const prezzo = readAmount(row["prezzo"]);
+        if (!prestazioneId && !nome) return null;
+
+        return {
+          id: String(row["id"] ?? "").trim() || prestazioneId || `convenzione-${index}`,
+          prestazioneId,
+          nome,
+          specialita: String(row["specialita"] ?? "").trim(),
+          durata: Number.isFinite(durata) ? Math.max(0, durata) : 0,
+          prezzo: Number.isFinite(prezzo) ? Math.max(0, prezzo) : 0,
+        };
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
 const parseLinkedConventionIds = (value: string | null) => {
   if (!value) return [];
 
@@ -165,6 +245,7 @@ function normalizeBulkPatient(row: unknown): BulkPatient {
     conventionActive: recordType !== "privato" && readBoolean(data["conventionActive"] ?? data["convenzioneAttiva"]),
     conventionExpiresAt: toDateStr(String(data["conventionExpiresAt"] ?? data["scadenzaConvenzione"] ?? "").trim()) || null,
     conventionText: String(data["conventionText"] ?? data["testoConvenzione"] ?? "").trim() || null,
+    conventionServices: normalizeConventionServices(data["conventionServices"] ?? data["prestazioniConvenzione"]),
     linkedConventionIds: normalizeLinkedConventionIds(data["linkedConventionIds"] ?? data["convenzioniAssociate"]),
     notes: String(data["notes"] ?? "").trim() || null,
     billingAddress: String(data["billingAddress"] ?? "").trim() || null,
@@ -192,6 +273,7 @@ function formatPatient(p: typeof patientsTable.$inferSelect) {
     conventionActive,
     conventionExpiresAt: p.conventionExpiresAt,
     conventionText: p.conventionText,
+    conventionServices: parseConventionServices(p.conventionServices),
     linkedConventionIds: parseLinkedConventionIds(p.linkedConventionIds),
     email: p.email,
     phone: p.phone,
@@ -284,6 +366,7 @@ router.post("/patients", async (req, res) => {
         conventionActive: recordType !== "privato" ? d.conventionActive ?? false : false,
         conventionExpiresAt: d.conventionExpiresAt ? toDateStr(d.conventionExpiresAt as string | Date) : null,
         conventionText: d.conventionText ?? null,
+        conventionServices: recordType !== "privato" ? normalizeConventionServices(d.conventionServices) : null,
         linkedConventionIds: normalizeLinkedConventionIds(d.linkedConventionIds),
         email: d.email,
         phone: d.phone,
@@ -344,6 +427,9 @@ router.patch("/patients/:id", async (req, res) => {
         conventionExpiresAt: d.conventionExpiresAt ? toDateStr(d.conventionExpiresAt as string | Date) : null,
       }),
       ...(d.conventionText !== undefined && { conventionText: d.conventionText }),
+      ...(d.conventionServices !== undefined && {
+        conventionServices: nextRecordType !== "privato" ? normalizeConventionServices(d.conventionServices) : null,
+      }),
       ...(d.linkedConventionIds !== undefined && { linkedConventionIds: normalizeLinkedConventionIds(d.linkedConventionIds) }),
       ...(d.email !== undefined && { email: d.email }),
       ...(d.phone !== undefined && { phone: d.phone }),

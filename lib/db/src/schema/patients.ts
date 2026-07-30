@@ -16,6 +16,7 @@ export const patientsTable = pgTable("patients", {
   conventionActive: boolean("convention_active").notNull().default(false),
   conventionExpiresAt: text("convention_expires_at"),
   conventionText: text("convention_text"),
+  conventionServices: text("convention_services"),
   linkedConventionIds: text("linked_convention_ids"),
   email: text("email").notNull(),
   phone: text("phone").notNull(),

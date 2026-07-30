@@ -14,6 +14,7 @@ create table if not exists public.patients (
   convention_active boolean not null default false,
   convention_expires_at text,
   convention_text text,
+  convention_services text,
   linked_convention_ids text,
   email text not null,
   phone text not null,
@@ -33,6 +34,7 @@ alter table public.patients
   add column if not exists convention_active boolean not null default false,
   add column if not exists convention_expires_at text,
   add column if not exists convention_text text,
+  add column if not exists convention_services text,
   add column if not exists linked_convention_ids text;
 
 create table if not exists public.exams (

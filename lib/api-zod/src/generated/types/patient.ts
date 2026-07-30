@@ -5,6 +5,7 @@
  * API specification for Lab Booking Portal
  * OpenAPI spec version: 0.1.0
  */
+import type { PatientConventionServicesItem } from './patientConventionServicesItem';
 import type { PatientGender } from './patientGender';
 import type { PatientRecordType } from './patientRecordType';
 
@@ -29,6 +30,7 @@ export interface Patient {
   conventionExpiresAt?: Date | null;
   /** @nullable */
   conventionText?: string | null;
+  conventionServices?: PatientConventionServicesItem[];
   linkedConventionIds?: number[];
   email: string;
   phone: string;

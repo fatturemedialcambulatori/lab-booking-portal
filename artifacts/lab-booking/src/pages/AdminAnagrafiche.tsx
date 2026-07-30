@@ -39,12 +39,34 @@ import {
   Upload,
   Bell,
   Link2,
+  Eye,
+  Euro,
+  FileText,
+  Plus,
+  X,
 } from "lucide-react";
 import { parseFiscalCode } from "@/lib/fiscalCode";
 import { BulkImportDialog } from "@/components/BulkImportDialog";
 
 type RecordType = "privato" | "azienda" | "societa_sportiva";
 type RecordTypeFilter = "tutte" | RecordType;
+
+type PrestazioneCatalogo = {
+  id: string;
+  nome: string;
+  specialita: string;
+  durata: number;
+  attiva?: boolean;
+};
+
+type ConventionServiceForm = {
+  id: string;
+  prestazioneId: string;
+  nome: string;
+  specialita: string;
+  durata: number;
+  prezzo: string;
+};
 
 type PatientForm = {
   recordType: RecordType;
@@ -59,6 +81,7 @@ type PatientForm = {
   conventionActive: boolean;
   conventionExpiresAt: string;
   conventionText: string;
+  conventionServices: ConventionServiceForm[];
   linkedConventionIds: number[];
   email: string;
   phone: string;
@@ -73,7 +96,7 @@ const emptyForm = (): PatientForm => ({
   recordType: "privato",
   firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", gender: "", email: "", phone: "", notes: "",
   companyName: "", vatNumber: "", contactPerson: "",
-  conventionActive: false, conventionExpiresAt: "", conventionText: "", linkedConventionIds: [],
+  conventionActive: false, conventionExpiresAt: "", conventionText: "", conventionServices: [], linkedConventionIds: [],
   billingAddress: "", billingCap: "", billingCity: "", billingProvincia: "",
 });
 
@@ -142,6 +165,65 @@ const conventionLabel = (patient: Patient) => {
   return patient.conventionExpiresAt ? `Attiva fino al ${patient.conventionExpiresAt}` : "Convenzione attiva";
 };
 
+const valuta = new Intl.NumberFormat("it-IT", {
+  style: "currency",
+  currency: "EUR",
+});
+
+const parseImporto = (value: string | number | null | undefined) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const normalized = String(value ?? "").replace(/\./g, "").replace(",", ".").trim();
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const prezzoToDraft = (value: string | number | null | undefined) => {
+  const parsed = parseImporto(value);
+  return parsed > 0 ? String(parsed).replace(".", ",") : "";
+};
+
+const conventionServicesFromPatient = (patient: Patient): ConventionServiceForm[] =>
+  (patient.conventionServices ?? []).map((servizio, index) => ({
+    id: servizio.id || servizio.prestazioneId || `convenzione-${index}`,
+    prestazioneId: servizio.prestazioneId,
+    nome: servizio.nome,
+    specialita: servizio.specialita ?? "",
+    durata: Number(servizio.durata ?? 0),
+    prezzo: prezzoToDraft(servizio.prezzo),
+  }));
+
+const patientToForm = (p: Patient): PatientForm => ({
+  firstName: p.firstName,
+  lastName: p.lastName,
+  dateOfBirth: String(p.dateOfBirth).slice(0, 10),
+  codiceFiscale: p.codiceFiscale ?? "",
+  gender: (p.gender as "M" | "F" | "") ?? "",
+  recordType: p.recordType ?? "privato",
+  companyName: p.companyName ?? "",
+  vatNumber: p.vatNumber ?? "",
+  contactPerson: p.contactPerson ?? "",
+  conventionActive: Boolean(p.conventionActive),
+  conventionExpiresAt: p.conventionExpiresAt ?? "",
+  conventionText: p.conventionText ?? "",
+  conventionServices: conventionServicesFromPatient(p),
+  linkedConventionIds: p.linkedConventionIds ?? [],
+  email: p.email,
+  phone: p.phone,
+  notes: p.notes ?? "",
+  billingAddress: p.billingAddress ?? "",
+  billingCap: p.billingCap ?? "",
+  billingCity: p.billingCity ?? "",
+  billingProvincia: p.billingProvincia ?? "",
+});
+
+const isAdminSettingsPrestazioni = (value: unknown): value is { prestazioni: PrestazioneCatalogo[] } =>
+  Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      Array.isArray((value as { prestazioni?: unknown }).prestazioni),
+  );
+
 const patientFormPayload = (form: PatientForm) => {
   const isOrganization = form.recordType !== "privato";
   const companyName = form.companyName.trim();
@@ -158,6 +240,12 @@ const patientFormPayload = (form: PatientForm) => {
     conventionActive: isOrganization ? form.conventionActive : false,
     conventionExpiresAt: isOrganization ? form.conventionExpiresAt || null : null,
     conventionText: isOrganization ? form.conventionText.trim() || null : null,
+    conventionServices: isOrganization
+      ? form.conventionServices.map((servizio) => ({
+          ...servizio,
+          prezzo: parseImporto(servizio.prezzo),
+        }))
+      : [],
     linkedConventionIds: isOrganization ? [] : form.linkedConventionIds,
     email: form.email.trim(),
     phone: form.phone.trim(),
@@ -188,6 +276,8 @@ export function AdminAnagrafiche() {
   const [showCreate, setShowCreate] = React.useState(false);
   const [showBulkImport, setShowBulkImport] = React.useState(false);
   const [editPatient, setEditPatient] = React.useState<{ id: number; form: PatientForm } | null>(null);
+  const [schedaPatient, setSchedaPatient] = React.useState<Patient | null>(null);
+  const [prestazioniCatalogo, setPrestazioniCatalogo] = React.useState<PrestazioneCatalogo[]>([]);
   const [deleteConfirmId, setDeleteConfirmId] = React.useState<number | null>(null);
   const [formError, setFormError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
@@ -196,6 +286,34 @@ export function AdminAnagrafiche() {
   React.useEffect(() => {
     setPageIndex(0);
   }, [debouncedSearch, recordTypeFilter]);
+
+  React.useEffect(() => {
+    let active = true;
+
+    const loadPrestazioni = async () => {
+      try {
+        const response = await fetch("/api/admin-settings");
+        if (!response.ok) return;
+        const data: unknown = await response.json();
+        if (!active || !isAdminSettingsPrestazioni(data)) return;
+        setPrestazioniCatalogo(
+          data.prestazioni
+            .filter((prestazione) => prestazione.attiva !== false)
+            .sort((a, b) =>
+              `${a.specialita} ${a.nome}`.localeCompare(`${b.specialita} ${b.nome}`, "it", { sensitivity: "base" }),
+            ),
+        );
+      } catch {
+        // Il catalogo resta vuoto: la convenzione si puo comunque salvare come dati anagrafici.
+      }
+    };
+
+    void loadPrestazioni();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const patientQueryParams = React.useMemo(
     () => ({
@@ -421,6 +539,9 @@ export function AdminAnagrafiche() {
                         >
                           {conventionLabel(p)}
                         </Badge>
+                        <Badge variant="outline">
+                          {(p.conventionServices ?? []).length} prestazioni
+                        </Badge>
                       </div>
                     )}
                     {(!p.recordType || p.recordType === "privato") && linkedConventions.length > 0 && (
@@ -440,6 +561,17 @@ export function AdminAnagrafiche() {
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <Badge variant="outline" className="text-xs">#{p.id}</Badge>
+                  {p.recordType && p.recordType !== "privato" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      onClick={() => setSchedaPatient(p)}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Scheda
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"
@@ -447,28 +579,7 @@ export function AdminAnagrafiche() {
                     onClick={() => {
                       setEditPatient({
                         id: p.id,
-                        form: {
-                          firstName: p.firstName,
-                          lastName: p.lastName,
-                          dateOfBirth: p.dateOfBirth,
-                          codiceFiscale: p.codiceFiscale ?? "",
-                          gender: (p.gender as "M" | "F" | "") ?? "",
-                          recordType: p.recordType ?? "privato",
-                          companyName: p.companyName ?? "",
-                          vatNumber: p.vatNumber ?? "",
-                          contactPerson: p.contactPerson ?? "",
-                          conventionActive: Boolean(p.conventionActive),
-                          conventionExpiresAt: p.conventionExpiresAt ?? "",
-                          conventionText: p.conventionText ?? "",
-                          linkedConventionIds: p.linkedConventionIds ?? [],
-                          email: p.email,
-                          phone: p.phone,
-                          notes: p.notes ?? "",
-                          billingAddress: p.billingAddress ?? "",
-                          billingCap: p.billingCap ?? "",
-                          billingCity: p.billingCity ?? "",
-                          billingProvincia: p.billingProvincia ?? "",
-                        },
+                        form: patientToForm(p),
                       });
                       setFormError(null);
                     }}
@@ -536,6 +647,7 @@ export function AdminAnagrafiche() {
         error={formError}
         saving={saving}
         conventionOptions={activeConventionOptions}
+        prestazioniOptions={prestazioniCatalogo}
         onClose={() => setShowCreate(false)}
         onSave={handleCreate}
       />
@@ -549,8 +661,21 @@ export function AdminAnagrafiche() {
           error={formError}
           saving={saving}
           conventionOptions={activeConventionOptions}
+          prestazioniOptions={prestazioniCatalogo}
           onClose={() => setEditPatient(null)}
           onSave={(form) => handleUpdate(editPatient.id, form)}
+        />
+      )}
+
+      {schedaPatient && (
+        <OrganizationProfileDialog
+          patient={schedaPatient}
+          onClose={() => setSchedaPatient(null)}
+          onEdit={() => {
+            setEditPatient({ id: schedaPatient.id, form: patientToForm(schedaPatient) });
+            setSchedaPatient(null);
+            setFormError(null);
+          }}
         />
       )}
 
@@ -582,6 +707,7 @@ function PatientFormDialog({
   error,
   saving,
   conventionOptions,
+  prestazioniOptions,
   onClose,
   onSave,
 }: {
@@ -591,10 +717,12 @@ function PatientFormDialog({
   error: string | null;
   saving: boolean;
   conventionOptions: Patient[];
+  prestazioniOptions: PrestazioneCatalogo[];
   onClose: () => void;
   onSave: (form: PatientForm) => void;
 }) {
   const [form, setForm] = React.useState<PatientForm>(initialForm);
+  const [prestazioneSearch, setPrestazioneSearch] = React.useState("");
 
   React.useEffect(() => {
     if (open) setForm(initialForm);
@@ -610,6 +738,57 @@ function PatientFormDialog({
       linkedConventionIds: f.linkedConventionIds.includes(id)
         ? f.linkedConventionIds.filter((item) => item !== id)
         : [...f.linkedConventionIds, id],
+    }));
+  };
+
+  const prestazioniDisponibiliConvenzione = React.useMemo(() => {
+    const selectedIds = new Set(form.conventionServices.map((servizio) => servizio.prestazioneId));
+    const query = prestazioneSearch.trim().toLocaleLowerCase("it-IT");
+
+    return prestazioniOptions
+      .filter((prestazione) => !selectedIds.has(prestazione.id))
+      .filter((prestazione) => {
+        if (!query) return true;
+        return `${prestazione.nome} ${prestazione.specialita}`.toLocaleLowerCase("it-IT").includes(query);
+      })
+      .slice(0, 8);
+  }, [form.conventionServices, prestazioneSearch, prestazioniOptions]);
+
+  const aggiungiPrestazioneConvenzione = (prestazione: PrestazioneCatalogo) => {
+    setForm((f) => ({
+      ...f,
+      conventionServices: [
+        ...f.conventionServices,
+        {
+          id: prestazione.id,
+          prestazioneId: prestazione.id,
+          nome: prestazione.nome,
+          specialita: prestazione.specialita,
+          durata: prestazione.durata,
+          prezzo: "",
+        },
+      ],
+    }));
+    setPrestazioneSearch("");
+  };
+
+  const aggiornaPrestazioneConvenzione = <K extends keyof ConventionServiceForm>(
+    id: string,
+    key: K,
+    value: ConventionServiceForm[K],
+  ) => {
+    setForm((f) => ({
+      ...f,
+      conventionServices: f.conventionServices.map((servizio) =>
+        servizio.id === id ? { ...servizio, [key]: value } : servizio,
+      ),
+    }));
+  };
+
+  const rimuoviPrestazioneConvenzione = (id: string) => {
+    setForm((f) => ({
+      ...f,
+      conventionServices: f.conventionServices.filter((servizio) => servizio.id !== id),
     }));
   };
 
@@ -844,6 +1023,118 @@ function PatientFormDialog({
                   className="min-h-24"
                 />
               </div>
+              <div className="rounded-md border border-border bg-muted/20 p-3">
+                <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Prestazioni incluse nella convenzione
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Cerca dal catalogo prestazioni e imposta il prezzo riservato.
+                    </p>
+                  </div>
+                  <Badge variant="secondary">{form.conventionServices.length} voci</Badge>
+                </div>
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={prestazioneSearch}
+                      onChange={(event) => setPrestazioneSearch(event.target.value)}
+                      placeholder="Cerca prestazione per nome o specialita..."
+                      className="pl-9"
+                    />
+                  </div>
+                  {prestazioneSearch.trim() && (
+                    <div className="max-h-44 overflow-y-auto rounded-md border border-border bg-white shadow-sm">
+                      {prestazioniDisponibiliConvenzione.length > 0 ? (
+                        prestazioniDisponibiliConvenzione.map((prestazione) => (
+                          <button
+                            key={prestazione.id}
+                            type="button"
+                            className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-primary/5"
+                            onClick={() => aggiungiPrestazioneConvenzione(prestazione)}
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium text-foreground">{prestazione.nome}</span>
+                              <span className="block text-xs text-muted-foreground">
+                                {prestazione.specialita} · {prestazione.durata} min
+                              </span>
+                            </span>
+                            <Plus className="h-4 w-4 shrink-0 text-primary" />
+                          </button>
+                        ))
+                      ) : (
+                        <p className="px-3 py-3 text-sm text-muted-foreground">
+                          Nessuna prestazione trovata o gia inserita.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {form.conventionServices.length > 0 ? (
+                  <div className="mt-3 overflow-x-auto rounded-md border border-border bg-white">
+                    <table className="w-full min-w-[620px] text-sm">
+                      <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Prestazione</th>
+                          <th className="px-3 py-2 text-left">Specialita</th>
+                          <th className="px-3 py-2 text-left">Durata</th>
+                          <th className="px-3 py-2 text-left">Prezzo convenzione</th>
+                          <th className="px-3 py-2 text-right">Azioni</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {form.conventionServices.map((servizio) => (
+                          <tr key={servizio.id}>
+                            <td className="px-3 py-2 font-medium text-foreground">{servizio.nome}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{servizio.specialita || "-"}</td>
+                            <td className="px-3 py-2">
+                              <Input
+                                inputMode="numeric"
+                                value={String(servizio.durata || "")}
+                                onChange={(event) =>
+                                  aggiornaPrestazioneConvenzione(servizio.id, "durata", Number(event.target.value) || 0)
+                                }
+                                className="h-9 w-20"
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="relative">
+                                <Euro className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                                <Input
+                                  inputMode="decimal"
+                                  value={servizio.prezzo}
+                                  onChange={(event) =>
+                                    aggiornaPrestazioneConvenzione(servizio.id, "prezzo", event.target.value)
+                                  }
+                                  placeholder="0,00"
+                                  className="h-9 w-32 pl-8"
+                                />
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => rimuoviPrestazioneConvenzione(servizio.id)}
+                                title="Rimuovi prestazione"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-md border border-dashed border-border bg-white p-3 text-sm text-muted-foreground">
+                    Nessuna prestazione in convenzione. Cerca una prestazione e aggiungila al listino.
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -887,6 +1178,150 @@ function PatientFormDialog({
             {saving ? "Salvataggio..." : "Salva"}
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function OrganizationProfileDialog({
+  patient,
+  onClose,
+  onEdit,
+}: {
+  patient: Patient;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  const servizi = patient.conventionServices ?? [];
+
+  return (
+    <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {patient.recordType === "societa_sportiva" ? (
+              <Trophy className="h-5 w-5 text-primary" />
+            ) : (
+              <Building2 className="h-5 w-5 text-primary" />
+            )}
+            Scheda {recordTypeLabel(patient.recordType).toLowerCase()}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-5">
+          <div className="rounded-md border border-border bg-muted/20 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-foreground">{patientDisplayName(patient)}</h2>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge variant="secondary">{recordTypeLabel(patient.recordType)}</Badge>
+                  <Badge
+                    variant={patient.conventionActive ? "default" : "outline"}
+                    className={isConventionExpiring(patient) ? "border-amber-300 bg-amber-50 text-amber-900" : ""}
+                  >
+                    {conventionLabel(patient)}
+                  </Badge>
+                  <Badge variant="outline">{servizi.length} prestazioni convenzionate</Badge>
+                </div>
+              </div>
+              <Button type="button" onClick={onEdit} className="gap-2">
+                <Pencil className="h-4 w-4" />
+                Modifica scheda
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-md border border-border bg-white p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-primary" />
+                <h3 className="font-semibold text-foreground">Dati anagrafici</h3>
+              </div>
+              <dl className="grid gap-2 text-sm">
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">P.IVA / C.F.</dt>
+                  <dd className="text-right font-medium">{patient.vatNumber || "-"}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Referente</dt>
+                  <dd className="text-right font-medium">
+                    {patient.contactPerson || `${patient.firstName} ${patient.lastName}`.trim() || "-"}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Email</dt>
+                  <dd className="text-right font-medium">{patient.email || "-"}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Telefono</dt>
+                  <dd className="text-right font-medium">{patient.phone || "-"}</dd>
+                </div>
+              </dl>
+            </div>
+
+            <div className="rounded-md border border-border bg-white p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <FileText className="h-4 w-4 text-primary" />
+                <h3 className="font-semibold text-foreground">Convenzione</h3>
+              </div>
+              <dl className="grid gap-2 text-sm">
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Stato</dt>
+                  <dd className="text-right font-medium">{conventionLabel(patient)}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Scadenza</dt>
+                  <dd className="text-right font-medium">{patient.conventionExpiresAt || "-"}</dd>
+                </div>
+              </dl>
+              {patient.conventionText && (
+                <p className="mt-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
+                  {patient.conventionText}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-md border border-border bg-white">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <div>
+                <h3 className="font-semibold text-foreground">Prestazioni e prezzi convenzionati</h3>
+                <p className="text-sm text-muted-foreground">Listino specifico della convenzione.</p>
+              </div>
+              <Badge variant="secondary">{servizi.length} voci</Badge>
+            </div>
+            {servizi.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[680px] text-sm">
+                  <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Prestazione</th>
+                      <th className="px-4 py-3 text-left">Specialita</th>
+                      <th className="px-4 py-3 text-right">Durata</th>
+                      <th className="px-4 py-3 text-right">Prezzo convenzione</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {servizi.map((servizio) => (
+                      <tr key={servizio.id}>
+                        <td className="px-4 py-3 font-medium text-foreground">{servizio.nome}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{servizio.specialita || "-"}</td>
+                        <td className="px-4 py-3 text-right">{Number(servizio.durata ?? 0)} min</td>
+                        <td className="px-4 py-3 text-right font-semibold text-foreground">
+                          {valuta.format(Number(servizio.prezzo ?? 0))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-6 text-center text-sm text-muted-foreground">
+                Nessuna prestazione convenzionata. Premi Modifica scheda per aggiungerle.
+              </div>
+            )}
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

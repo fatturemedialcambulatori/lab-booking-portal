@@ -261,6 +261,15 @@ export const PatientGender = {
   F: 'F',
 } as const;
 
+export type PatientConventionServicesItem = {
+  id: string;
+  prestazioneId: string;
+  nome: string;
+  specialita?: string;
+  durata?: number;
+  prezzo: number;
+};
+
 export interface Patient {
   id: number;
   recordType?: PatientRecordType;
@@ -282,6 +291,7 @@ export interface Patient {
   conventionExpiresAt?: string | null;
   /** @nullable */
   conventionText?: string | null;
+  conventionServices?: PatientConventionServicesItem[];
   linkedConventionIds?: number[];
   email: string;
   phone: string;
@@ -318,6 +328,15 @@ export const PatientInputGender = {
   F: 'F',
 } as const;
 
+export type PatientInputConventionServicesItem = {
+  id: string;
+  prestazioneId: string;
+  nome: string;
+  specialita?: string;
+  durata?: number;
+  prezzo: number;
+};
+
 export interface PatientInput {
   recordType?: PatientInputRecordType;
   firstName: string;
@@ -338,6 +357,7 @@ export interface PatientInput {
   conventionExpiresAt?: string | null;
   /** @nullable */
   conventionText?: string | null;
+  conventionServices?: PatientInputConventionServicesItem[];
   linkedConventionIds?: number[];
   email: string;
   phone: string;
