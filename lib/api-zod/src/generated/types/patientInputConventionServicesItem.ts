@@ -12,5 +12,7 @@ export type PatientInputConventionServicesItem = {
   nome: string;
   specialita?: string;
   durata?: number;
+  pricingMode?: 'fixed' | 'discount';
+  discountPercent?: number;
   prezzo: number;
 };

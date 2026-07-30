@@ -124,6 +124,15 @@ const readAmount = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const readDiscountPercent = (value: unknown) =>
+  Math.max(0, Math.min(100, readAmount(value)));
+
+const readConventionPricingMode = (row: Record<string, unknown>) => {
+  const raw = String(row["pricingMode"] ?? row["tipoPrezzo"] ?? row["modalitaPrezzo"] ?? "").trim().toLowerCase();
+  const discountPercent = readDiscountPercent(row["discountPercent"] ?? row["scontoPercentuale"] ?? row["sconto"]);
+  return raw.includes("discount") || raw.includes("sconto") || discountPercent > 0 ? "discount" : "fixed";
+};
+
 const normalizeConventionServices = (value: unknown) => {
   const normalizeList = (items: unknown[]) => {
     const services = items
@@ -134,7 +143,13 @@ const normalizeConventionServices = (value: unknown) => {
         const nome = String(row["nome"] ?? row["prestazione"] ?? "").trim();
         const specialita = String(row["specialita"] ?? "").trim();
         const durata = Number(row["durata"] ?? 0);
-        const prezzo = readAmount(row["prezzo"] ?? row["importo"]);
+        const pricingMode = readConventionPricingMode(row);
+        const discountPercent = pricingMode === "discount"
+          ? readDiscountPercent(row["discountPercent"] ?? row["scontoPercentuale"] ?? row["sconto"])
+          : 0;
+        const prezzo = pricingMode === "fixed"
+          ? readAmount(row["prezzo"] ?? row["prezzoFinale"] ?? row["importo"])
+          : 0;
         if (!prestazioneId && !nome) return null;
 
         return {
@@ -143,6 +158,8 @@ const normalizeConventionServices = (value: unknown) => {
           nome,
           specialita,
           durata: Number.isFinite(durata) ? Math.max(0, durata) : 0,
+          pricingMode,
+          discountPercent,
           prezzo: Number.isFinite(prezzo) ? Math.max(0, prezzo) : 0,
         };
       })
@@ -178,7 +195,11 @@ const parseConventionServices = (value: string | null) => {
         const prestazioneId = String(row["prestazioneId"] ?? row["id"] ?? "").trim();
         const nome = String(row["nome"] ?? "").trim();
         const durata = Number(row["durata"] ?? 0);
-        const prezzo = readAmount(row["prezzo"]);
+        const pricingMode = readConventionPricingMode(row);
+        const discountPercent = pricingMode === "discount"
+          ? readDiscountPercent(row["discountPercent"] ?? row["scontoPercentuale"] ?? row["sconto"])
+          : 0;
+        const prezzo = pricingMode === "fixed" ? readAmount(row["prezzo"] ?? row["prezzoFinale"]) : 0;
         if (!prestazioneId && !nome) return null;
 
         return {
@@ -187,6 +208,8 @@ const parseConventionServices = (value: string | null) => {
           nome,
           specialita: String(row["specialita"] ?? "").trim(),
           durata: Number.isFinite(durata) ? Math.max(0, durata) : 0,
+          pricingMode,
+          discountPercent,
           prezzo: Number.isFinite(prezzo) ? Math.max(0, prezzo) : 0,
         };
       })

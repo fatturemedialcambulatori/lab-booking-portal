@@ -833,6 +833,11 @@ components:
                 type: string
               durata:
                 type: number
+              pricingMode:
+                type: string
+                enum: [fixed, discount]
+              discountPercent:
+                type: number
               prezzo:
                 type: number
         linkedConventionIds:
@@ -904,6 +909,11 @@ components:
               specialita:
                 type: string
               durata:
+                type: number
+              pricingMode:
+                type: string
+                enum: [fixed, discount]
+              discountPercent:
                 type: number
               prezzo:
                 type: number

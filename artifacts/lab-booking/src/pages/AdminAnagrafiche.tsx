@@ -48,6 +48,7 @@ import {
   Link2,
   Eye,
   Euro,
+  Percent,
   FileText,
   Plus,
   X,
@@ -66,12 +67,16 @@ type PrestazioneCatalogo = {
   attiva?: boolean;
 };
 
+type ConventionPricingMode = "fixed" | "discount";
+
 type ConventionServiceForm = {
   id: string;
   prestazioneId: string;
   nome: string;
   specialita: string;
   durata: number;
+  pricingMode: ConventionPricingMode;
+  discountPercent: string;
   prezzo: string;
 };
 
@@ -81,6 +86,8 @@ type ConventionTemplateService = {
   nome: string;
   specialita: string;
   durata: number;
+  pricingMode?: ConventionPricingMode;
+  discountPercent?: number;
   prezzo: number;
 };
 
@@ -206,6 +213,21 @@ const prezzoToDraft = (value: string | number | null | undefined) => {
   return parsed > 0 ? String(parsed).replace(".", ",") : "";
 };
 
+const normalizzaPricingMode = (value: unknown): ConventionPricingMode =>
+  value === "discount" ? "discount" : "fixed";
+
+const conventionPriceLabel = (servizio: {
+  pricingMode?: string | null;
+  discountPercent?: string | number | null;
+  prezzo?: string | number | null;
+}) => {
+  if (servizio.pricingMode === "discount") {
+    return `${parseImporto(servizio.discountPercent).toLocaleString("it-IT")}% sconto`;
+  }
+
+  return valuta.format(parseImporto(servizio.prezzo));
+};
+
 const normalizeConventionTemplate = (value: unknown, index = 0): ConventionTemplate | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as Partial<ConventionTemplate>;
@@ -225,6 +247,8 @@ const normalizeConventionTemplate = (value: unknown, index = 0): ConventionTempl
             nome: row.nome ?? "Prestazione",
             specialita: row.specialita ?? "",
             durata: Math.max(5, Number(row.durata ?? 30) || 30),
+            pricingMode: normalizzaPricingMode(row.pricingMode),
+            discountPercent: Math.max(0, Math.min(100, Number(row.discountPercent ?? 0) || 0)),
             prezzo: Math.max(0, Number(row.prezzo ?? 0) || 0),
           };
         }).filter((service) => Boolean(service.prestazioneId))
@@ -239,6 +263,8 @@ const conventionServicesFromPatient = (patient: Patient): ConventionServiceForm[
     nome: servizio.nome,
     specialita: servizio.specialita ?? "",
     durata: Number(servizio.durata ?? 0),
+    pricingMode: normalizzaPricingMode(servizio.pricingMode),
+    discountPercent: prezzoToDraft(servizio.discountPercent ?? 0),
     prezzo: prezzoToDraft(servizio.prezzo),
   }));
 
@@ -296,7 +322,9 @@ const patientFormPayload = (form: PatientForm) => {
     conventionServices: isOrganization
       ? form.conventionServices.map((servizio) => ({
           ...servizio,
-          prezzo: parseImporto(servizio.prezzo),
+          pricingMode: servizio.pricingMode,
+          discountPercent: servizio.pricingMode === "discount" ? parseImporto(servizio.discountPercent) : 0,
+          prezzo: servizio.pricingMode === "fixed" ? parseImporto(servizio.prezzo) : 0,
         }))
       : [],
     linkedConventionIds: isOrganization ? [] : form.linkedConventionIds,
@@ -836,6 +864,8 @@ function PatientFormDialog({
           nome: prestazione.nome,
           specialita: prestazione.specialita,
           durata: prestazione.durata,
+          pricingMode: "fixed",
+          discountPercent: "",
           prezzo: "",
         },
       ],
@@ -872,6 +902,8 @@ function PatientFormDialog({
       nome: service.nome,
       specialita: service.specialita,
       durata: service.durata,
+      pricingMode: normalizzaPricingMode(service.pricingMode),
+      discountPercent: prezzoToDraft(service.discountPercent ?? 0),
       prezzo: prezzoToDraft(service.prezzo),
     }));
 
@@ -1219,13 +1251,14 @@ function PatientFormDialog({
                 </div>
                 {form.conventionServices.length > 0 ? (
                   <div className="mt-3 overflow-x-auto rounded-md border border-border bg-white">
-                    <table className="w-full min-w-[620px] text-sm">
+                    <table className="w-full min-w-[760px] text-sm">
                       <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                         <tr>
                           <th className="px-3 py-2 text-left">Prestazione</th>
                           <th className="px-3 py-2 text-left">Specialita</th>
                           <th className="px-3 py-2 text-left">Durata</th>
-                          <th className="px-3 py-2 text-left">Prezzo convenzione</th>
+                          <th className="px-3 py-2 text-left">Modalita</th>
+                          <th className="px-3 py-2 text-left">Valore convenzione</th>
                           <th className="px-3 py-2 text-right">Azioni</th>
                         </tr>
                       </thead>
@@ -1245,15 +1278,43 @@ function PatientFormDialog({
                               />
                             </td>
                             <td className="px-3 py-2">
+                              <Select
+                                value={servizio.pricingMode}
+                                onValueChange={(value) =>
+                                  aggiornaPrestazioneConvenzione(
+                                    servizio.id,
+                                    "pricingMode",
+                                    normalizzaPricingMode(value),
+                                  )
+                                }
+                              >
+                                <SelectTrigger className="h-9 w-36">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="fixed">Prezzo finale</SelectItem>
+                                  <SelectItem value="discount">Sconto %</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </td>
+                            <td className="px-3 py-2">
                               <div className="relative">
-                                <Euro className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                                {servizio.pricingMode === "discount" ? (
+                                  <Percent className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                                ) : (
+                                  <Euro className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                                )}
                                 <Input
                                   inputMode="decimal"
-                                  value={servizio.prezzo}
+                                  value={servizio.pricingMode === "discount" ? servizio.discountPercent : servizio.prezzo}
                                   onChange={(event) =>
-                                    aggiornaPrestazioneConvenzione(servizio.id, "prezzo", event.target.value)
+                                    aggiornaPrestazioneConvenzione(
+                                      servizio.id,
+                                      servizio.pricingMode === "discount" ? "discountPercent" : "prezzo",
+                                      event.target.value,
+                                    )
                                   }
-                                  placeholder="0,00"
+                                  placeholder={servizio.pricingMode === "discount" ? "10" : "0,00"}
                                   className="h-9 w-32 pl-8"
                                 />
                               </div>
@@ -1443,7 +1504,7 @@ function OrganizationProfileDialog({
                       <th className="px-4 py-3 text-left">Prestazione</th>
                       <th className="px-4 py-3 text-left">Specialita</th>
                       <th className="px-4 py-3 text-right">Durata</th>
-                      <th className="px-4 py-3 text-right">Prezzo convenzione</th>
+                      <th className="px-4 py-3 text-right">Convenzione</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -1453,7 +1514,7 @@ function OrganizationProfileDialog({
                         <td className="px-4 py-3 text-muted-foreground">{servizio.specialita || "-"}</td>
                         <td className="px-4 py-3 text-right">{Number(servizio.durata ?? 0)} min</td>
                         <td className="px-4 py-3 text-right font-semibold text-foreground">
-                          {valuta.format(Number(servizio.prezzo ?? 0))}
+                          {conventionPriceLabel(servizio)}
                         </td>
                       </tr>
                     ))}

@@ -10,6 +10,7 @@ import {
   FileText,
   Plane,
   Plus,
+  Percent,
   Search,
   Stethoscope,
   Tags,
@@ -82,12 +83,16 @@ type Prestazione = {
 
 const copiaPrestazioni = (lista: Prestazione[]) => lista.map((prestazione) => ({ ...prestazione }));
 
+type ConventionPricingMode = "fixed" | "discount";
+
 type ConventionTemplateService = {
   id: string;
   prestazioneId: string;
   nome: string;
   specialita: string;
   durata: number;
+  pricingMode: ConventionPricingMode;
+  discountPercent: number;
   prezzo: number;
 };
 
@@ -469,6 +474,8 @@ const normalizzaConventionTemplateService = (
   nome: service.nome ?? "Prestazione",
   specialita: service.specialita ?? "",
   durata: Math.max(5, Number(service.durata ?? 30) || 30),
+  pricingMode: service.pricingMode === "discount" ? "discount" : "fixed",
+  discountPercent: Math.max(0, Math.min(100, Number(service.discountPercent ?? 0) || 0)),
   prezzo: Math.max(0, Number(service.prezzo ?? 0) || 0),
 });
 
@@ -1208,6 +1215,8 @@ export function AdminSettings({
       nome: prestazione.nome,
       specialita: prestazione.specialita,
       durata: prestazione.durata,
+      pricingMode: "fixed",
+      discountPercent: 0,
       prezzo: 0,
     };
     setConventionTemplates((correnti) =>
@@ -2358,6 +2367,8 @@ export function AdminSettings({
             prestazione: service.nome,
             specialita: service.specialita,
             durata: service.durata,
+            modalitaPrezzo: service.pricingMode === "discount" ? "Sconto %" : "Prezzo finale",
+            scontoPercentuale: service.discountPercent,
             prezzoConvenzione: service.prezzo,
           }))
         : [{
@@ -2369,6 +2380,8 @@ export function AdminSettings({
             prestazione: "",
             specialita: "",
             durata: 0,
+            modalitaPrezzo: "Prezzo finale",
+            scontoPercentuale: 0,
             prezzoConvenzione: 0,
           }],
     );
@@ -2548,13 +2561,20 @@ export function AdminSettings({
               prestazioneById.get(prestazioneId) ?? prestazioneByNome.get(normalizzaTesto(prestazioneNome));
 
             if (prestazione) {
+              const modalitaRaw = normalizzaTesto(String(row["modalitaPrezzo"] ?? row["modalita prezzo"] ?? row["tipoPrezzo"] ?? row["tipo prezzo"] ?? ""));
+              const scontoPercentuale = Math.max(0, Math.min(100, leggiNumero(row, ["scontoPercentuale", "sconto percentuale", "sconto %", "sconto"], 0)));
+              const pricingMode = modalitaRaw.includes("sconto") || scontoPercentuale > 0 ? "discount" : "fixed";
               existing.services.push({
                 id: prestazione.id,
                 prestazioneId: prestazione.id,
                 nome: prestazione.nome,
                 specialita: prestazione.specialita,
                 durata: Math.max(5, leggiNumero(row, ["durata"], prestazione.durata)),
-                prezzo: Math.max(0, leggiNumero(row, ["prezzoConvenzione", "prezzo convenzione", "prezzo", "importo"], 0)),
+                pricingMode,
+                discountPercent: pricingMode === "discount" ? scontoPercentuale : 0,
+                prezzo: pricingMode === "fixed"
+                  ? Math.max(0, leggiNumero(row, ["prezzoConvenzione", "prezzo convenzione", "prezzo", "importo"], 0))
+                  : 0,
               });
             }
 
@@ -3188,7 +3208,7 @@ export function AdminSettings({
                       <div>
                         <h3 className="text-base font-semibold text-foreground">Prestazioni nel modello</h3>
                         <p className="text-sm text-muted-foreground">
-                          Aggiungi prestazioni dal catalogo e imposta prezzo convenzionato standard.
+                          Aggiungi prestazioni dal catalogo e imposta sconto o prezzo finale standard.
                         </p>
                       </div>
                       <Badge variant="secondary">{conventionTemplateSelezionato.services.length} voci</Badge>
@@ -3232,13 +3252,14 @@ export function AdminSettings({
 
                     {conventionTemplateSelezionato.services.length > 0 ? (
                       <div className="mt-4 overflow-x-auto rounded-md border border-border">
-                        <Table className="min-w-[780px]">
+                        <Table className="min-w-[920px]">
                           <TableHeader>
                             <TableRow>
                               <TableHead>Prestazione</TableHead>
                               <TableHead>Specialita</TableHead>
                               <TableHead className="w-32">Durata</TableHead>
-                              <TableHead className="w-40">Prezzo convenzione</TableHead>
+                              <TableHead className="w-44">Modalita</TableHead>
+                              <TableHead className="w-44">Valore convenzione</TableHead>
                               <TableHead className="w-16">Azioni</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -3259,15 +3280,48 @@ export function AdminSettings({
                                   />
                                 </TableCell>
                                 <TableCell>
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    step={1}
-                                    value={service.prezzo}
-                                    onChange={(event) =>
-                                      aggiornaPrestazioneConvenzioneBase(service.id, "prezzo", Number(event.target.value) || 0)
+                                  <Select
+                                    value={service.pricingMode}
+                                    onValueChange={(value) =>
+                                      aggiornaPrestazioneConvenzioneBase(
+                                        service.id,
+                                        "pricingMode",
+                                        value === "discount" ? "discount" : "fixed",
+                                      )
                                     }
-                                  />
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="fixed">Prezzo finale</SelectItem>
+                                      <SelectItem value="discount">Sconto %</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="relative">
+                                    {service.pricingMode === "discount" ? (
+                                      <Percent className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                                    ) : (
+                                      <Euro className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                                    )}
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      max={service.pricingMode === "discount" ? 100 : undefined}
+                                      step={service.pricingMode === "discount" ? 1 : 1}
+                                      value={service.pricingMode === "discount" ? service.discountPercent : service.prezzo}
+                                      onChange={(event) =>
+                                        aggiornaPrestazioneConvenzioneBase(
+                                          service.id,
+                                          service.pricingMode === "discount" ? "discountPercent" : "prezzo",
+                                          Number(event.target.value) || 0,
+                                        )
+                                      }
+                                      className="pl-8"
+                                    />
+                                  </div>
                                 </TableCell>
                                 <TableCell>
                                   <Button

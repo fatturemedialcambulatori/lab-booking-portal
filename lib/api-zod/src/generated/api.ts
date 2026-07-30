@@ -404,6 +404,8 @@ export const ListPatientsResponseItem = zod.object({
   "nome": zod.string(),
   "specialita": zod.string().optional(),
   "durata": zod.number().optional(),
+  "pricingMode": zod.enum(['fixed','discount']).optional(),
+  "discountPercent": zod.number().optional(),
   "prezzo": zod.number()
 })).optional(),
   "linkedConventionIds": zod.array(zod.number()).optional(),
@@ -441,6 +443,8 @@ export const CreatePatientBody = zod.object({
   "nome": zod.string(),
   "specialita": zod.string().optional(),
   "durata": zod.number().optional(),
+  "pricingMode": zod.enum(['fixed','discount']).optional(),
+  "discountPercent": zod.number().optional(),
   "prezzo": zod.number()
 })).optional(),
   "linkedConventionIds": zod.array(zod.number()).optional(),
@@ -475,6 +479,8 @@ export const CreatePatientResponse = zod.object({
   "nome": zod.string(),
   "specialita": zod.string().optional(),
   "durata": zod.number().optional(),
+  "pricingMode": zod.enum(['fixed','discount']).optional(),
+  "discountPercent": zod.number().optional(),
   "prezzo": zod.number()
 })).optional(),
   "linkedConventionIds": zod.array(zod.number()).optional(),
@@ -515,6 +521,8 @@ export const UpdatePatientBody = zod.object({
   "nome": zod.string(),
   "specialita": zod.string().optional(),
   "durata": zod.number().optional(),
+  "pricingMode": zod.enum(['fixed','discount']).optional(),
+  "discountPercent": zod.number().optional(),
   "prezzo": zod.number()
 })).optional(),
   "linkedConventionIds": zod.array(zod.number()).optional(),
@@ -549,6 +557,8 @@ export const UpdatePatientResponse = zod.object({
   "nome": zod.string(),
   "specialita": zod.string().optional(),
   "durata": zod.number().optional(),
+  "pricingMode": zod.enum(['fixed','discount']).optional(),
+  "discountPercent": zod.number().optional(),
   "prezzo": zod.number()
 })).optional(),
   "linkedConventionIds": zod.array(zod.number()).optional(),

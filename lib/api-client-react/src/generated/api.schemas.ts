@@ -267,6 +267,8 @@ export type PatientConventionServicesItem = {
   nome: string;
   specialita?: string;
   durata?: number;
+  pricingMode?: 'fixed' | 'discount';
+  discountPercent?: number;
   prezzo: number;
 };
 
@@ -334,6 +336,8 @@ export type PatientInputConventionServicesItem = {
   nome: string;
   specialita?: string;
   durata?: number;
+  pricingMode?: 'fixed' | 'discount';
+  discountPercent?: number;
   prezzo: number;
 };
 
