@@ -168,7 +168,7 @@ const saveButtonClassName = (enabled: boolean, extra = "") =>
     "gap-2 transition-colors",
     enabled
       ? "border-slate-950 bg-slate-950 text-white hover:bg-slate-900 hover:text-white"
-      : "border-slate-200 bg-slate-100 text-slate-400 opacity-100",
+      : "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 opacity-100 hover:bg-slate-100 hover:text-slate-400 disabled:opacity-100",
     extra,
   ].filter(Boolean).join(" ");
 
@@ -335,6 +335,8 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   const [uploadingDocId, setUploadingDocId] = React.useState<string | null>(null);
   const [recoveringKey, setRecoveringKey] = React.useState<string | null>(null);
   const [moneyDrafts, setMoneyDrafts] = React.useState<MoneyDrafts>({});
+  const [openChiusure, setOpenChiusure] = React.useState<Set<string>>(() => new Set());
+  const [pendingChiusure, setPendingChiusure] = React.useState<Set<string>>(() => new Set());
   const saveTimerRef = React.useRef<number | null>(null);
   const queuedStateRef = React.useRef<CassaState | null>(null);
   const saveInFlightRef = React.useRef(false);
@@ -361,6 +363,43 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
       title: variant === "destructive" ? "Attenzione" : "Notifica",
       description,
       variant,
+    });
+  }, []);
+
+  const setKeyState = React.useCallback((
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    key: string,
+    action: "add" | "remove",
+  ) => {
+    setter((current) => {
+      const hasKey = current.has(key);
+      if (action === "add" && hasKey) return current;
+      if (action === "remove" && !hasKey) return current;
+      const next = new Set(current);
+      if (action === "add") next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+
+  const markChiusuraEdited = React.useCallback((sedeId: SedeCassaId, data: string) => {
+    const key = chiusuraId(sedeId, data);
+    setKeyState(setOpenChiusure, key, "add");
+    setKeyState(setPendingChiusure, key, "add");
+  }, [setKeyState]);
+
+  const closeChiusure = React.useCallback((keys?: string[]) => {
+    setOpenChiusure((current) => {
+      if (!keys) return new Set();
+      const next = new Set(current);
+      keys.forEach((key) => next.delete(key));
+      return next;
+    });
+    setPendingChiusure((current) => {
+      if (!keys) return new Set();
+      const next = new Set(current);
+      keys.forEach((key) => next.delete(key));
+      return next;
     });
   }, []);
 
@@ -531,6 +570,11 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
     queueSave(dataToSave, { immediate: true, showToast });
   }, [queueSave, state]);
 
+  const confermaChiusure = React.useCallback((keys?: string[]) => {
+    void salvaCassa(undefined, true);
+    closeChiusure(keys);
+  }, [closeChiusure, salvaCassa]);
+
   const eliminaDocumentoRemoto = React.useCallback(async (id: string) => {
     const response = await fetch("/api/cassa-file-delete", {
       method: "POST",
@@ -590,6 +634,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
     field: K,
     value: ChiusuraCassa[K],
   ) => {
+    markChiusuraEdited(sedeId, giorno);
     setState((current) => {
       const existing = current.giorni.find((item) => item.sedeId === sedeId && item.data === giorno);
       const next: ChiusuraCassa = {
@@ -621,6 +666,8 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   );
 
   const updateSpesa = <K extends keyof SpesaCassa>(id: string, field: K, value: SpesaCassa[K]) => {
+    const spesaCorrente = state.spese.find((spesa) => spesa.id === id);
+    if (spesaCorrente) markChiusuraEdited(spesaCorrente.sedeId, spesaCorrente.data);
     setState((current) => ({
       ...current,
       spese: current.spese.map((spesa) => spesa.id === id ? { ...spesa, [field]: value } : spesa),
@@ -641,6 +688,8 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   }, []);
 
   const eliminaSpesa = async (id: string) => {
+    const spesaCorrente = state.spese.find((spesa) => spesa.id === id);
+    if (spesaCorrente) markChiusuraEdited(spesaCorrente.sedeId, spesaCorrente.data);
     try {
       await flushPendingSaves();
       const saved = await eliminaSpesaRemota(id);
@@ -674,6 +723,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
       note: draft.note.trim(),
     };
 
+    markChiusuraEdited(sedeId, giorno);
     setState((current) => ({
       ...current,
       spese: [...current.spese, nuovaSpesa],
@@ -709,6 +759,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         uploadedAt: data.uploadedAt ?? new Date().toISOString(),
       };
 
+      markChiusuraEdited(sedeId, giorno);
       setState((current) => ({
         ...current,
         documenti: [
@@ -751,6 +802,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
       setLastSavedAt(new Date().toISOString());
 
       if (recovered > 0) {
+        markChiusuraEdited(sedeId, giorno);
         mostraNotifica(`${recovered} allegati recuperati da Supabase Storage.`);
       } else {
         mostraNotifica("Nessun allegato trovato nello Storage per questa sede e data.", "destructive");
@@ -763,6 +815,8 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   };
 
   const eliminaDocumento = async (id: string) => {
+    const documentoCorrente = state.documenti.find((documento) => documento.id === id);
+    if (documentoCorrente) markChiusuraEdited(documentoCorrente.sedeId, documentoCorrente.data);
     try {
       await flushPendingSaves();
       await eliminaDocumentoRemoto(id);
@@ -792,6 +846,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
       writeLocalState(saved);
       setSaveState("saved");
       setLastSavedAt(new Date().toISOString());
+      closeChiusure([chiusuraId(sedeId, data)]);
       mostraNotifica(`Chiusura ${sedeLabel(sedeId)} del ${formatDate(data)} spostata nel cestino.`);
     } catch {
       mostraNotifica("Eliminazione chiusura non riuscita.", "destructive");
@@ -799,6 +854,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   };
 
   const ripristinaChiusura = async (trashId: string) => {
+    const closureToRestore = state.cestino.find((item) => item.id === trashId);
     try {
       await flushPendingSaves();
       const saved = await ripristinaChiusuraRemota(trashId);
@@ -807,6 +863,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
       writeLocalState(saved);
       setSaveState("saved");
       setLastSavedAt(new Date().toISOString());
+      if (closureToRestore) closeChiusure([chiusuraId(closureToRestore.sedeId, closureToRestore.data)]);
       mostraNotifica("Chiusura ripristinata.");
     } catch {
       mostraNotifica("Ripristino chiusura non riuscito.", "destructive");
@@ -874,10 +931,24 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
           totali: sommaTotali(giorni, spese),
           speseCount: spese.length,
           documentiCount: documenti.length,
+          canSave: pendingChiusure.has(key),
         };
       })
       .sort((a, b) => `${b.data}${b.sedeId}`.localeCompare(`${a.data}${a.sedeId}`));
-  }, [sediVisibili, state.documenti, state.giorni, state.spese]);
+  }, [pendingChiusure, sediVisibili, state.documenti, state.giorni, state.spese]);
+
+  const chiusureDaMostrare = React.useMemo(
+    () => sediVisibili.filter((sedeId) => {
+      const key = chiusuraId(sedeId, giorno);
+      const hasContent =
+        state.giorni.some((item) => item.sedeId === sedeId && item.data === giorno) ||
+        state.spese.some((item) => item.sedeId === sedeId && item.data === giorno) ||
+        state.documenti.some((item) => item.sedeId === sedeId && item.data === giorno);
+
+      return !hasContent || openChiusure.has(key) || pendingChiusure.has(key);
+    }),
+    [giorno, openChiusure, pendingChiusure, sediVisibili, state.documenti, state.giorni, state.spese],
+  );
 
   const cestinoVisibile = React.useMemo(
     () => state.cestino
@@ -937,7 +1008,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             ? "Non sono riuscito a salvare sul DB: resta una copia locale nel browser."
             : "Caricamento dati cassa.";
 
-  const canManualSave = saveState === "dirty" || saveState === "error";
+  const canManualSave = pendingChiusure.size > 0 || saveState === "error";
 
   const captureUrl = React.useMemo(() => {
     if (!mobileCapture || typeof window === "undefined") return "";
@@ -976,7 +1047,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => void salvaCassa(undefined, true)}
+              onClick={() => confermaChiusure()}
               disabled={!canManualSave}
               className={saveButtonClassName(canManualSave, "shrink-0")}
             >
@@ -1030,8 +1101,9 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         <DailyTotalsChart totali={totaliGiorno} />
       </section>
 
-      <div className={scope === "tutte" ? "grid gap-4 xl:grid-cols-2" : "grid gap-4"}>
-        {sediVisibili.map((sedeId) => (
+      {chiusureDaMostrare.length > 0 ? (
+        <div className={scope === "tutte" ? "grid gap-4 xl:grid-cols-2" : "grid gap-4"}>
+        {chiusureDaMostrare.map((sedeId) => (
           <CassaSedePanel
             key={sedeId}
             sedeId={sedeId}
@@ -1056,13 +1128,26 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             moneyDrafts={moneyDrafts}
             onMoneyDraftChange={updateMoneyDraft}
             onMoneyDraftCommit={clearMoneyDraft}
-            onSaveChiusura={() => void salvaCassa()}
-            canSave={canManualSave}
+            onSaveChiusura={() => confermaChiusure([chiusuraId(sedeId, giorno)])}
+            canSave={pendingChiusure.has(chiusuraId(sedeId, giorno)) || saveState === "error"}
             onDeleteChiusura={() => void eliminaChiusura(sedeId, giorno)}
             wideLayout={scope !== "tutte"}
           />
         ))}
-      </div>
+        </div>
+      ) : (
+        <section className="rounded-md border border-border bg-white p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Chiusura gia salvata</h2>
+              <p className="text-sm text-muted-foreground">
+                Per il {formatDate(giorno)} la scheda di inserimento e nascosta. Usa Modifica nell'elenco chiusure qui sotto.
+              </p>
+            </div>
+            <Badge variant="secondary">{scopeLabel}</Badge>
+          </div>
+        </section>
+      )}
 
       <ElencoChiusure
         rows={elencoChiusure}
@@ -1070,10 +1155,11 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         onEdit={(sedeId, data) => {
           setGiorno(data);
           setMobileCapture(null);
+          setKeyState(setOpenChiusure, chiusuraId(sedeId, data), "add");
           mostraNotifica(`Chiusura ${sedeLabel(sedeId)} del ${formatDate(data)} aperta in modifica.`);
         }}
-        onSave={() => void salvaCassa()}
-        canSave={canManualSave}
+        onSave={(sedeId, data) => confermaChiusure([chiusuraId(sedeId, data)])}
+        canRetrySave={saveState === "error"}
         onDelete={(sedeId, data) => void eliminaChiusura(sedeId, data)}
       />
 
@@ -1489,7 +1575,7 @@ function ElencoChiusure({
   activeData,
   onEdit,
   onSave,
-  canSave,
+  canRetrySave,
   onDelete,
 }: {
   rows: Array<{
@@ -1499,11 +1585,12 @@ function ElencoChiusure({
     totali: TotaliCassa;
     speseCount: number;
     documentiCount: number;
+    canSave: boolean;
   }>;
   activeData: string;
   onEdit: (sedeId: SedeCassaId, data: string) => void;
-  onSave: () => void;
-  canSave: boolean;
+  onSave: (sedeId: SedeCassaId, data: string) => void;
+  canRetrySave: boolean;
   onDelete: (sedeId: SedeCassaId, data: string) => void;
 }) {
   return (
@@ -1523,6 +1610,7 @@ function ElencoChiusure({
           {rows.map((row) => {
             const incassi = row.totali.contanti + row.totali.bancomat + row.totali.assegni;
             const active = row.data === activeData;
+            const canSaveRow = row.canSave || canRetrySave;
             return (
               <div
                 key={row.key}
@@ -1569,9 +1657,9 @@ function ElencoChiusure({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={onSave}
-                    disabled={!canSave}
-                    className={saveButtonClassName(canSave)}
+                    onClick={() => onSave(row.sedeId, row.data)}
+                    disabled={!canSaveRow}
+                    className={saveButtonClassName(canSaveRow)}
                   >
                     <Save className="h-4 w-4" />
                     Salva
