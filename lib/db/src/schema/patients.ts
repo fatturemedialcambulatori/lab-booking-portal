@@ -4,11 +4,15 @@ import { z } from "zod/v4";
 
 export const patientsTable = pgTable("patients", {
   id: serial("id").primaryKey(),
+  recordType: text("record_type").notNull().default("privato"),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   dateOfBirth: text("date_of_birth").notNull(),
   codiceFiscale: text("codice_fiscale"),
   gender: text("gender"),
+  companyName: text("company_name"),
+  vatNumber: text("vat_number"),
+  contactPerson: text("contact_person"),
   email: text("email").notNull(),
   phone: text("phone").notNull(),
   notes: text("notes"),

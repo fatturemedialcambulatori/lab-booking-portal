@@ -370,16 +370,23 @@ export const UpdateBookingStatusResponse = zod.object({
  * @summary List all patients
  */
 export const ListPatientsQueryParams = zod.object({
-  "search": zod.coerce.string().optional().describe('Search by name, email, or phone')
+  "search": zod.coerce.string().optional().describe('Search by name, email, phone, company, or VAT number'),
+  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).optional(),
+  "limit": zod.coerce.number().optional(),
+  "offset": zod.coerce.number().optional()
 })
 
 export const ListPatientsResponseItem = zod.object({
   "id": zod.number(),
+  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).default('privato'),
   "firstName": zod.string(),
   "lastName": zod.string(),
   "dateOfBirth": zod.coerce.date(),
   "codiceFiscale": zod.string().nullish(),
   "gender": zod.union([zod.literal('M'),zod.literal('F'),zod.literal(null)]).nullish(),
+  "companyName": zod.string().nullish(),
+  "vatNumber": zod.string().nullish(),
+  "contactPerson": zod.string().nullish(),
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
@@ -396,11 +403,15 @@ export const ListPatientsResponse = zod.array(ListPatientsResponseItem)
  * @summary Create a new patient
  */
 export const CreatePatientBody = zod.object({
+  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).optional(),
   "firstName": zod.string(),
   "lastName": zod.string(),
   "dateOfBirth": zod.coerce.date(),
   "codiceFiscale": zod.string().nullish(),
   "gender": zod.union([zod.literal('M'),zod.literal('F'),zod.literal(null)]).nullish(),
+  "companyName": zod.string().nullish(),
+  "vatNumber": zod.string().nullish(),
+  "contactPerson": zod.string().nullish(),
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
@@ -412,11 +423,15 @@ export const CreatePatientBody = zod.object({
 
 export const CreatePatientResponse = zod.object({
   "id": zod.number(),
+  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).default('privato'),
   "firstName": zod.string(),
   "lastName": zod.string(),
   "dateOfBirth": zod.coerce.date(),
   "codiceFiscale": zod.string().nullish(),
   "gender": zod.union([zod.literal('M'),zod.literal('F'),zod.literal(null)]).nullish(),
+  "companyName": zod.string().nullish(),
+  "vatNumber": zod.string().nullish(),
+  "contactPerson": zod.string().nullish(),
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
@@ -436,11 +451,15 @@ export const UpdatePatientParams = zod.object({
 })
 
 export const UpdatePatientBody = zod.object({
+  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).optional(),
   "firstName": zod.string(),
   "lastName": zod.string(),
   "dateOfBirth": zod.coerce.date(),
   "codiceFiscale": zod.string().nullish(),
   "gender": zod.union([zod.literal('M'),zod.literal('F'),zod.literal(null)]).nullish(),
+  "companyName": zod.string().nullish(),
+  "vatNumber": zod.string().nullish(),
+  "contactPerson": zod.string().nullish(),
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
@@ -452,11 +471,15 @@ export const UpdatePatientBody = zod.object({
 
 export const UpdatePatientResponse = zod.object({
   "id": zod.number(),
+  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).default('privato'),
   "firstName": zod.string(),
   "lastName": zod.string(),
   "dateOfBirth": zod.coerce.date(),
   "codiceFiscale": zod.string().nullish(),
   "gender": zod.union([zod.literal('M'),zod.literal('F'),zod.literal(null)]).nullish(),
+  "companyName": zod.string().nullish(),
+  "vatNumber": zod.string().nullish(),
+  "contactPerson": zod.string().nullish(),
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
@@ -683,5 +706,3 @@ export const OcrPrescriptionResponse = zod.object({
   "matchedExamIds": zod.array(zod.number()).describe('IDs of exams matched from the prescription'),
   "extractedTerms": zod.array(zod.string()).describe('Raw exam terms extracted from the image by OCR')
 })
-
-

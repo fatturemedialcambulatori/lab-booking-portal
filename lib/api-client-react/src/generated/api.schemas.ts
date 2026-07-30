@@ -254,6 +254,7 @@ export const PatientGender = {
 
 export interface Patient {
   id: number;
+  recordType?: 'privato' | 'azienda' | 'societa_sportiva';
   firstName: string;
   lastName: string;
   dateOfBirth: string;
@@ -261,6 +262,12 @@ export interface Patient {
   codiceFiscale?: string | null;
   /** @nullable */
   gender?: PatientGender;
+  /** @nullable */
+  companyName?: string | null;
+  /** @nullable */
+  vatNumber?: string | null;
+  /** @nullable */
+  contactPerson?: string | null;
   email: string;
   phone: string;
   /** @nullable */
@@ -288,6 +295,7 @@ export const PatientInputGender = {
 } as const;
 
 export interface PatientInput {
+  recordType?: 'privato' | 'azienda' | 'societa_sportiva';
   firstName: string;
   lastName: string;
   dateOfBirth: string;
@@ -295,6 +303,12 @@ export interface PatientInput {
   codiceFiscale?: string | null;
   /** @nullable */
   gender?: PatientInputGender;
+  /** @nullable */
+  companyName?: string | null;
+  /** @nullable */
+  vatNumber?: string | null;
+  /** @nullable */
+  contactPerson?: string | null;
   email: string;
   phone: string;
   /** @nullable */
@@ -417,12 +431,14 @@ export const ListBookingsStatus = {
 
 export type ListPatientsParams = {
 /**
- * Search by name, email, or phone
+ * Search by name, email, phone, company, or VAT number
  */
 search?: string;
+recordType?: 'privato' | 'azienda' | 'societa_sportiva';
+limit?: number;
+offset?: number;
 };
 
 export type ListRefertiParams = {
 bookingId: number;
 };
-

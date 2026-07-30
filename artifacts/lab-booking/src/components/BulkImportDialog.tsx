@@ -20,6 +20,11 @@ import {
 
 // ---- column alias map (Italian/English header names → internal field) --------
 const ALIAS: Record<string, string> = {
+  tipo: "recordType", "tipo anagrafica": "recordType", recordtype: "recordType", "record type": "recordType",
+  "ragione sociale": "companyName", ragionesociale: "companyName", azienda: "companyName", societa: "companyName", società: "companyName",
+  company: "companyName", companyname: "companyName", "company name": "companyName",
+  "partita iva": "vatNumber", piva: "vatNumber", "p.iva": "vatNumber", vat: "vatNumber", vatnumber: "vatNumber", "vat number": "vatNumber",
+  referente: "contactPerson", "persona referente": "contactPerson", contact: "contactPerson", contactperson: "contactPerson", "contact person": "contactPerson",
   nome: "firstName", name: "firstName", "first name": "firstName", firstname: "firstName",
   cognome: "lastName", surname: "lastName", "last name": "lastName", lastname: "lastName",
   "data nascita": "dateOfBirth", "data di nascita": "dateOfBirth", datanascita: "dateOfBirth",
@@ -72,7 +77,7 @@ function parseRows(raw: Record<string, string>[], mapping: Record<string, string
       out[field] = field === "gender" ? normalizeGender(value) ?? value : value;
     }
     return out;
-  }).filter((r) => r.firstName || r.lastName || r.email || r.phone || r.codiceFiscale);
+  }).filter((r) => r.firstName || r.lastName || r.companyName || r.email || r.phone || r.codiceFiscale || r.vatNumber);
 }
 
 async function parseFile(file: File): Promise<{ headers: string[]; raw: Record<string, string>[] }> {
@@ -233,6 +238,10 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
   };
 
   const FIELDS = [
+    { value: "recordType", label: "Tipo anagrafica" },
+    { value: "companyName", label: "Ragione sociale" },
+    { value: "vatNumber", label: "P.IVA / C.F." },
+    { value: "contactPerson", label: "Referente" },
     { value: "firstName", label: "Nome *" },
     { value: "lastName", label: "Cognome *" },
     { value: "email", label: "Email" },
@@ -247,9 +256,10 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
     { value: "billingProvincia", label: "Provincia" },
   ];
 
-  const requiredMapped = ["firstName", "lastName"].every(
-    (f) => Object.values(mapping).includes(f)
-  );
+  const mappedFields = Object.values(mapping);
+  const requiredMapped =
+    ["firstName", "lastName"].every((f) => mappedFields.includes(f)) ||
+    mappedFields.includes("companyName");
   const importProgressPercent = importProgress
     ? Math.round((importProgress.processed / Math.max(importProgress.total, 1)) * 100)
     : 0;

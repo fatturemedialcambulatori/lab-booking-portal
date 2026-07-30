@@ -1,11 +1,13 @@
 import { Router, type RequestHandler } from "express";
-import { db } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import { patientsTable } from "@workspace/db";
-import { eq, ilike, or, inArray } from "drizzle-orm";
+import { and, eq, ilike, or, inArray } from "drizzle-orm";
 import { CreatePatientBody, UpdatePatientBody } from "@workspace/api-zod";
 
 const router = Router();
 const MAX_BULK_ERRORS = 50;
+const RECORD_TYPES = ["privato", "azienda", "societa_sportiva"] as const;
+type RecordType = typeof RECORD_TYPES[number];
 
 const toDateStr = (v: string | Date | null): string =>
   !v ? "" : typeof v === "string" ? v.slice(0, 10) : v.toISOString().slice(0, 10);
@@ -14,6 +16,7 @@ const importErrorMessage = (err: unknown) =>
   err instanceof Error ? err.message.slice(0, 180) : "errore di inserimento";
 
 type BulkPatient = {
+  recordType: RecordType;
   firstName: string;
   lastName: string;
   email: string;
@@ -21,6 +24,9 @@ type BulkPatient = {
   dateOfBirth: string;
   codiceFiscale: string | null;
   gender: "M" | "F" | null;
+  companyName: string | null;
+  vatNumber: string | null;
+  contactPerson: string | null;
   notes: string | null;
   billingAddress: string | null;
   billingCap: string | null;
@@ -33,13 +39,38 @@ const normalizePhoneKey = (phone: string) => phone.replace(/\s+/g, "");
 const uniqueNonEmpty = (values: Array<string | null | undefined>) =>
   Array.from(new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean)));
 
+let patientRegistryColumnsPromise: Promise<void> | null = null;
+
+const ensurePatientRegistryColumns = () => {
+  patientRegistryColumnsPromise ??= pool.query(`
+    alter table public.patients
+      add column if not exists record_type text not null default 'privato',
+      add column if not exists company_name text,
+      add column if not exists vat_number text,
+      add column if not exists contact_person text
+  `).then(() => undefined);
+  return patientRegistryColumnsPromise;
+};
+
+const normalizeRecordType = (value: unknown): RecordType => {
+  const text = String(value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (text === "azienda" || text === "company" || text === "impresa") return "azienda";
+  if (text === "societa_sportiva" || text === "società_sportiva" || text === "societa" || text === "sportiva") {
+    return "societa_sportiva";
+  }
+  return "privato";
+};
+
 function normalizeBulkPatient(row: unknown): BulkPatient {
   const data = row && typeof row === "object" ? row as Record<string, unknown> : {};
-  const firstName = String(data["firstName"] ?? "").trim();
-  const lastName = String(data["lastName"] ?? "").trim();
+  const companyName = String(data["companyName"] ?? data["ragioneSociale"] ?? data["azienda"] ?? "").trim();
+  const rawRecordType = data["recordType"] ?? data["tipo"] ?? data["tipoAnagrafica"];
+  const recordType = rawRecordType ? normalizeRecordType(rawRecordType) : companyName ? "azienda" : "privato";
+  const firstName = String(data["firstName"] ?? "").trim() || (recordType === "privato" ? "" : "Referente");
+  const lastName = String(data["lastName"] ?? "").trim() || (recordType === "privato" ? "" : companyName);
   const email = String(data["email"] ?? "").trim();
   const phone = String(data["phone"] ?? "").trim().replace(/^'+/, "").trim();
-  const dateOfBirth = toDateStr(String(data["dateOfBirth"] ?? "").trim()) || "1900-01-01";
+  const dateOfBirth = toDateStr(String(data["dateOfBirth"] ?? "").trim()) || (recordType === "privato" ? "1900-01-01" : "1900-01-01");
   const codiceFiscale = String(data["codiceFiscale"] ?? "").trim().toUpperCase() || null;
   const genderText = String(data["gender"] ?? "").trim().toUpperCase();
   const gender = genderText === "M" || genderText === "MALE" || genderText === "MASCHIO"
@@ -49,6 +80,7 @@ function normalizeBulkPatient(row: unknown): BulkPatient {
       : null;
 
   return {
+    recordType,
     firstName,
     lastName,
     email,
@@ -56,6 +88,9 @@ function normalizeBulkPatient(row: unknown): BulkPatient {
     dateOfBirth,
     codiceFiscale,
     gender,
+    companyName: companyName || null,
+    vatNumber: String(data["vatNumber"] ?? data["partitaIva"] ?? data["piva"] ?? "").trim().toUpperCase() || null,
+    contactPerson: String(data["contactPerson"] ?? data["referente"] ?? "").trim() || null,
     notes: String(data["notes"] ?? "").trim() || null,
     billingAddress: String(data["billingAddress"] ?? "").trim() || null,
     billingCap: String(data["billingCap"] ?? "").trim() || null,
@@ -67,11 +102,15 @@ function normalizeBulkPatient(row: unknown): BulkPatient {
 function formatPatient(p: typeof patientsTable.$inferSelect) {
   return {
     id: p.id,
+    recordType: p.recordType ?? "privato",
     firstName: p.firstName,
     lastName: p.lastName,
     dateOfBirth: toDateStr(p.dateOfBirth as string | Date),
     codiceFiscale: p.codiceFiscale,
     gender: p.gender,
+    companyName: p.companyName,
+    vatNumber: p.vatNumber,
+    contactPerson: p.contactPerson,
     email: p.email,
     phone: p.phone,
     notes: p.notes,
@@ -85,7 +124,10 @@ function formatPatient(p: typeof patientsTable.$inferSelect) {
 
 router.get("/patients", async (req, res) => {
   try {
+    await ensurePatientRegistryColumns();
     const search = (req.query["search"] as string | undefined)?.trim();
+    const recordType = normalizeRecordType(req.query["recordType"]);
+    const hasRecordTypeFilter = typeof req.query["recordType"] === "string" && RECORD_TYPES.includes(recordType);
     const rawLimit = Number(req.query["limit"] ?? 100);
     const rawOffset = Number(req.query["offset"] ?? 0);
     const limit = Number.isFinite(rawLimit) ? Math.min(200, Math.max(1, Math.floor(rawLimit))) : 100;
@@ -93,18 +135,28 @@ router.get("/patients", async (req, res) => {
     let rows;
     if (search) {
       const pattern = `%${search}%`;
+      const searchWhere = or(
+        ilike(patientsTable.firstName, pattern),
+        ilike(patientsTable.lastName, pattern),
+        ilike(patientsTable.email, pattern),
+        ilike(patientsTable.phone, pattern),
+        ilike(patientsTable.codiceFiscale, pattern),
+        ilike(patientsTable.companyName, pattern),
+        ilike(patientsTable.vatNumber, pattern),
+        ilike(patientsTable.contactPerson, pattern)
+      );
       rows = await db
         .select()
         .from(patientsTable)
-        .where(
-          or(
-            ilike(patientsTable.firstName, pattern),
-            ilike(patientsTable.lastName, pattern),
-            ilike(patientsTable.email, pattern),
-            ilike(patientsTable.phone, pattern),
-            ilike(patientsTable.codiceFiscale, pattern)
-          )
-        )
+        .where(hasRecordTypeFilter ? and(searchWhere, eq(patientsTable.recordType, recordType)) : searchWhere)
+        .orderBy(patientsTable.lastName, patientsTable.firstName)
+        .limit(limit)
+        .offset(offset);
+    } else if (hasRecordTypeFilter) {
+      rows = await db
+        .select()
+        .from(patientsTable)
+        .where(eq(patientsTable.recordType, recordType))
         .orderBy(patientsTable.lastName, patientsTable.firstName)
         .limit(limit)
         .offset(offset);
@@ -130,15 +182,20 @@ router.post("/patients", async (req, res) => {
     return;
   }
   try {
+    await ensurePatientRegistryColumns();
     const d = parsed.data;
     const [inserted] = await db
       .insert(patientsTable)
       .values({
+        recordType: d.recordType ?? "privato",
         firstName: d.firstName,
         lastName: d.lastName,
         dateOfBirth: toDateStr(d.dateOfBirth as string | Date),
         codiceFiscale: d.codiceFiscale ?? null,
         gender: d.gender ?? null,
+        companyName: d.companyName ?? null,
+        vatNumber: d.vatNumber ?? null,
+        contactPerson: d.contactPerson ?? null,
         email: d.email,
         phone: d.phone,
         notes: d.notes ?? null,
@@ -169,6 +226,7 @@ router.patch("/patients/:id", async (req, res) => {
   }
 
   try {
+    await ensurePatientRegistryColumns();
     const existing = await db
       .select()
       .from(patientsTable)
@@ -181,11 +239,15 @@ router.patch("/patients/:id", async (req, res) => {
 
     const d = parsed.data;
     const update: Partial<typeof patientsTable.$inferInsert> = {
+      ...(d.recordType !== undefined && { recordType: d.recordType }),
       ...(d.firstName !== undefined && { firstName: d.firstName }),
       ...(d.lastName !== undefined && { lastName: d.lastName }),
       ...(d.dateOfBirth !== undefined && { dateOfBirth: toDateStr(d.dateOfBirth as string | Date) }),
       ...(d.codiceFiscale !== undefined && { codiceFiscale: d.codiceFiscale }),
       ...(d.gender !== undefined && { gender: d.gender }),
+      ...(d.companyName !== undefined && { companyName: d.companyName }),
+      ...(d.vatNumber !== undefined && { vatNumber: d.vatNumber }),
+      ...(d.contactPerson !== undefined && { contactPerson: d.contactPerson }),
       ...(d.email !== undefined && { email: d.email }),
       ...(d.phone !== undefined && { phone: d.phone }),
       ...(d.notes !== undefined && { notes: d.notes }),
@@ -215,6 +277,7 @@ router.delete("/patients/:id", async (req, res) => {
   }
 
   try {
+    await ensurePatientRegistryColumns();
     const deleted = await db
       .delete(patientsTable)
       .where(eq(patientsTable.id, id))
@@ -259,6 +322,7 @@ const bulkImportPatients: RequestHandler = async (req, res) => {
   }
 
   try {
+    await ensurePatientRegistryColumns();
     const codiceFiscaleValues = uniqueNonEmpty(validRows.map((row) => row.codiceFiscale));
     const emailValues = uniqueNonEmpty(validRows.map((row) => row.email));
     const phoneValues = uniqueNonEmpty(validRows.map((row) => normalizePhoneKey(row.phone)));

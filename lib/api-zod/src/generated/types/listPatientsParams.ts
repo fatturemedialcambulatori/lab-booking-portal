@@ -8,7 +8,10 @@
 
 export type ListPatientsParams = {
 /**
- * Search by name, email, or phone
+ * Search by name, email, phone, company, or VAT number
  */
 search?: string;
+recordType?: 'privato' | 'azienda' | 'societa_sportiva';
+limit?: number;
+offset?: number;
 };

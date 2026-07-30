@@ -9,6 +9,7 @@ import type { PatientGender } from './patientGender';
 
 export interface Patient {
   id: number;
+  recordType?: 'privato' | 'azienda' | 'societa_sportiva';
   firstName: string;
   lastName: string;
   dateOfBirth: Date;
@@ -16,6 +17,12 @@ export interface Patient {
   codiceFiscale?: string | null;
   /** @nullable */
   gender?: PatientGender;
+  /** @nullable */
+  companyName?: string | null;
+  /** @nullable */
+  vatNumber?: string | null;
+  /** @nullable */
+  contactPerson?: string | null;
   email: string;
   phone: string;
   /** @nullable */

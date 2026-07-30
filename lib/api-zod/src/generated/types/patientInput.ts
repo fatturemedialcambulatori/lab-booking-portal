@@ -8,6 +8,7 @@
 import type { PatientInputGender } from './patientInputGender';
 
 export interface PatientInput {
+  recordType?: 'privato' | 'azienda' | 'societa_sportiva';
   firstName: string;
   lastName: string;
   dateOfBirth: Date;
@@ -15,6 +16,12 @@ export interface PatientInput {
   codiceFiscale?: string | null;
   /** @nullable */
   gender?: PatientInputGender;
+  /** @nullable */
+  companyName?: string | null;
+  /** @nullable */
+  vatNumber?: string | null;
+  /** @nullable */
+  contactPerson?: string | null;
   email: string;
   phone: string;
   /** @nullable */

@@ -31,6 +31,8 @@ import {
   Mail,
   CalendarDays,
   Users,
+  Building2,
+  Trophy,
   AlertCircle,
   UserCheck,
   Upload,
@@ -38,12 +40,19 @@ import {
 import { parseFiscalCode } from "@/lib/fiscalCode";
 import { BulkImportDialog } from "@/components/BulkImportDialog";
 
+type RecordType = "privato" | "azienda" | "societa_sportiva";
+type RecordTypeFilter = "tutte" | RecordType;
+
 type PatientForm = {
+  recordType: RecordType;
   firstName: string;
   lastName: string;
   dateOfBirth: string;
   codiceFiscale: string;
   gender: "M" | "F" | "";
+  companyName: string;
+  vatNumber: string;
+  contactPerson: string;
   email: string;
   phone: string;
   notes: string;
@@ -54,20 +63,74 @@ type PatientForm = {
 };
 
 const emptyForm = (): PatientForm => ({
+  recordType: "privato",
   firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", gender: "", email: "", phone: "", notes: "",
+  companyName: "", vatNumber: "", contactPerson: "",
   billingAddress: "", billingCap: "", billingCity: "", billingProvincia: "",
 });
 
 function isFormValid(f: PatientForm) {
-  return f.firstName.trim() && f.lastName.trim() && f.dateOfBirth && f.email.trim() && f.phone.trim();
+  if (f.recordType === "privato") {
+    return f.firstName.trim() && f.lastName.trim() && f.dateOfBirth && f.email.trim() && f.phone.trim();
+  }
+  return f.companyName.trim() && f.email.trim() && f.phone.trim();
 }
 
 const today = new Date().toISOString().slice(0, 10);
 const PAGE_SIZE = 50;
 
 const byPatientName = (a: Patient, b: Patient) =>
-  a.lastName.localeCompare(b.lastName, "it", { sensitivity: "base" }) ||
-  a.firstName.localeCompare(b.firstName, "it", { sensitivity: "base" });
+  patientDisplayName(a).localeCompare(patientDisplayName(b), "it", { sensitivity: "base" });
+
+const RECORD_TYPE_OPTIONS: Array<{ id: RecordType; label: string; Icon: typeof Users }> = [
+  { id: "privato", label: "Privato", Icon: Users },
+  { id: "azienda", label: "Azienda", Icon: Building2 },
+  { id: "societa_sportiva", label: "Societa sportiva", Icon: Trophy },
+];
+
+const FILTER_OPTIONS: Array<{ id: RecordTypeFilter; label: string }> = [
+  { id: "tutte", label: "Tutte" },
+  { id: "privato", label: "Privati" },
+  { id: "azienda", label: "Aziende" },
+  { id: "societa_sportiva", label: "Societa sportive" },
+];
+
+const recordTypeLabel = (type: Patient["recordType"] | RecordType = "privato") =>
+  RECORD_TYPE_OPTIONS.find((option) => option.id === (type ?? "privato"))?.label ?? "Privato";
+
+const patientDisplayName = (patient: Patient) =>
+  patient.recordType && patient.recordType !== "privato" && patient.companyName
+    ? patient.companyName
+    : `${patient.firstName} ${patient.lastName}`.trim();
+
+const patientInitials = (patient: Patient) => {
+  const name = patientDisplayName(patient);
+  const parts = name.split(/\s+/).filter(Boolean);
+  return `${parts[0]?.[0] ?? "A"}${parts[1]?.[0] ?? ""}`.toUpperCase();
+};
+
+const patientFormPayload = (form: PatientForm) => {
+  const isOrganization = form.recordType !== "privato";
+  const companyName = form.companyName.trim();
+  return {
+    recordType: form.recordType,
+    firstName: isOrganization ? (form.firstName.trim() || "Referente") : form.firstName.trim(),
+    lastName: isOrganization ? (form.lastName.trim() || companyName) : form.lastName.trim(),
+    dateOfBirth: isOrganization ? (form.dateOfBirth || "1900-01-01") : form.dateOfBirth,
+    codiceFiscale: form.codiceFiscale.trim() || null,
+    gender: form.gender || null,
+    companyName: isOrganization ? companyName || null : null,
+    vatNumber: form.vatNumber.trim() || null,
+    contactPerson: form.contactPerson.trim() || null,
+    email: form.email.trim(),
+    phone: form.phone.trim(),
+    notes: form.notes.trim() || null,
+    billingAddress: form.billingAddress.trim() || null,
+    billingCap: form.billingCap.trim() || null,
+    billingCity: form.billingCity.trim() || null,
+    billingProvincia: form.billingProvincia.trim() || null,
+  };
+};
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = React.useState(value);
@@ -83,6 +146,7 @@ function useDebounce<T>(value: T, delay: number): T {
 export function AdminAnagrafiche() {
   const queryClient = useQueryClient();
   const [search, setSearch] = React.useState("");
+  const [recordTypeFilter, setRecordTypeFilter] = React.useState<RecordTypeFilter>("tutte");
   const [pageIndex, setPageIndex] = React.useState(0);
   const [showCreate, setShowCreate] = React.useState(false);
   const [showBulkImport, setShowBulkImport] = React.useState(false);
@@ -94,15 +158,16 @@ export function AdminAnagrafiche() {
 
   React.useEffect(() => {
     setPageIndex(0);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, recordTypeFilter]);
 
   const patientQueryParams = React.useMemo(
     () => ({
       ...(debouncedSearch ? { search: debouncedSearch } : {}),
+      ...(recordTypeFilter !== "tutte" ? { recordType: recordTypeFilter } : {}),
       limit: PAGE_SIZE + 1,
       offset: pageIndex * PAGE_SIZE,
     }),
-    [debouncedSearch, pageIndex],
+    [debouncedSearch, pageIndex, recordTypeFilter],
   );
 
   const { data: patients, isLoading, isFetching, error, refetch, queryKey } = useListPatients(patientQueryParams);
@@ -121,20 +186,7 @@ export function AdminAnagrafiche() {
     setFormError(null);
     try {
       const created = await createPatient.mutateAsync({
-        data: {
-          firstName: form.firstName.trim(),
-          lastName: form.lastName.trim(),
-          dateOfBirth: form.dateOfBirth,
-          codiceFiscale: form.codiceFiscale.trim() || null,
-          gender: form.gender || null,
-          email: form.email.trim(),
-          phone: form.phone.trim(),
-          notes: form.notes.trim() || null,
-          billingAddress: form.billingAddress.trim() || null,
-          billingCap: form.billingCap.trim() || null,
-          billingCity: form.billingCity.trim() || null,
-          billingProvincia: form.billingProvincia.trim() || null,
-        },
+        data: patientFormPayload(form),
       });
       queryClient.setQueryData<Patient[]>(queryKey, (current) =>
         current ? [...current, created].sort(byPatientName) : current
@@ -154,20 +206,7 @@ export function AdminAnagrafiche() {
     try {
       const updated = await updatePatient.mutateAsync({
         id,
-        data: {
-          firstName: form.firstName.trim(),
-          lastName: form.lastName.trim(),
-          dateOfBirth: form.dateOfBirth,
-          codiceFiscale: form.codiceFiscale.trim() || null,
-          gender: form.gender || null,
-          email: form.email.trim(),
-          phone: form.phone.trim(),
-          notes: form.notes.trim() || null,
-          billingAddress: form.billingAddress.trim() || null,
-          billingCap: form.billingCap.trim() || null,
-          billingCity: form.billingCity.trim() || null,
-          billingProvincia: form.billingProvincia.trim() || null,
-        },
+        data: patientFormPayload(form),
       });
       queryClient.setQueryData<Patient[]>(queryKey, (current) =>
         current ? current.map((patient) => (patient.id === id ? updated : patient)).sort(byPatientName) : current
@@ -198,9 +237,9 @@ export function AdminAnagrafiche() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Anagrafiche Pazienti</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Anagrafiche</h1>
           <p className="text-muted-foreground text-sm">
-            Gestisci il registro pazienti: {visiblePatients.length} pazienti visualizzati.
+            Privati, aziende e societa sportive: {visiblePatients.length} anagrafiche visualizzate.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -210,7 +249,7 @@ export function AdminAnagrafiche() {
           </Button>
           <Button onClick={() => { setShowCreate(true); setFormError(null); }} className="gap-2">
             <UserPlus className="h-4 w-4" />
-            Nuovo Paziente
+            Nuova Anagrafica
           </Button>
         </div>
       </div>
@@ -218,11 +257,24 @@ export function AdminAnagrafiche() {
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
-          placeholder="Cerca per nome, email, telefono o codice fiscale..."
+          placeholder="Cerca per nome, ragione sociale, email, telefono, P.IVA o codice fiscale..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
         />
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {FILTER_OPTIONS.map((option) => (
+          <Button
+            key={option.id}
+            type="button"
+            variant={recordTypeFilter === option.id ? "default" : "outline"}
+            size="sm"
+            onClick={() => setRecordTypeFilter(option.id)}
+          >
+            {option.label}
+          </Button>
+        ))}
       </div>
       {isFetching && !isLoading && (
         <p className="text-xs text-muted-foreground">Aggiornamento risultati...</p>
@@ -241,8 +293,8 @@ export function AdminAnagrafiche() {
       ) : visiblePatients.length === 0 ? (
         <div className="text-center py-20 text-muted-foreground">
           <Users className="h-10 w-10 mx-auto mb-3 opacity-30" />
-          <p className="font-medium">{search ? "Nessun risultato" : "Nessun paziente registrato"}</p>
-          <p className="text-sm">{search ? "Prova a cambiare i termini di ricerca." : "Aggiungi il primo paziente con il pulsante in alto."}</p>
+          <p className="font-medium">{search ? "Nessun risultato" : "Nessuna anagrafica registrata"}</p>
+          <p className="text-sm">{search ? "Prova a cambiare i termini di ricerca." : "Aggiungi la prima anagrafica con il pulsante in alto."}</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -254,17 +306,27 @@ export function AdminAnagrafiche() {
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <div className="h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center font-bold text-sm text-primary flex-shrink-0">
-                    {p.firstName[0]}{p.lastName[0]}
+                    {patientInitials(p)}
                   </div>
                   <div className="min-w-0">
-                    <p className="font-semibold text-foreground">
-                      {p.firstName} {p.lastName}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-foreground">{patientDisplayName(p)}</p>
+                      <Badge variant={p.recordType && p.recordType !== "privato" ? "secondary" : "outline"} className="text-xs">
+                        {recordTypeLabel(p.recordType)}
+                      </Badge>
+                    </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <CalendarDays className="h-3 w-3" />
-                        Nato il {p.dateOfBirth}
-                      </span>
+                      {(!p.recordType || p.recordType === "privato") ? (
+                        <span className="flex items-center gap-1">
+                          <CalendarDays className="h-3 w-3" />
+                          Nato il {p.dateOfBirth}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1">
+                          <Building2 className="h-3 w-3" />
+                          {p.vatNumber ? `P.IVA/C.F. ${p.vatNumber}` : "P.IVA/C.F. non presente"}
+                        </span>
+                      )}
                       <span className="flex items-center gap-1">
                         <Phone className="h-3 w-3" />
                         {p.phone || "Telefono non presente"}
@@ -274,6 +336,11 @@ export function AdminAnagrafiche() {
                         {p.email || "Email non presente"}
                       </span>
                     </div>
+                    {p.recordType && p.recordType !== "privato" && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Referente: {p.contactPerson || `${p.firstName} ${p.lastName}`.trim() || "non indicato"}
+                      </p>
+                    )}
                     {p.notes && (
                       <p className="text-xs text-muted-foreground italic mt-0.5">"{p.notes}"</p>
                     )}
@@ -294,6 +361,10 @@ export function AdminAnagrafiche() {
                           dateOfBirth: p.dateOfBirth,
                           codiceFiscale: p.codiceFiscale ?? "",
                           gender: (p.gender as "M" | "F" | "") ?? "",
+                          recordType: p.recordType ?? "privato",
+                          companyName: p.companyName ?? "",
+                          vatNumber: p.vatNumber ?? "",
+                          contactPerson: p.contactPerson ?? "",
                           email: p.email,
                           phone: p.phone,
                           notes: p.notes ?? "",
@@ -363,7 +434,7 @@ export function AdminAnagrafiche() {
       {/* ─── CREATE DIALOG ─── */}
       <PatientFormDialog
         open={showCreate}
-        title="Nuovo Paziente"
+        title="Nuova Anagrafica"
         form={emptyForm()}
         error={formError}
         saving={saving}
@@ -375,7 +446,7 @@ export function AdminAnagrafiche() {
       {editPatient && (
         <PatientFormDialog
           open={true}
-          title="Modifica Paziente"
+          title="Modifica Anagrafica"
           form={editPatient.form}
           error={formError}
           saving={saving}
@@ -388,10 +459,10 @@ export function AdminAnagrafiche() {
       <Dialog open={deleteConfirmId !== null} onOpenChange={(o) => !o && setDeleteConfirmId(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Elimina paziente</DialogTitle>
+            <DialogTitle>Elimina anagrafica</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground py-2">
-            Sei sicuro di voler eliminare questo paziente dall'anagrafica? L'operazione non può essere annullata.
+            Sei sicuro di voler eliminare questa anagrafica? L'operazione non può essere annullata.
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>Annulla</Button>
@@ -451,21 +522,67 @@ function PatientFormDialog({
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tipo anagrafica</p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {RECORD_TYPE_OPTIONS.map(({ id, label, Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, recordType: id }))}
+                  className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm font-medium transition-colors ${
+                    form.recordType === id
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-white hover:border-primary/50"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Dati anagrafici */}
           <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dati anagrafici</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {form.recordType === "privato" ? "Dati paziente" : "Dati organizzazione"}
+            </p>
+            {form.recordType !== "privato" && (
+              <div className="grid gap-3 sm:grid-cols-[1.5fr_1fr]">
+                <div className="space-y-1">
+                  <Label className="text-xs">Ragione sociale *</Label>
+                  <Input value={form.companyName} onChange={set("companyName")} placeholder="Medical Sport ASD" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">P.IVA / Codice fiscale</Label>
+                  <Input
+                    value={form.vatNumber}
+                    onChange={(e) => setForm((f) => ({ ...f, vatNumber: e.target.value.toUpperCase() }))}
+                    placeholder="01234567890"
+                    className="uppercase"
+                  />
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Nome *</Label>
-                <Input value={form.firstName} onChange={set("firstName")} placeholder="Mario" />
+                <Label className="text-xs">{form.recordType === "privato" ? "Nome *" : "Nome referente"}</Label>
+                <Input value={form.firstName} onChange={set("firstName")} placeholder={form.recordType === "privato" ? "Mario" : "Laura"} />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Cognome *</Label>
-                <Input value={form.lastName} onChange={set("lastName")} placeholder="Rossi" />
+                <Label className="text-xs">{form.recordType === "privato" ? "Cognome *" : "Cognome referente"}</Label>
+                <Input value={form.lastName} onChange={set("lastName")} placeholder={form.recordType === "privato" ? "Rossi" : "Bianchi"} />
               </div>
             </div>
+            {form.recordType !== "privato" && (
+              <div className="space-y-1">
+                <Label className="text-xs">Referente / reparto</Label>
+                <Input value={form.contactPerson} onChange={set("contactPerson")} placeholder="Segreteria, presidente, amministrazione..." />
+              </div>
+            )}
             <div className="space-y-1">
-              <Label className="text-xs">Codice Fiscale</Label>
+              <Label className="text-xs">{form.recordType === "privato" ? "Codice Fiscale" : "Codice fiscale referente"}</Label>
               <Input
                 value={form.codiceFiscale}
                 onChange={(e) => setForm((f) => ({ ...f, codiceFiscale: e.target.value.toUpperCase() }))}
@@ -485,7 +602,7 @@ function PatientFormDialog({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Data di nascita *</Label>
+                <Label className="text-xs">{form.recordType === "privato" ? "Data di nascita *" : "Data di nascita referente"}</Label>
                 <Input type="date" value={form.dateOfBirth} max={today} onChange={set("dateOfBirth")} />
               </div>
               <div className="space-y-1">
@@ -510,11 +627,11 @@ function PatientFormDialog({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Email *</Label>
+                <Label className="text-xs">{form.recordType === "privato" ? "Email *" : "Email azienda/societa *"}</Label>
                 <Input type="email" value={form.email} onChange={set("email")} placeholder="mario@email.it" />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Telefono *</Label>
+                <Label className="text-xs">{form.recordType === "privato" ? "Telefono *" : "Telefono azienda/societa *"}</Label>
                 <Input value={form.phone} onChange={set("phone")} placeholder="+39 333..." />
               </div>
             </div>

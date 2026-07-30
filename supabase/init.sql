@@ -2,11 +2,15 @@ begin;
 
 create table if not exists public.patients (
   id serial primary key,
+  record_type text not null default 'privato',
   first_name text not null,
   last_name text not null,
   date_of_birth text not null,
   codice_fiscale text,
   gender text,
+  company_name text,
+  vat_number text,
+  contact_person text,
   email text not null,
   phone text not null,
   notes text,
@@ -16,6 +20,12 @@ create table if not exists public.patients (
   billing_provincia text,
   created_at timestamp not null default now()
 );
+
+alter table public.patients
+  add column if not exists record_type text not null default 'privato',
+  add column if not exists company_name text,
+  add column if not exists vat_number text,
+  add column if not exists contact_person text;
 
 create table if not exists public.exams (
   id serial primary key,
