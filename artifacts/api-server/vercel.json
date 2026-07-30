@@ -4,15 +4,23 @@
   "buildCommand": "pnpm --filter @workspace/api-server run build && PORT=3000 BASE_PATH=/ VERCEL_OUTPUT_DIR=$PWD/public pnpm --filter @workspace/lab-booking run build",
   "outputDirectory": "public",
   "functions": {
-    "api/**/*.js": {
+    "api/[...path].js": {
+      "maxDuration": 30
+    },
+    "api/[path]/[id].js": {
+      "maxDuration": 30
+    },
+    "api/[path]/[id]/[action].js": {
+      "maxDuration": 30
+    },
+    "api/[path]/[id]/[action]/[subid].js": {
+      "maxDuration": 30
+    },
+    "api/patients/[id].js": {
       "maxDuration": 30
     }
   },
   "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "/api/[...path]?path=:path*"
-    },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
