@@ -875,17 +875,15 @@ function PatientFormDialog({
       prezzo: prezzoToDraft(service.prezzo),
     }));
 
-  const applicaTemplateConvenzione = (mode: "merge" | "replace") => {
+  const preparaModificaConvenzione = () => {
     if (!templateSelezionato) return;
-    const services = servicesDaTemplate(templateSelezionato);
+    const templateServices = servicesDaTemplate(templateSelezionato);
     setForm((f) => {
       const currentIds = new Set(f.conventionServices.map((service) => service.prestazioneId));
-      const merged = mode === "replace"
-        ? services
-        : [
-            ...f.conventionServices,
-            ...services.filter((service) => !currentIds.has(service.prestazioneId)),
-          ];
+      const merged = [
+        ...f.conventionServices,
+        ...templateServices.filter((service) => !currentIds.has(service.prestazioneId)),
+      ];
 
       return {
         ...f,
@@ -894,6 +892,7 @@ function PatientFormDialog({
         conventionServices: merged,
       };
     });
+    setPrestazioneSearch("");
   };
 
   const cfInfo = React.useMemo(() => parseFiscalCode(form.codiceFiscale), [form.codiceFiscale]);
@@ -1091,7 +1090,7 @@ function PatientFormDialog({
               </div>
               {conventionTemplates.length > 0 ? (
                 <div className="rounded-md border border-primary/15 bg-primary/5 p-3">
-                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
                     <div className="space-y-1">
                       <Label className="text-xs">Modello base</Label>
                       <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
@@ -1110,26 +1109,21 @@ function PatientFormDialog({
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => applicaTemplateConvenzione("merge")}
+                      onClick={preparaModificaConvenzione}
                       disabled={!templateSelezionato || templateSelezionato.services.length === 0}
                       className="gap-2 bg-white"
                     >
-                      <Plus className="h-4 w-4" />
-                      Applica modello
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => applicaTemplateConvenzione("replace")}
-                      disabled={!templateSelezionato || templateSelezionato.services.length === 0}
-                      className="gap-2 bg-white"
-                    >
-                      Sostituisci
+                      <Pencil className="h-4 w-4" />
+                      Modifica convenzione
                     </Button>
                   </div>
                   {templateSelezionato?.descrizione && (
                     <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{templateSelezionato.descrizione}</p>
                   )}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Le prestazioni del modello vengono portate qui sotto e diventano modificabili solo per questa azienda o societa.
+                    Puoi togliere voci, aggiungerne altre e cambiare i prezzi senza modificare il modello base.
+                  </p>
                 </div>
               ) : (
                 <div className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-sm text-muted-foreground">
