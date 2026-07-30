@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp } from "drizzle-orm/pg-core";
+import { boolean, pgTable, text, serial, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -13,6 +13,10 @@ export const patientsTable = pgTable("patients", {
   companyName: text("company_name"),
   vatNumber: text("vat_number"),
   contactPerson: text("contact_person"),
+  conventionActive: boolean("convention_active").notNull().default(false),
+  conventionExpiresAt: text("convention_expires_at"),
+  conventionText: text("convention_text"),
+  linkedConventionIds: text("linked_convention_ids"),
   email: text("email").notNull(),
   phone: text("phone").notNull(),
   notes: text("notes"),

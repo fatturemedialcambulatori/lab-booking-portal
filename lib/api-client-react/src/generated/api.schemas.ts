@@ -241,6 +241,15 @@ export interface BookingStatusUpdate {
   status: BookingStatusUpdateStatus;
 }
 
+export type PatientRecordType = typeof PatientRecordType[keyof typeof PatientRecordType];
+
+
+export const PatientRecordType = {
+  privato: 'privato',
+  azienda: 'azienda',
+  societa_sportiva: 'societa_sportiva',
+} as const;
+
 /**
  * @nullable
  */
@@ -254,7 +263,7 @@ export const PatientGender = {
 
 export interface Patient {
   id: number;
-  recordType?: 'privato' | 'azienda' | 'societa_sportiva';
+  recordType?: PatientRecordType;
   firstName: string;
   lastName: string;
   dateOfBirth: string;
@@ -268,6 +277,12 @@ export interface Patient {
   vatNumber?: string | null;
   /** @nullable */
   contactPerson?: string | null;
+  conventionActive?: boolean;
+  /** @nullable */
+  conventionExpiresAt?: string | null;
+  /** @nullable */
+  conventionText?: string | null;
+  linkedConventionIds?: number[];
   email: string;
   phone: string;
   /** @nullable */
@@ -283,6 +298,15 @@ export interface Patient {
   createdAt: string;
 }
 
+export type PatientInputRecordType = typeof PatientInputRecordType[keyof typeof PatientInputRecordType];
+
+
+export const PatientInputRecordType = {
+  privato: 'privato',
+  azienda: 'azienda',
+  societa_sportiva: 'societa_sportiva',
+} as const;
+
 /**
  * @nullable
  */
@@ -295,7 +319,7 @@ export const PatientInputGender = {
 } as const;
 
 export interface PatientInput {
-  recordType?: 'privato' | 'azienda' | 'societa_sportiva';
+  recordType?: PatientInputRecordType;
   firstName: string;
   lastName: string;
   dateOfBirth: string;
@@ -309,6 +333,12 @@ export interface PatientInput {
   vatNumber?: string | null;
   /** @nullable */
   contactPerson?: string | null;
+  conventionActive?: boolean;
+  /** @nullable */
+  conventionExpiresAt?: string | null;
+  /** @nullable */
+  conventionText?: string | null;
+  linkedConventionIds?: number[];
   email: string;
   phone: string;
   /** @nullable */
@@ -431,13 +461,34 @@ export const ListBookingsStatus = {
 
 export type ListPatientsParams = {
 /**
- * Search by name, email, phone, company, or VAT number
+ * Search by name, email, or phone
  */
 search?: string;
-recordType?: 'privato' | 'azienda' | 'societa_sportiva';
+/**
+ * Filter by registry type
+ */
+recordType?: ListPatientsRecordType;
+/**
+ * Maximum number of patients to return
+ * @minimum 1
+ * @maximum 200
+ */
 limit?: number;
+/**
+ * Number of patients to skip
+ * @minimum 0
+ */
 offset?: number;
 };
+
+export type ListPatientsRecordType = typeof ListPatientsRecordType[keyof typeof ListPatientsRecordType];
+
+
+export const ListPatientsRecordType = {
+  privato: 'privato',
+  azienda: 'azienda',
+  societa_sportiva: 'societa_sportiva',
+} as const;
 
 export type ListRefertiParams = {
 bookingId: number;

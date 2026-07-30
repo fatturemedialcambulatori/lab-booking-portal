@@ -369,16 +369,24 @@ export const UpdateBookingStatusResponse = zod.object({
 /**
  * @summary List all patients
  */
+export const listPatientsQueryLimitMax = 200;
+
+export const listPatientsQueryOffsetMin = 0;
+
+
+
 export const ListPatientsQueryParams = zod.object({
-  "search": zod.coerce.string().optional().describe('Search by name, email, phone, company, or VAT number'),
-  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).optional(),
-  "limit": zod.coerce.number().optional(),
-  "offset": zod.coerce.number().optional()
+  "search": zod.coerce.string().optional().describe('Search by name, email, or phone'),
+  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).optional().describe('Filter by registry type'),
+  "limit": zod.coerce.number().min(1).max(listPatientsQueryLimitMax).optional().describe('Maximum number of patients to return'),
+  "offset": zod.coerce.number().min(listPatientsQueryOffsetMin).optional().describe('Number of patients to skip')
 })
+
+export const listPatientsResponseRecordTypeDefault = `privato`;
 
 export const ListPatientsResponseItem = zod.object({
   "id": zod.number(),
-  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).default('privato'),
+  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).default(listPatientsResponseRecordTypeDefault),
   "firstName": zod.string(),
   "lastName": zod.string(),
   "dateOfBirth": zod.coerce.date(),
@@ -387,6 +395,10 @@ export const ListPatientsResponseItem = zod.object({
   "companyName": zod.string().nullish(),
   "vatNumber": zod.string().nullish(),
   "contactPerson": zod.string().nullish(),
+  "conventionActive": zod.boolean().optional(),
+  "conventionExpiresAt": zod.coerce.date().nullish(),
+  "conventionText": zod.string().nullish(),
+  "linkedConventionIds": zod.array(zod.number()).optional(),
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
@@ -412,6 +424,10 @@ export const CreatePatientBody = zod.object({
   "companyName": zod.string().nullish(),
   "vatNumber": zod.string().nullish(),
   "contactPerson": zod.string().nullish(),
+  "conventionActive": zod.boolean().optional(),
+  "conventionExpiresAt": zod.coerce.date().nullish(),
+  "conventionText": zod.string().nullish(),
+  "linkedConventionIds": zod.array(zod.number()).optional(),
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
@@ -421,9 +437,11 @@ export const CreatePatientBody = zod.object({
   "billingProvincia": zod.string().nullish()
 })
 
+export const createPatientResponseRecordTypeDefault = `privato`;
+
 export const CreatePatientResponse = zod.object({
   "id": zod.number(),
-  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).default('privato'),
+  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).default(createPatientResponseRecordTypeDefault),
   "firstName": zod.string(),
   "lastName": zod.string(),
   "dateOfBirth": zod.coerce.date(),
@@ -432,6 +450,10 @@ export const CreatePatientResponse = zod.object({
   "companyName": zod.string().nullish(),
   "vatNumber": zod.string().nullish(),
   "contactPerson": zod.string().nullish(),
+  "conventionActive": zod.boolean().optional(),
+  "conventionExpiresAt": zod.coerce.date().nullish(),
+  "conventionText": zod.string().nullish(),
+  "linkedConventionIds": zod.array(zod.number()).optional(),
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
@@ -460,6 +482,10 @@ export const UpdatePatientBody = zod.object({
   "companyName": zod.string().nullish(),
   "vatNumber": zod.string().nullish(),
   "contactPerson": zod.string().nullish(),
+  "conventionActive": zod.boolean().optional(),
+  "conventionExpiresAt": zod.coerce.date().nullish(),
+  "conventionText": zod.string().nullish(),
+  "linkedConventionIds": zod.array(zod.number()).optional(),
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),
@@ -469,9 +495,11 @@ export const UpdatePatientBody = zod.object({
   "billingProvincia": zod.string().nullish()
 })
 
+export const updatePatientResponseRecordTypeDefault = `privato`;
+
 export const UpdatePatientResponse = zod.object({
   "id": zod.number(),
-  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).default('privato'),
+  "recordType": zod.enum(['privato', 'azienda', 'societa_sportiva']).default(updatePatientResponseRecordTypeDefault),
   "firstName": zod.string(),
   "lastName": zod.string(),
   "dateOfBirth": zod.coerce.date(),
@@ -480,6 +508,10 @@ export const UpdatePatientResponse = zod.object({
   "companyName": zod.string().nullish(),
   "vatNumber": zod.string().nullish(),
   "contactPerson": zod.string().nullish(),
+  "conventionActive": zod.boolean().optional(),
+  "conventionExpiresAt": zod.coerce.date().nullish(),
+  "conventionText": zod.string().nullish(),
+  "linkedConventionIds": zod.array(zod.number()).optional(),
   "email": zod.string(),
   "phone": zod.string(),
   "notes": zod.string().nullish(),

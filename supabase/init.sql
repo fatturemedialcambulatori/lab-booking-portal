@@ -11,6 +11,10 @@ create table if not exists public.patients (
   company_name text,
   vat_number text,
   contact_person text,
+  convention_active boolean not null default false,
+  convention_expires_at text,
+  convention_text text,
+  linked_convention_ids text,
   email text not null,
   phone text not null,
   notes text,
@@ -25,7 +29,11 @@ alter table public.patients
   add column if not exists record_type text not null default 'privato',
   add column if not exists company_name text,
   add column if not exists vat_number text,
-  add column if not exists contact_person text;
+  add column if not exists contact_person text,
+  add column if not exists convention_active boolean not null default false,
+  add column if not exists convention_expires_at text,
+  add column if not exists convention_text text,
+  add column if not exists linked_convention_ids text;
 
 create table if not exists public.exams (
   id serial primary key,

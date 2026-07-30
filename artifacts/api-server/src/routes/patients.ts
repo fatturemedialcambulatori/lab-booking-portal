@@ -27,6 +27,10 @@ type BulkPatient = {
   companyName: string | null;
   vatNumber: string | null;
   contactPerson: string | null;
+  conventionActive: boolean;
+  conventionExpiresAt: string | null;
+  conventionText: string | null;
+  linkedConventionIds: string | null;
   notes: string | null;
   billingAddress: string | null;
   billingCap: string | null;
@@ -47,9 +51,29 @@ const ensurePatientRegistryColumns = () => {
       add column if not exists record_type text not null default 'privato',
       add column if not exists company_name text,
       add column if not exists vat_number text,
-      add column if not exists contact_person text
+      add column if not exists contact_person text,
+      add column if not exists convention_active boolean not null default false,
+      add column if not exists convention_expires_at text,
+      add column if not exists convention_text text,
+      add column if not exists linked_convention_ids text
   `).then(() => undefined);
   return patientRegistryColumnsPromise;
+};
+
+const todayKey = () => new Date().toISOString().slice(0, 10);
+
+const syncExpiredConventions = async () => {
+  await pool.query(
+    `
+      update public.patients
+      set convention_active = false
+      where convention_active = true
+        and convention_expires_at is not null
+        and convention_expires_at <> ''
+        and convention_expires_at < $1
+    `,
+    [todayKey()],
+  );
 };
 
 const normalizeRecordType = (value: unknown): RecordType => {
@@ -59,6 +83,53 @@ const normalizeRecordType = (value: unknown): RecordType => {
     return "societa_sportiva";
   }
   return "privato";
+};
+
+const readBoolean = (value: unknown) => {
+  if (typeof value === "boolean") return value;
+  const text = String(value ?? "").trim().toLowerCase();
+  return ["1", "true", "si", "sì", "yes", "attiva", "attivo"].includes(text);
+};
+
+const normalizeLinkedConventionIds = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return JSON.stringify(value.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0));
+  }
+
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      return JSON.stringify(parsed.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0));
+    }
+  } catch {
+    // fall back to comma-separated values
+  }
+
+  const ids = text
+    .split(/[;,]/)
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isInteger(item) && item > 0);
+
+  return ids.length ? JSON.stringify(ids) : null;
+};
+
+const parseLinkedConventionIds = (value: string | null) => {
+  if (!value) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0)
+      : [];
+  } catch {
+    return value
+      .split(/[;,]/)
+      .map((item) => Number(item.trim()))
+      .filter((item) => Number.isInteger(item) && item > 0);
+  }
 };
 
 function normalizeBulkPatient(row: unknown): BulkPatient {
@@ -91,6 +162,10 @@ function normalizeBulkPatient(row: unknown): BulkPatient {
     companyName: companyName || null,
     vatNumber: String(data["vatNumber"] ?? data["partitaIva"] ?? data["piva"] ?? "").trim().toUpperCase() || null,
     contactPerson: String(data["contactPerson"] ?? data["referente"] ?? "").trim() || null,
+    conventionActive: recordType !== "privato" && readBoolean(data["conventionActive"] ?? data["convenzioneAttiva"]),
+    conventionExpiresAt: toDateStr(String(data["conventionExpiresAt"] ?? data["scadenzaConvenzione"] ?? "").trim()) || null,
+    conventionText: String(data["conventionText"] ?? data["testoConvenzione"] ?? "").trim() || null,
+    linkedConventionIds: normalizeLinkedConventionIds(data["linkedConventionIds"] ?? data["convenzioniAssociate"]),
     notes: String(data["notes"] ?? "").trim() || null,
     billingAddress: String(data["billingAddress"] ?? "").trim() || null,
     billingCap: String(data["billingCap"] ?? "").trim() || null,
@@ -100,6 +175,9 @@ function normalizeBulkPatient(row: unknown): BulkPatient {
 }
 
 function formatPatient(p: typeof patientsTable.$inferSelect) {
+  const expired = Boolean(p.conventionExpiresAt && p.conventionExpiresAt < todayKey());
+  const conventionActive = Boolean(p.conventionActive && !expired);
+
   return {
     id: p.id,
     recordType: p.recordType ?? "privato",
@@ -111,6 +189,10 @@ function formatPatient(p: typeof patientsTable.$inferSelect) {
     companyName: p.companyName,
     vatNumber: p.vatNumber,
     contactPerson: p.contactPerson,
+    conventionActive,
+    conventionExpiresAt: p.conventionExpiresAt,
+    conventionText: p.conventionText,
+    linkedConventionIds: parseLinkedConventionIds(p.linkedConventionIds),
     email: p.email,
     phone: p.phone,
     notes: p.notes,
@@ -125,6 +207,7 @@ function formatPatient(p: typeof patientsTable.$inferSelect) {
 router.get("/patients", async (req, res) => {
   try {
     await ensurePatientRegistryColumns();
+    await syncExpiredConventions();
     const search = (req.query["search"] as string | undefined)?.trim();
     const recordType = normalizeRecordType(req.query["recordType"]);
     const hasRecordTypeFilter = typeof req.query["recordType"] === "string" && RECORD_TYPES.includes(recordType);
@@ -183,11 +266,13 @@ router.post("/patients", async (req, res) => {
   }
   try {
     await ensurePatientRegistryColumns();
+    await syncExpiredConventions();
     const d = parsed.data;
+    const recordType = d.recordType ?? "privato";
     const [inserted] = await db
       .insert(patientsTable)
       .values({
-        recordType: d.recordType ?? "privato",
+        recordType,
         firstName: d.firstName,
         lastName: d.lastName,
         dateOfBirth: toDateStr(d.dateOfBirth as string | Date),
@@ -196,6 +281,10 @@ router.post("/patients", async (req, res) => {
         companyName: d.companyName ?? null,
         vatNumber: d.vatNumber ?? null,
         contactPerson: d.contactPerson ?? null,
+        conventionActive: recordType !== "privato" ? d.conventionActive ?? false : false,
+        conventionExpiresAt: d.conventionExpiresAt ? toDateStr(d.conventionExpiresAt as string | Date) : null,
+        conventionText: d.conventionText ?? null,
+        linkedConventionIds: normalizeLinkedConventionIds(d.linkedConventionIds),
         email: d.email,
         phone: d.phone,
         notes: d.notes ?? null,
@@ -227,6 +316,7 @@ router.patch("/patients/:id", async (req, res) => {
 
   try {
     await ensurePatientRegistryColumns();
+    await syncExpiredConventions();
     const existing = await db
       .select()
       .from(patientsTable)
@@ -238,6 +328,7 @@ router.patch("/patients/:id", async (req, res) => {
     }
 
     const d = parsed.data;
+    const nextRecordType = d.recordType ?? existing[0]?.recordType ?? "privato";
     const update: Partial<typeof patientsTable.$inferInsert> = {
       ...(d.recordType !== undefined && { recordType: d.recordType }),
       ...(d.firstName !== undefined && { firstName: d.firstName }),
@@ -248,6 +339,12 @@ router.patch("/patients/:id", async (req, res) => {
       ...(d.companyName !== undefined && { companyName: d.companyName }),
       ...(d.vatNumber !== undefined && { vatNumber: d.vatNumber }),
       ...(d.contactPerson !== undefined && { contactPerson: d.contactPerson }),
+      ...(d.conventionActive !== undefined && { conventionActive: nextRecordType !== "privato" ? d.conventionActive : false }),
+      ...(d.conventionExpiresAt !== undefined && {
+        conventionExpiresAt: d.conventionExpiresAt ? toDateStr(d.conventionExpiresAt as string | Date) : null,
+      }),
+      ...(d.conventionText !== undefined && { conventionText: d.conventionText }),
+      ...(d.linkedConventionIds !== undefined && { linkedConventionIds: normalizeLinkedConventionIds(d.linkedConventionIds) }),
       ...(d.email !== undefined && { email: d.email }),
       ...(d.phone !== undefined && { phone: d.phone }),
       ...(d.notes !== undefined && { notes: d.notes }),
@@ -278,6 +375,7 @@ router.delete("/patients/:id", async (req, res) => {
 
   try {
     await ensurePatientRegistryColumns();
+    await syncExpiredConventions();
     const deleted = await db
       .delete(patientsTable)
       .where(eq(patientsTable.id, id))
@@ -323,6 +421,7 @@ const bulkImportPatients: RequestHandler = async (req, res) => {
 
   try {
     await ensurePatientRegistryColumns();
+    await syncExpiredConventions();
     const codiceFiscaleValues = uniqueNonEmpty(validRows.map((row) => row.codiceFiscale));
     const emailValues = uniqueNonEmpty(validRows.map((row) => row.email));
     const phoneValues = uniqueNonEmpty(validRows.map((row) => normalizePhoneKey(row.phone)));

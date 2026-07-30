@@ -5,13 +5,26 @@
  * API specification for Lab Booking Portal
  * OpenAPI spec version: 0.1.0
  */
+import type { ListPatientsRecordType } from './listPatientsRecordType';
 
 export type ListPatientsParams = {
 /**
- * Search by name, email, phone, company, or VAT number
+ * Search by name, email, or phone
  */
 search?: string;
-recordType?: 'privato' | 'azienda' | 'societa_sportiva';
+/**
+ * Filter by registry type
+ */
+recordType?: ListPatientsRecordType;
+/**
+ * Maximum number of patients to return
+ * @minimum 1
+ * @maximum 200
+ */
 limit?: number;
+/**
+ * Number of patients to skip
+ * @minimum 0
+ */
 offset?: number;
 };

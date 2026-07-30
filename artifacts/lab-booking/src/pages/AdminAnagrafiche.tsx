@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,8 @@ import {
   AlertCircle,
   UserCheck,
   Upload,
+  Bell,
+  Link2,
 } from "lucide-react";
 import { parseFiscalCode } from "@/lib/fiscalCode";
 import { BulkImportDialog } from "@/components/BulkImportDialog";
@@ -53,6 +56,10 @@ type PatientForm = {
   companyName: string;
   vatNumber: string;
   contactPerson: string;
+  conventionActive: boolean;
+  conventionExpiresAt: string;
+  conventionText: string;
+  linkedConventionIds: number[];
   email: string;
   phone: string;
   notes: string;
@@ -66,6 +73,7 @@ const emptyForm = (): PatientForm => ({
   recordType: "privato",
   firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", gender: "", email: "", phone: "", notes: "",
   companyName: "", vatNumber: "", contactPerson: "",
+  conventionActive: false, conventionExpiresAt: "", conventionText: "", linkedConventionIds: [],
   billingAddress: "", billingCap: "", billingCity: "", billingProvincia: "",
 });
 
@@ -78,6 +86,7 @@ function isFormValid(f: PatientForm) {
 
 const today = new Date().toISOString().slice(0, 10);
 const PAGE_SIZE = 50;
+const CONVENTION_WARNING_DAYS = 30;
 
 const byPatientName = (a: Patient, b: Patient) =>
   patientDisplayName(a).localeCompare(patientDisplayName(b), "it", { sensitivity: "base" });
@@ -109,6 +118,30 @@ const patientInitials = (patient: Patient) => {
   return `${parts[0]?.[0] ?? "A"}${parts[1]?.[0] ?? ""}`.toUpperCase();
 };
 
+const parseDateKey = (value: string) => new Date(`${value}T12:00:00`);
+
+const daysUntil = (dateKey?: string | null) => {
+  if (!dateKey) return null;
+  const diff = parseDateKey(dateKey).getTime() - parseDateKey(today).getTime();
+  return Math.ceil(diff / 86_400_000);
+};
+
+const isConventionHolder = (patient: Patient) =>
+  patient.recordType === "azienda" || patient.recordType === "societa_sportiva";
+
+const isConventionExpiring = (patient: Patient) => {
+  const days = daysUntil(patient.conventionExpiresAt);
+  return Boolean(patient.conventionActive && days !== null && days >= 0 && days <= CONVENTION_WARNING_DAYS);
+};
+
+const conventionLabel = (patient: Patient) => {
+  const days = daysUntil(patient.conventionExpiresAt);
+  if (!patient.conventionActive) return "Convenzione non attiva";
+  if (days !== null && days < 0) return "Convenzione scaduta";
+  if (days !== null && days <= CONVENTION_WARNING_DAYS) return `Scade tra ${days} giorni`;
+  return patient.conventionExpiresAt ? `Attiva fino al ${patient.conventionExpiresAt}` : "Convenzione attiva";
+};
+
 const patientFormPayload = (form: PatientForm) => {
   const isOrganization = form.recordType !== "privato";
   const companyName = form.companyName.trim();
@@ -122,6 +155,10 @@ const patientFormPayload = (form: PatientForm) => {
     companyName: isOrganization ? companyName || null : null,
     vatNumber: form.vatNumber.trim() || null,
     contactPerson: form.contactPerson.trim() || null,
+    conventionActive: isOrganization ? form.conventionActive : false,
+    conventionExpiresAt: isOrganization ? form.conventionExpiresAt || null : null,
+    conventionText: isOrganization ? form.conventionText.trim() || null : null,
+    linkedConventionIds: isOrganization ? [] : form.linkedConventionIds,
     email: form.email.trim(),
     phone: form.phone.trim(),
     notes: form.notes.trim() || null,
@@ -171,10 +208,25 @@ export function AdminAnagrafiche() {
   );
 
   const { data: patients, isLoading, isFetching, error, refetch, queryKey } = useListPatients(patientQueryParams);
+  const { data: aziendeConvenzionabili } = useListPatients({ recordType: "azienda", limit: 200 });
+  const { data: societaConvenzionabili } = useListPatients({ recordType: "societa_sportiva", limit: 200 });
 
   const createPatient = useCreatePatient();
   const updatePatient = useUpdatePatient();
   const deletePatient = useDeletePatient();
+
+  const conventionOptions = React.useMemo(
+    () => [...(aziendeConvenzionabili ?? []), ...(societaConvenzionabili ?? [])].filter(isConventionHolder),
+    [aziendeConvenzionabili, societaConvenzionabili],
+  );
+  const activeConventionOptions = React.useMemo(
+    () => conventionOptions.filter((patient) => patient.conventionActive),
+    [conventionOptions],
+  );
+  const expiringConventions = React.useMemo(
+    () => conventionOptions.filter(isConventionExpiring),
+    [conventionOptions],
+  );
 
   const hasNextPage = (patients?.length ?? 0) > PAGE_SIZE;
   const visiblePatients = (patients ?? []).slice(0, PAGE_SIZE);
@@ -276,6 +328,23 @@ export function AdminAnagrafiche() {
           </Button>
         ))}
       </div>
+      {expiringConventions.length > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="flex items-start gap-3">
+            <Bell className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="min-w-0">
+              <p className="font-semibold">Convenzioni in scadenza entro 30 giorni</p>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {expiringConventions.map((convenzione) => (
+                  <Badge key={convenzione.id} variant="outline" className="border-amber-300 bg-white text-amber-900">
+                    {patientDisplayName(convenzione)} · {conventionLabel(convenzione)}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {isFetching && !isLoading && (
         <p className="text-xs text-muted-foreground">Aggiornamento risultati...</p>
       )}
@@ -299,11 +368,16 @@ export function AdminAnagrafiche() {
       ) : (
         <div className="space-y-4">
           <div className="space-y-2">
-            {visiblePatients.map((p) => (
-              <div
-                key={p.id}
-                className="rounded-xl border bg-card shadow-sm px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4"
-              >
+            {visiblePatients.map((p) => {
+              const linkedConventions = (p.linkedConventionIds ?? [])
+                .map((id) => conventionOptions.find((convenzione) => convenzione.id === id))
+                .filter(Boolean) as Patient[];
+
+              return (
+                <div
+                  key={p.id}
+                  className="rounded-xl border bg-card shadow-sm px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4"
+                >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <div className="h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center font-bold text-sm text-primary flex-shrink-0">
                     {patientInitials(p)}
@@ -337,9 +411,27 @@ export function AdminAnagrafiche() {
                       </span>
                     </div>
                     {p.recordType && p.recordType !== "privato" && (
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Referente: {p.contactPerson || `${p.firstName} ${p.lastName}`.trim() || "non indicato"}
-                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-muted-foreground">
+                          Referente: {p.contactPerson || `${p.firstName} ${p.lastName}`.trim() || "non indicato"}
+                        </span>
+                        <Badge
+                          variant={p.conventionActive ? "secondary" : "outline"}
+                          className={isConventionExpiring(p) ? "border-amber-300 bg-amber-50 text-amber-900" : ""}
+                        >
+                          {conventionLabel(p)}
+                        </Badge>
+                      </div>
+                    )}
+                    {(!p.recordType || p.recordType === "privato") && linkedConventions.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {linkedConventions.map((convenzione) => (
+                          <Badge key={convenzione.id} variant="secondary" className="gap-1 text-xs">
+                            <Link2 className="h-3 w-3" />
+                            {patientDisplayName(convenzione)}
+                          </Badge>
+                        ))}
+                      </div>
                     )}
                     {p.notes && (
                       <p className="text-xs text-muted-foreground italic mt-0.5">"{p.notes}"</p>
@@ -365,6 +457,10 @@ export function AdminAnagrafiche() {
                           companyName: p.companyName ?? "",
                           vatNumber: p.vatNumber ?? "",
                           contactPerson: p.contactPerson ?? "",
+                          conventionActive: Boolean(p.conventionActive),
+                          conventionExpiresAt: p.conventionExpiresAt ?? "",
+                          conventionText: p.conventionText ?? "",
+                          linkedConventionIds: p.linkedConventionIds ?? [],
                           email: p.email,
                           phone: p.phone,
                           notes: p.notes ?? "",
@@ -390,7 +486,8 @@ export function AdminAnagrafiche() {
                   </Button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -438,6 +535,7 @@ export function AdminAnagrafiche() {
         form={emptyForm()}
         error={formError}
         saving={saving}
+        conventionOptions={activeConventionOptions}
         onClose={() => setShowCreate(false)}
         onSave={handleCreate}
       />
@@ -450,6 +548,7 @@ export function AdminAnagrafiche() {
           form={editPatient.form}
           error={formError}
           saving={saving}
+          conventionOptions={activeConventionOptions}
           onClose={() => setEditPatient(null)}
           onSave={(form) => handleUpdate(editPatient.id, form)}
         />
@@ -482,6 +581,7 @@ function PatientFormDialog({
   form: initialForm,
   error,
   saving,
+  conventionOptions,
   onClose,
   onSave,
 }: {
@@ -490,6 +590,7 @@ function PatientFormDialog({
   form: PatientForm;
   error: string | null;
   saving: boolean;
+  conventionOptions: Patient[];
   onClose: () => void;
   onSave: (form: PatientForm) => void;
 }) {
@@ -502,6 +603,15 @@ function PatientFormDialog({
 
   const set = (k: keyof PatientForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const toggleLinkedConvention = (id: number) => {
+    setForm((f) => ({
+      ...f,
+      linkedConventionIds: f.linkedConventionIds.includes(id)
+        ? f.linkedConventionIds.filter((item) => item !== id)
+        : [...f.linkedConventionIds, id],
+    }));
+  };
 
   const cfInfo = React.useMemo(() => parseFiscalCode(form.codiceFiscale), [form.codiceFiscale]);
 
@@ -640,6 +750,102 @@ function PatientFormDialog({
               <Input value={form.notes} onChange={set("notes")} placeholder="Allergie, annotazioni, ecc." />
             </div>
           </div>
+
+          <div className="border-t border-border" />
+
+          {form.recordType === "privato" ? (
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Convenzioni associate</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Abbina il paziente a una societa sportiva o azienda con convenzione attiva.
+                </p>
+              </div>
+              {conventionOptions.length > 0 ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {conventionOptions.map((convenzione) => {
+                    const selected = form.linkedConventionIds.includes(convenzione.id);
+                    return (
+                      <button
+                        key={convenzione.id}
+                        type="button"
+                        onClick={() => toggleLinkedConvention(convenzione.id)}
+                        className={`rounded-md border px-3 py-2 text-left transition-colors ${
+                          selected
+                            ? "border-primary bg-primary/10 text-foreground"
+                            : "border-border bg-white hover:border-primary/50"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold">{patientDisplayName(convenzione)}</p>
+                            <p className="text-xs text-muted-foreground">{recordTypeLabel(convenzione.recordType)}</p>
+                          </div>
+                          <Badge variant={selected ? "default" : "outline"} className="shrink-0">
+                            {selected ? "Associata" : "Associa"}
+                          </Badge>
+                        </div>
+                        {convenzione.conventionText && (
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{convenzione.conventionText}</p>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  Nessuna convenzione attiva disponibile.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Convenzione</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Alla scadenza la convenzione viene disattivata automaticamente. Da 30 giorni prima comparira tra le notifiche.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant={form.conventionActive ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setForm((f) => ({ ...f, conventionActive: !f.conventionActive }))}
+                >
+                  {form.conventionActive ? "Convenzione attiva" : "Convenzione disattivata"}
+                </Button>
+                {form.conventionExpiresAt && (
+                  <Badge
+                    variant="outline"
+                    className={
+                      form.conventionActive && daysUntil(form.conventionExpiresAt) !== null &&
+                      Number(daysUntil(form.conventionExpiresAt)) <= CONVENTION_WARNING_DAYS
+                        ? "border-amber-300 bg-amber-50 text-amber-900"
+                        : ""
+                    }
+                  >
+                    {form.conventionActive
+                      ? `Scadenza ${form.conventionExpiresAt}`
+                      : "Non attiva"}
+                  </Badge>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Scadenza convenzione</Label>
+                <Input type="date" value={form.conventionExpiresAt} onChange={set("conventionExpiresAt")} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Testo generico convenzione</Label>
+                <Textarea
+                  value={form.conventionText}
+                  onChange={(event) => setForm((f) => ({ ...f, conventionText: event.target.value }))}
+                  placeholder="Es. Sconto prestazioni, condizioni, modalita di applicazione..."
+                  className="min-h-24"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Separator */}
           <div className="border-t border-border" />

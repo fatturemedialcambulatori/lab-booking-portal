@@ -278,6 +278,28 @@ paths:
           schema:
             type: string
           description: Search by name, email, or phone
+        - name: recordType
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [privato, azienda, societa_sportiva]
+          description: Filter by registry type
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+          description: Maximum number of patients to return
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+          description: Number of patients to skip
       responses:
         "200":
           description: List of patients
@@ -766,6 +788,10 @@ components:
       properties:
         id:
           type: integer
+        recordType:
+          type: string
+          enum: [privato, azienda, societa_sportiva]
+          default: privato
         firstName:
           type: string
         lastName:
@@ -778,6 +804,23 @@ components:
         gender:
           type: ["string", "null"]
           enum: ["M", "F", null]
+        companyName:
+          type: ["string", "null"]
+        vatNumber:
+          type: ["string", "null"]
+        contactPerson:
+          type: ["string", "null"]
+        conventionActive:
+          type: boolean
+        conventionExpiresAt:
+          type: ["string", "null"]
+          format: date
+        conventionText:
+          type: ["string", "null"]
+        linkedConventionIds:
+          type: array
+          items:
+            type: integer
         email:
           type: string
         phone:
@@ -800,6 +843,9 @@ components:
       type: object
       required: [firstName, lastName, dateOfBirth, email, phone]
       properties:
+        recordType:
+          type: string
+          enum: [privato, azienda, societa_sportiva]
         firstName:
           type: string
         lastName:
@@ -812,6 +858,23 @@ components:
         gender:
           type: ["string", "null"]
           enum: ["M", "F", null]
+        companyName:
+          type: ["string", "null"]
+        vatNumber:
+          type: ["string", "null"]
+        contactPerson:
+          type: ["string", "null"]
+        conventionActive:
+          type: boolean
+        conventionExpiresAt:
+          type: ["string", "null"]
+          format: date
+        conventionText:
+          type: ["string", "null"]
+        linkedConventionIds:
+          type: array
+          items:
+            type: integer
         email:
           type: string
         phone:

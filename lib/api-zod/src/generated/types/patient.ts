@@ -6,10 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PatientGender } from './patientGender';
+import type { PatientRecordType } from './patientRecordType';
 
 export interface Patient {
   id: number;
-  recordType?: 'privato' | 'azienda' | 'societa_sportiva';
+  recordType?: PatientRecordType;
   firstName: string;
   lastName: string;
   dateOfBirth: Date;
@@ -23,6 +24,12 @@ export interface Patient {
   vatNumber?: string | null;
   /** @nullable */
   contactPerson?: string | null;
+  conventionActive?: boolean;
+  /** @nullable */
+  conventionExpiresAt?: Date | null;
+  /** @nullable */
+  conventionText?: string | null;
+  linkedConventionIds?: number[];
   email: string;
   phone: string;
   /** @nullable */
