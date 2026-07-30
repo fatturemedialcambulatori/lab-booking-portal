@@ -12,6 +12,7 @@ import {
   UserCheck,
   KeyRound,
   Users,
+  Save,
   WalletCards,
   type LucideIcon,
 } from "lucide-react";
@@ -20,7 +21,7 @@ import { AdminExams } from "./AdminExams";
 import { AccettazionePaziente } from "./AccettazionePaziente";
 import { AdminAnagrafiche } from "./AdminAnagrafiche";
 import { AdminBookingCalendar } from "./AdminBookingCalendar";
-import { AdminSettings } from "./AdminSettings";
+import { AdminSettings, type SettingsSaveControl } from "./AdminSettings";
 import { AdminUsers } from "./AdminUsers";
 import { AdminInfortunistica } from "./AdminInfortunistica";
 import { AdminCassa } from "./AdminCassa";
@@ -188,6 +189,7 @@ function AdminDashboard({
 }) {
   const [activeArea, setActiveArea] = React.useState<AreaId>("laboratorio");
   const [activeTab, setActiveTab] = React.useState<TabId>("accettazione");
+  const [settingsSaveControl, setSettingsSaveControl] = React.useState<SettingsSaveControl | null>(null);
   const [settingsTarget, setSettingsTarget] = React.useState<SettingsTarget>({
     tab: "prestazioni",
     medicoId: null,
@@ -264,6 +266,12 @@ function AdminDashboard({
     setActiveTab("impostazioni");
   };
   const isCassaTab = activeTab.startsWith("cassa-");
+  const showSettingsSave = activeTab === "impostazioni";
+  const settingsSaveEnabled = Boolean(settingsSaveControl?.canSave);
+  const settingsSaving = settingsSaveControl?.state === "saving";
+  const settingsSaveButtonClass = settingsSaveEnabled
+    ? "gap-2 border-slate-950 bg-slate-950 text-white hover:bg-slate-900 hover:text-white"
+    : "gap-2 cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 opacity-100 hover:bg-slate-100 hover:text-slate-400 disabled:opacity-100";
 
   return (
     <div className="min-h-screen bg-background text-foreground lg:flex">
@@ -426,6 +434,19 @@ function AdminDashboard({
             </div>
 
             <div className="flex items-center gap-2">
+              {showSettingsSave && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => settingsSaveControl?.onSave()}
+                  disabled={!settingsSaveEnabled || settingsSaving}
+                  className={settingsSaveButtonClass}
+                >
+                  <Save className={`h-3.5 w-3.5 ${settingsSaving ? "animate-pulse" : ""}`} />
+                  {settingsSaving ? "Salvo..." : "Salva"}
+                </Button>
+              )}
               <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="gap-2 hidden sm:flex">
                 <ArrowLeft className="h-3.5 w-3.5" />
                 Portale pazienti
@@ -457,6 +478,7 @@ function AdminDashboard({
                 initialTab={settingsTarget.tab}
                 initialMedicoId={settingsTarget.medicoId}
                 focusKey={settingsTarget.key}
+                onSaveControlChange={setSettingsSaveControl}
               />
             )}
 

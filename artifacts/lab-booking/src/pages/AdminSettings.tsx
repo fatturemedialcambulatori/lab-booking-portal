@@ -230,8 +230,14 @@ type AdminSettingsData = {
   conventionTemplates: ConventionTemplate[];
 };
 
-type SettingsSaveState = "loading" | "saving" | "saved" | "error";
+type SettingsSaveState = "loading" | "dirty" | "saving" | "saved" | "error";
 type SettingsTabId = "specialita" | "prestazioni" | "convenzioni" | "medici" | "compensi";
+
+export type SettingsSaveControl = {
+  state: SettingsSaveState;
+  canSave: boolean;
+  onSave: () => void;
+};
 
 type Specialita = {
   id: string;
@@ -815,14 +821,17 @@ export function AdminSettings({
   initialTab = "prestazioni",
   initialMedicoId = null,
   focusKey = 0,
+  onSaveControlChange,
 }: {
   initialTab?: SettingsTabId;
   initialMedicoId?: string | null;
   focusKey?: number;
+  onSaveControlChange?: (control: SettingsSaveControl) => void;
 } = {}) {
   const importInputRef = React.useRef<HTMLInputElement | null>(null);
-  const saveTimerRef = React.useRef<number | null>(null);
   const skipInitialSettingsSaveRef = React.useRef(true);
+  const lastSavedPayloadKeyRef = React.useRef("");
+  const currentPayloadKeyRef = React.useRef("");
   const [settingsTab, setSettingsTab] = React.useState<SettingsTabId>(initialTab);
   const [specialita, setSpecialita] = React.useState(SPECIALITA_INIZIALI);
   const [prestazioni, setPrestazioni] = React.useState(PRESTAZIONI_INIZIALI);
@@ -889,6 +898,16 @@ export function AdminSettings({
     });
   };
 
+  const settingsPayload = React.useMemo<AdminSettingsData>(() => ({
+    specialita,
+    prestazioni,
+    medici,
+    listini,
+    conventionTemplates,
+  }), [conventionTemplates, listini, medici, prestazioni, specialita]);
+
+  const settingsPayloadKey = React.useMemo(() => JSON.stringify(settingsPayload), [settingsPayload]);
+
   React.useEffect(() => {
     let active = true;
 
@@ -946,56 +965,58 @@ export function AdminSettings({
   React.useEffect(() => {
     if (!settingsCanSave) return;
 
+    currentPayloadKeyRef.current = settingsPayloadKey;
+
     if (skipInitialSettingsSaveRef.current) {
       skipInitialSettingsSaveRef.current = false;
+      lastSavedPayloadKeyRef.current = settingsPayloadKey;
       return;
     }
 
-    if (saveTimerRef.current !== null) {
-      window.clearTimeout(saveTimerRef.current);
+    if (lastSavedPayloadKeyRef.current !== settingsPayloadKey) {
+      setSettingsSaveState((current) => current === "loading" ? current : "dirty");
     }
+  }, [settingsCanSave, settingsPayloadKey]);
 
-    const payload: AdminSettingsData = {
-      specialita,
-      prestazioni,
-      medici,
-      listini,
-      conventionTemplates,
-    };
-
+  const salvaImpostazioni = React.useCallback(async () => {
+    const payload = settingsPayload;
+    const payloadKey = settingsPayloadKey;
+    currentPayloadKeyRef.current = payloadKey;
     setSettingsSaveState("saving");
-    saveTimerRef.current = window.setTimeout(() => {
-      void fetch("/api/admin-settings", {
+
+    try {
+      const response = await fetch("/api/admin-settings", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
-      })
-        .then(async (response) => {
-          if (!response.ok) {
-            const data = await response.json().catch(() => null) as { error?: string } | null;
-            throw new Error(data?.error ?? `Salvataggio non riuscito (HTTP ${response.status})`);
-          }
-          setSettingsSaveState("saved");
-        })
-        .catch((error) => {
-          setSettingsSaveState("error");
-          mostraNotifica(
-            error instanceof Error
-              ? error.message
-              : "Salvataggio impostazioni non riuscito. Verifica Supabase e Vercel.",
-            "destructive",
-          );
-        });
-    }, 700);
-
-    return () => {
-      if (saveTimerRef.current !== null) {
-        window.clearTimeout(saveTimerRef.current);
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(data?.error ?? `Salvataggio non riuscito (HTTP ${response.status})`);
       }
-    };
-  }, [settingsCanSave, specialita, prestazioni, medici, listini, conventionTemplates]);
+      lastSavedPayloadKeyRef.current = payloadKey;
+      setSettingsSaveState(currentPayloadKeyRef.current === payloadKey ? "saved" : "dirty");
+      mostraNotifica("Impostazioni salvate.");
+    } catch (error) {
+      setSettingsSaveState("error");
+      mostraNotifica(
+        error instanceof Error
+          ? error.message
+          : "Salvataggio impostazioni non riuscito. Verifica Supabase e Vercel.",
+        "destructive",
+      );
+    }
+  }, [settingsPayload, settingsPayloadKey]);
+
+  React.useEffect(() => {
+    onSaveControlChange?.({
+      state: settingsSaveState,
+      canSave: settingsSaveState === "dirty" || settingsSaveState === "error",
+      onSave: () => void salvaImpostazioni(),
+    });
+  }, [onSaveControlChange, salvaImpostazioni, settingsSaveState]);
 
   React.useEffect(() => {
     setSchedaMedicoModificaAttiva(false);
@@ -2572,6 +2593,7 @@ export function AdminSettings({
 
   const settingsBadgeLabel: Record<SettingsSaveState, string> = {
     loading: "Caricamento DB",
+    dirty: "Modifiche da salvare",
     saving: "Salvataggio...",
     saved: "DB collegato",
     error: "Errore salvataggio",
@@ -2580,6 +2602,8 @@ export function AdminSettings({
   const settingsBadgeClass =
     settingsSaveState === "error"
       ? "w-fit border-red-200 bg-red-100 text-red-700 hover:bg-red-100"
+      : settingsSaveState === "dirty"
+        ? "w-fit border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-100"
       : settingsSaveState === "saved"
         ? "w-fit border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
         : "w-fit border-amber-200 bg-amber-100 text-amber-700 hover:bg-amber-100";
