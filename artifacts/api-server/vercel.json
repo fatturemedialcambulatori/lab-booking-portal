@@ -6,18 +6,6 @@
   "functions": {
     "api/[...path].js": {
       "maxDuration": 30
-    },
-    "api/[path]/[id].js": {
-      "maxDuration": 30
-    },
-    "api/[path]/[id]/[action].js": {
-      "maxDuration": 30
-    },
-    "api/[path]/[id]/[action]/[subid].js": {
-      "maxDuration": 30
-    },
-    "api/patients/[id].js": {
-      "maxDuration": 30
     }
   },
   "rewrites": [

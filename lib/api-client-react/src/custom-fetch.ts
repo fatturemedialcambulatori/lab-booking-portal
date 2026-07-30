@@ -134,6 +134,76 @@ function looksLikeJson(text: string): boolean {
   return trimmed.startsWith("{") || trimmed.startsWith("[");
 }
 
+function pathnameFor(input: RequestInfo | URL): string {
+  const url = resolveUrl(input);
+  try {
+    return new URL(url, "http://localhost").pathname;
+  } catch {
+    return url.split("?", 1)[0] ?? url;
+  }
+}
+
+function withPath(input: RequestInfo | URL, path: string): RequestInfo | URL {
+  if (typeof input === "string") {
+    if (input.startsWith("http://") || input.startsWith("https://")) {
+      const url = new URL(input);
+      url.pathname = path;
+      url.search = "";
+      return url.toString();
+    }
+
+    return path;
+  }
+
+  if (isUrl(input)) {
+    const url = new URL(input.toString());
+    url.pathname = path;
+    url.search = "";
+    return url;
+  }
+
+  return input;
+}
+
+function rewritePatientMutationForVercel(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  method: string,
+): { input: RequestInfo | URL; init: RequestInit; method: string } {
+  const match = pathnameFor(input).match(/^\/api\/patients\/(\d+)$/);
+  if (!match) {
+    return { input, init, method };
+  }
+
+  const id = Number(match[1]);
+  if (!Number.isInteger(id) || id <= 0) {
+    return { input, init, method };
+  }
+
+  if (method === "PATCH" && typeof init.body === "string" && looksLikeJson(init.body)) {
+    try {
+      const body = JSON.parse(init.body) as Record<string, unknown>;
+      return {
+        input: withPath(input, "/api/patients-update"),
+        init: { ...init, method: "POST", body: JSON.stringify({ id, ...body }) },
+        method: "POST",
+      };
+    } catch {
+      return { input, init, method };
+    }
+  }
+
+  if (method === "DELETE") {
+    return {
+      input: withPath(input, "/api/patients-delete"),
+      init: { ...init, method: "POST", body: JSON.stringify({ id }) },
+      method: "POST",
+    };
+  }
+
+  return { input, init, method };
+}
+
 function getStringField(value: unknown, key: string): string | undefined {
   if (!value || typeof value !== "object") return undefined;
 
@@ -327,9 +397,11 @@ export async function customFetch<T = unknown>(
   options: CustomFetchOptions = {},
 ): Promise<T> {
   input = applyBaseUrl(input);
-  const { responseType = "auto", headers: headersInit, ...init } = options;
+  const { responseType = "auto", headers: headersInit, ...restInit } = options;
+  let init: RequestInit = restInit;
 
-  const method = resolveMethod(input, init.method);
+  let method = resolveMethod(input, init.method);
+  ({ input, init, method } = rewritePatientMutationForVercel(input, init, method));
 
   if (init.body != null && (method === "GET" || method === "HEAD")) {
     throw new TypeError(`customFetch: ${method} requests cannot have a body.`);

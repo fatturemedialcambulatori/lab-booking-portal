@@ -1,4 +1,4 @@
-import { Router, type RequestHandler } from "express";
+import { Router, type Request, type RequestHandler, type Response } from "express";
 import { db, pool } from "@workspace/db";
 import { patientsTable } from "@workspace/db";
 import { and, eq, ilike, or, inArray } from "drizzle-orm";
@@ -384,16 +384,16 @@ router.post("/patients", async (req, res) => {
   }
 });
 
-router.patch("/patients/:id", async (req, res) => {
-  const id = Number(req.params["id"]);
+const updatePatientById = async (id: number, body: unknown, req: Request, res: Response) => {
   if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ error: "Invalid patient ID" });
     return;
   }
 
-  const parsed = UpdatePatientBody.safeParse(req.body);
+  const parsed = UpdatePatientBody.safeParse(body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Invalid patient data" });
+    req.log.warn({ issues: parsed.error.issues }, "Invalid patient update data");
+    res.status(400).json({ error: "Invalid patient data", details: parsed.error.issues });
     return;
   }
 
@@ -450,10 +450,21 @@ router.patch("/patients/:id", async (req, res) => {
     req.log.error({ err }, "Failed to update patient");
     res.status(500).json({ error: "Internal server error" });
   }
+};
+
+router.patch("/patients/:id", async (req, res) => {
+  await updatePatientById(Number(req.params["id"]), req.body, req, res);
 });
 
-router.delete("/patients/:id", async (req, res) => {
-  const id = Number(req.params["id"]);
+router.post("/patients-update", async (req, res) => {
+  const rawBody = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+    ? req.body as Record<string, unknown>
+    : {};
+  const { id: rawId, ...body } = rawBody;
+  await updatePatientById(Number(rawId), body, req, res);
+});
+
+const deletePatientById = async (id: number, req: Request, res: Response) => {
   if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ error: "Invalid patient ID" });
     return;
@@ -475,6 +486,17 @@ router.delete("/patients/:id", async (req, res) => {
     req.log.error({ err }, "Failed to delete patient");
     res.status(500).json({ error: "Internal server error" });
   }
+};
+
+router.delete("/patients/:id", async (req, res) => {
+  await deletePatientById(Number(req.params["id"]), req, res);
+});
+
+router.post("/patients-delete", async (req, res) => {
+  const id = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+    ? Number((req.body as Record<string, unknown>)["id"])
+    : NaN;
+  await deletePatientById(id, req, res);
 });
 
 const bulkImportPatients: RequestHandler = async (req, res) => {
