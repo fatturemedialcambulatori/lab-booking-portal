@@ -4,7 +4,7 @@
   "buildCommand": "pnpm --filter @workspace/api-server run build && PORT=3000 BASE_PATH=/ VERCEL_OUTPUT_DIR=$PWD/public pnpm --filter @workspace/lab-booking run build",
   "outputDirectory": "public",
   "functions": {
-    "api/[...path].js": {
+    "api/**/*.js": {
       "maxDuration": 30
     }
   },
