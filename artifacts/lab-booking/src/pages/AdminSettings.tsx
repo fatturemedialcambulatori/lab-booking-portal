@@ -82,6 +82,23 @@ type Prestazione = {
 
 const copiaPrestazioni = (lista: Prestazione[]) => lista.map((prestazione) => ({ ...prestazione }));
 
+type ConventionTemplateService = {
+  id: string;
+  prestazioneId: string;
+  nome: string;
+  specialita: string;
+  durata: number;
+  prezzo: number;
+};
+
+type ConventionTemplate = {
+  id: string;
+  nome: string;
+  descrizione: string;
+  attiva: boolean;
+  services: ConventionTemplateService[];
+};
+
 type DatiFatturazioneMedico = {
   intestatario: string;
   partitaIva: string;
@@ -210,10 +227,11 @@ type AdminSettingsData = {
   prestazioni: Prestazione[];
   medici: Medico[];
   listini: Listino[];
+  conventionTemplates: ConventionTemplate[];
 };
 
 type SettingsSaveState = "loading" | "saving" | "saved" | "error";
-type SettingsTabId = "specialita" | "prestazioni" | "medici" | "compensi";
+type SettingsTabId = "specialita" | "prestazioni" | "convenzioni" | "medici" | "compensi";
 
 type Specialita = {
   id: string;
@@ -435,6 +453,37 @@ const normalizzaEccezioniAgenda = (medico: Pick<Medico, "eccezioniAgenda">) =>
 
 const normalizzaPianoFerie = (medico: Pick<Medico, "pianoFerie">) =>
   (medico.pianoFerie ?? []).map((ferie, index) => normalizzaPianoFerieMedico(ferie, index));
+
+const normalizzaConventionTemplateService = (
+  service: Partial<ConventionTemplateService>,
+  index = 0,
+): ConventionTemplateService => ({
+  id: service.id || service.prestazioneId || `convenzione-servizio-${index}`,
+  prestazioneId: service.prestazioneId ?? service.id ?? `prestazione-${index}`,
+  nome: service.nome ?? "Prestazione",
+  specialita: service.specialita ?? "",
+  durata: Math.max(5, Number(service.durata ?? 30) || 30),
+  prezzo: Math.max(0, Number(service.prezzo ?? 0) || 0),
+});
+
+const normalizzaConventionTemplate = (
+  template: Partial<ConventionTemplate>,
+  index = 0,
+): ConventionTemplate => ({
+  id: template.id || slugId("convenzione-base", template.nome || "Convenzione base", index),
+  nome: template.nome?.trim() || "Convenzione base",
+  descrizione: template.descrizione ?? "",
+  attiva: template.attiva !== false,
+  services: Array.isArray(template.services)
+    ? template.services.map((service, serviceIndex) => normalizzaConventionTemplateService(service, serviceIndex))
+    : [],
+});
+
+const copiaConventionTemplates = (templates: ConventionTemplate[]) =>
+  templates.map((template) => ({
+    ...template,
+    services: template.services.map((service) => ({ ...service })),
+  }));
 
 const creaAgendaDraftDaMedico = (medico: Medico): AgendaMedicoDraft => ({
   fasceDisponibilitaPerSede: copiaFasceDisponibilitaPerSede(normalizzaFasceDisponibilitaPerSede(medico)),
@@ -668,6 +717,16 @@ const PRESTAZIONI_INIZIALI: Prestazione[] = [
   { id: "infiltrazione-articolare", nome: "Infiltrazione articolare", specialita: "Ortopedia", durata: 20, attiva: true },
 ];
 
+const CONVENTION_TEMPLATES_INIZIALI: ConventionTemplate[] = [
+  {
+    id: "convenzione-base",
+    nome: "Convenzione base",
+    descrizione: "Modello standard da applicare ad aziende e societa sportive.",
+    attiva: true,
+    services: [],
+  },
+];
+
 const MEDICI_INIZIALI: Medico[] = [
   {
     id: "rossi",
@@ -771,6 +830,9 @@ export function AdminSettings({
   const [prestazioniDraft, setPrestazioniDraft] = React.useState<Prestazione[] | null>(null);
   const [medici, setMedici] = React.useState(MEDICI_INIZIALI);
   const [listini, setListini] = React.useState(LISTINI_INIZIALI);
+  const [conventionTemplates, setConventionTemplates] = React.useState(CONVENTION_TEMPLATES_INIZIALI);
+  const [selectedConventionTemplateId, setSelectedConventionTemplateId] = React.useState(CONVENTION_TEMPLATES_INIZIALI[0]?.id ?? "");
+  const [ricercaPrestazioniConvenzione, setRicercaPrestazioniConvenzione] = React.useState("");
   const [settingsCanSave, setSettingsCanSave] = React.useState(false);
   const [settingsSaveState, setSettingsSaveState] = React.useState<SettingsSaveState>("loading");
   const [selectedSpecialita, setSelectedSpecialita] = React.useState(SPECIALITA_INIZIALI[0]?.nome ?? "");
@@ -851,6 +913,11 @@ export function AdminSettings({
           setPrestazioniModificaAttiva(false);
           setMedici(prossimiMedici);
           setListini(data.listini);
+          const prossimiTemplate = Array.isArray(data.conventionTemplates)
+            ? data.conventionTemplates.map((template, index) => normalizzaConventionTemplate(template, index))
+            : CONVENTION_TEMPLATES_INIZIALI;
+          setConventionTemplates(prossimiTemplate);
+          setSelectedConventionTemplateId(prossimiTemplate[0]?.id ?? "");
           setSelectedSpecialita(data.specialita[0]?.nome ?? data.prestazioni[0]?.specialita ?? "");
           setSelectedMedicoId(medicoRichiesto ?? prossimiMedici[0]?.id ?? "");
         }
@@ -893,6 +960,7 @@ export function AdminSettings({
       prestazioni,
       medici,
       listini,
+      conventionTemplates,
     };
 
     setSettingsSaveState("saving");
@@ -927,7 +995,7 @@ export function AdminSettings({
         window.clearTimeout(saveTimerRef.current);
       }
     };
-  }, [settingsCanSave, specialita, prestazioni, medici, listini]);
+  }, [settingsCanSave, specialita, prestazioni, medici, listini, conventionTemplates]);
 
   React.useEffect(() => {
     setSchedaMedicoModificaAttiva(false);
@@ -974,6 +1042,17 @@ export function AdminSettings({
     () => prestazioniInGestione.filter((prestazione) => stessaSpecialita(prestazione.specialita, selectedSpecialita)),
     [prestazioniInGestione, selectedSpecialita],
   );
+
+  const conventionTemplateSelezionato =
+    conventionTemplates.find((template) => template.id === selectedConventionTemplateId) ?? conventionTemplates[0] ?? null;
+
+  const prestazioniDisponibiliConvenzioneBase = React.useMemo(() => {
+    const selectedIds = new Set(conventionTemplateSelezionato?.services.map((service) => service.prestazioneId) ?? []);
+    return filtraPrestazioni(
+      prestazioni.filter((prestazione) => prestazione.attiva && !selectedIds.has(prestazione.id)),
+      ricercaPrestazioniConvenzione,
+    ).slice(0, 12);
+  }, [conventionTemplateSelezionato, filtraPrestazioni, prestazioni, ricercaPrestazioniConvenzione]);
 
   const medicoSelezionato = medici.find((medico) => medico.id === selectedMedicoId) ?? medici[0];
   const medicoSchedaInGestione =
@@ -1066,6 +1145,89 @@ export function AdminSettings({
 
   const applicaRicercaPrestazioni = () => {
     setRicercaPrestazioniApplicata(ricercaPrestazioni.trim());
+  };
+
+  const aggiornaConventionTemplate = <K extends keyof ConventionTemplate>(
+    id: string,
+    key: K,
+    value: ConventionTemplate[K],
+  ) => {
+    setConventionTemplates((correnti) =>
+      correnti.map((template) => template.id === id ? { ...template, [key]: value } : template),
+    );
+  };
+
+  const aggiungiConventionTemplate = () => {
+    const nuovo: ConventionTemplate = {
+      id: slugId("convenzione-base", `Convenzione base ${conventionTemplates.length + 1}`),
+      nome: conventionTemplates.length === 0 ? "Convenzione base" : `Convenzione base ${conventionTemplates.length + 1}`,
+      descrizione: "",
+      attiva: true,
+      services: [],
+    };
+    setConventionTemplates((correnti) => [...correnti, nuovo]);
+    setSelectedConventionTemplateId(nuovo.id);
+  };
+
+  const eliminaConventionTemplate = (id: string) => {
+    setConventionTemplates((correnti) => {
+      const prossimi = correnti.filter((template) => template.id !== id);
+      if (selectedConventionTemplateId === id) {
+        setSelectedConventionTemplateId(prossimi[0]?.id ?? "");
+      }
+      return prossimi;
+    });
+  };
+
+  const aggiungiPrestazioneAConvenzioneBase = (prestazione: Prestazione) => {
+    if (!conventionTemplateSelezionato) return;
+    const service: ConventionTemplateService = {
+      id: prestazione.id,
+      prestazioneId: prestazione.id,
+      nome: prestazione.nome,
+      specialita: prestazione.specialita,
+      durata: prestazione.durata,
+      prezzo: 0,
+    };
+    setConventionTemplates((correnti) =>
+      correnti.map((template) =>
+        template.id === conventionTemplateSelezionato.id
+          ? { ...template, services: [...template.services, service] }
+          : template,
+      ),
+    );
+    setRicercaPrestazioniConvenzione("");
+  };
+
+  const aggiornaPrestazioneConvenzioneBase = <K extends keyof ConventionTemplateService>(
+    serviceId: string,
+    key: K,
+    value: ConventionTemplateService[K],
+  ) => {
+    if (!conventionTemplateSelezionato) return;
+    setConventionTemplates((correnti) =>
+      correnti.map((template) =>
+        template.id === conventionTemplateSelezionato.id
+          ? {
+              ...template,
+              services: template.services.map((service) =>
+                service.id === serviceId ? { ...service, [key]: value } : service,
+              ),
+            }
+          : template,
+      ),
+    );
+  };
+
+  const rimuoviPrestazioneConvenzioneBase = (serviceId: string) => {
+    if (!conventionTemplateSelezionato) return;
+    setConventionTemplates((correnti) =>
+      correnti.map((template) =>
+        template.id === conventionTemplateSelezionato.id
+          ? { ...template, services: template.services.filter((service) => service.id !== serviceId) }
+          : template,
+      ),
+    );
   };
 
   const avvisaPrestazioniBloccate = () => {
@@ -2164,11 +2326,37 @@ export function AdminSettings({
         nettoStudio: nettoStudio(listino),
       };
     });
+    const listaConvenzioni = conventionTemplates.flatMap((template) =>
+      template.services.length > 0
+        ? template.services.map((service) => ({
+            templateId: template.id,
+            modello: template.nome,
+            descrizione: template.descrizione,
+            attiva: template.attiva,
+            prestazioneId: service.prestazioneId,
+            prestazione: service.nome,
+            specialita: service.specialita,
+            durata: service.durata,
+            prezzoConvenzione: service.prezzo,
+          }))
+        : [{
+            templateId: template.id,
+            modello: template.nome,
+            descrizione: template.descrizione,
+            attiva: template.attiva,
+            prestazioneId: "",
+            prestazione: "",
+            specialita: "",
+            durata: 0,
+            prezzoConvenzione: 0,
+          }],
+    );
 
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(listaMedici), "Medici");
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(listaSpecialita), "Specialita");
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(listaPrestazioni), "Prestazioni");
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(listaListini), "Listini");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(listaConvenzioni), "Convenzioni");
     XLSX.writeFile(workbook, `m-medical-configurazione-${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
@@ -2178,6 +2366,7 @@ export function AdminSettings({
     const righePrestazioni = righeFoglio(workbook, "Prestazioni");
     const righeMedici = righeFoglio(workbook, "Medici");
     const righeListini = righeFoglio(workbook, "Listini");
+    const righeConvenzioni = righeFoglio(workbook, "Convenzioni");
 
     const prossimeSpecialita = righeSpecialita
       ? righeSpecialita
@@ -2319,14 +2508,51 @@ export function AdminSettings({
           .filter((item): item is Listino => Boolean(item))
       : listini;
 
+    const prossimiTemplate = righeConvenzioni
+      ? Array.from(
+          righeConvenzioni.reduce((map, row, index) => {
+            const nome = leggiTesto(row, ["modello", "nome", "convenzione"], "Convenzione base");
+            const templateId = leggiTesto(row, ["templateId", "template id", "id"], slugId("convenzione-base", nome, index));
+            const existing = map.get(templateId) ?? {
+              id: templateId,
+              nome,
+              descrizione: leggiTesto(row, ["descrizione", "testo", "testo convenzione"]),
+              attiva: leggiBooleano(row, ["attiva", "stato"], true),
+              services: [],
+            } satisfies ConventionTemplate;
+
+            const prestazioneId = leggiTesto(row, ["prestazioneId", "prestazione id"]);
+            const prestazioneNome = leggiTesto(row, ["prestazione", "nome prestazione"]);
+            const prestazione =
+              prestazioneById.get(prestazioneId) ?? prestazioneByNome.get(normalizzaTesto(prestazioneNome));
+
+            if (prestazione) {
+              existing.services.push({
+                id: prestazione.id,
+                prestazioneId: prestazione.id,
+                nome: prestazione.nome,
+                specialita: prestazione.specialita,
+                durata: Math.max(5, leggiNumero(row, ["durata"], prestazione.durata)),
+                prezzo: Math.max(0, leggiNumero(row, ["prezzoConvenzione", "prezzo convenzione", "prezzo", "importo"], 0)),
+              });
+            }
+
+            map.set(templateId, existing);
+            return map;
+          }, new Map<string, ConventionTemplate>()).values(),
+        )
+      : conventionTemplates;
+
     setSpecialita(prossimeSpecialita);
     setPrestazioni(prossimePrestazioni);
     setMedici(prossimiMedici);
     setListini(prossimiListini);
+    setConventionTemplates(prossimiTemplate);
+    setSelectedConventionTemplateId(prossimiTemplate[0]?.id ?? "");
     setSelectedSpecialita(prossimeSpecialita[0]?.nome ?? prossimePrestazioni[0]?.specialita ?? "");
     setSelectedMedicoId(prossimiMedici[0]?.id ?? "");
     mostraNotifica(
-      `Import completato: ${prossimiMedici.length} medici, ${prossimePrestazioni.length} prestazioni, ${prossimiListini.length} listini.`,
+      `Import completato: ${prossimiMedici.length} medici, ${prossimePrestazioni.length} prestazioni, ${prossimiListini.length} listini, ${prossimiTemplate.length} convenzioni.`,
     );
   };
 
@@ -2393,6 +2619,10 @@ export function AdminSettings({
           <TabsTrigger value="prestazioni" className="gap-2">
             <Stethoscope className="h-4 w-4" />
             Prestazioni
+          </TabsTrigger>
+          <TabsTrigger value="convenzioni" className="gap-2">
+            <FileText className="h-4 w-4" />
+            Convenzioni
           </TabsTrigger>
           <TabsTrigger value="medici" className="gap-2">
             <CalendarDays className="h-4 w-4" />
@@ -2802,6 +3032,250 @@ export function AdminSettings({
               onCancel={annullaModificaPrestazioni}
               onSave={salvaModificaPrestazioni}
             />
+          </SettingsPanel>
+        </TabsContent>
+
+        <TabsContent value="convenzioni" className="space-y-4">
+          <SettingsPanel
+            title="Convenzioni base"
+            description="Crea il modello standard con prestazioni e prezzi convenzionati; poi lo applichi ad aziende e societa sportive."
+            icon={<FileText className="h-5 w-5" />}
+            actions={<ImportExportActions onExport={esportaExcel} onImportClick={apriImportExcel} />}
+          >
+            <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+              <div className="space-y-3">
+                <div className="rounded-md border border-border bg-muted/30 p-4">
+                  <h3 className="text-sm font-semibold text-foreground">Modelli convenzione</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Usa un modello base comune e personalizzalo dopo nella scheda azienda/societa.
+                  </p>
+                  <Button type="button" onClick={aggiungiConventionTemplate} className="mt-3 w-full gap-2">
+                    <Plus className="h-4 w-4" />
+                    Nuovo modello
+                  </Button>
+                </div>
+
+                <div className="overflow-hidden rounded-md border border-border bg-white">
+                  <div className="border-b border-border px-4 py-3">
+                    <h3 className="text-sm font-semibold text-foreground">Elenco</h3>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {conventionTemplates.length > 0 ? (
+                      conventionTemplates.map((template) => {
+                        const selected = template.id === conventionTemplateSelezionato?.id;
+                        return (
+                          <div
+                            key={template.id}
+                            className={`flex items-stretch gap-2 p-2 ${selected ? "bg-primary/10" : "bg-white hover:bg-muted/40"}`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setSelectedConventionTemplateId(template.id)}
+                              className="min-w-0 flex-1 rounded-md px-2 py-2 text-left"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-foreground">{template.nome}</p>
+                                  <p className="truncate text-xs text-muted-foreground">
+                                    {template.attiva ? "Attiva" : "Disattivata"}
+                                  </p>
+                                </div>
+                                <Badge variant="secondary" className="shrink-0">
+                                  {template.services.length} voci
+                                </Badge>
+                              </div>
+                            </button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => eliminaConventionTemplate(template.id)}
+                              disabled={conventionTemplates.length <= 1}
+                              className="mt-1 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              title="Elimina modello"
+                              aria-label={`Elimina ${template.nome}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        Nessun modello inserito.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {conventionTemplateSelezionato ? (
+                <div className="space-y-4">
+                  <div className="rounded-md border border-border bg-white p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h3 className="text-base font-semibold text-foreground">Scheda modello</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Questi dati vengono copiati nella convenzione dell'azienda, poi puoi modificarli.
+                        </p>
+                      </div>
+                      <Badge variant={conventionTemplateSelezionato.attiva ? "default" : "outline"}>
+                        {conventionTemplateSelezionato.attiva ? "Attiva" : "Disattivata"}
+                      </Badge>
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_150px]">
+                      <Field label="Nome modello">
+                        <Input
+                          value={conventionTemplateSelezionato.nome}
+                          onChange={(event) =>
+                            aggiornaConventionTemplate(conventionTemplateSelezionato.id, "nome", event.target.value)
+                          }
+                          placeholder="Convenzione base"
+                        />
+                      </Field>
+                      <Field label="Attiva">
+                        <div className="flex h-10 items-center gap-2 rounded-md border border-border px-3">
+                          <Checkbox
+                            checked={conventionTemplateSelezionato.attiva}
+                            onCheckedChange={(checked) =>
+                              aggiornaConventionTemplate(conventionTemplateSelezionato.id, "attiva", Boolean(checked))
+                            }
+                          />
+                          <span className="text-sm text-foreground">Usabile in anagrafica</span>
+                        </div>
+                      </Field>
+                    </div>
+                    <div className="mt-3">
+                      <Field label="Testo base convenzione">
+                        <Textarea
+                          value={conventionTemplateSelezionato.descrizione}
+                          onChange={(event) =>
+                            aggiornaConventionTemplate(conventionTemplateSelezionato.id, "descrizione", event.target.value)
+                          }
+                          placeholder="Condizioni generali, testo standard, note interne..."
+                          className="min-h-24"
+                        />
+                      </Field>
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-border bg-white p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h3 className="text-base font-semibold text-foreground">Prestazioni nel modello</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Aggiungi prestazioni dal catalogo e imposta prezzo convenzionato standard.
+                        </p>
+                      </div>
+                      <Badge variant="secondary">{conventionTemplateSelezionato.services.length} voci</Badge>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      <Field label="Cerca prestazione">
+                        <Input
+                          value={ricercaPrestazioniConvenzione}
+                          onChange={(event) => setRicercaPrestazioniConvenzione(event.target.value)}
+                          placeholder="Cerca per nome o specialita"
+                        />
+                      </Field>
+                      {ricercaPrestazioniConvenzione.trim() && (
+                        <div className="max-h-56 overflow-y-auto rounded-md border border-border bg-white shadow-sm">
+                          {prestazioniDisponibiliConvenzioneBase.length > 0 ? (
+                            prestazioniDisponibiliConvenzioneBase.map((prestazione) => (
+                              <button
+                                key={prestazione.id}
+                                type="button"
+                                className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-primary/5"
+                                onClick={() => aggiungiPrestazioneAConvenzioneBase(prestazione)}
+                              >
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-medium text-foreground">{prestazione.nome}</span>
+                                  <span className="block text-xs text-muted-foreground">
+                                    {prestazione.specialita} · {prestazione.durata} min
+                                  </span>
+                                </span>
+                                <Plus className="h-4 w-4 shrink-0 text-primary" />
+                              </button>
+                            ))
+                          ) : (
+                            <p className="px-3 py-3 text-sm text-muted-foreground">
+                              Nessuna prestazione trovata o gia inserita.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {conventionTemplateSelezionato.services.length > 0 ? (
+                      <div className="mt-4 overflow-x-auto rounded-md border border-border">
+                        <Table className="min-w-[780px]">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Prestazione</TableHead>
+                              <TableHead>Specialita</TableHead>
+                              <TableHead className="w-32">Durata</TableHead>
+                              <TableHead className="w-40">Prezzo convenzione</TableHead>
+                              <TableHead className="w-16">Azioni</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {conventionTemplateSelezionato.services.map((service) => (
+                              <TableRow key={service.id}>
+                                <TableCell className="min-w-[240px] font-medium text-foreground">{service.nome}</TableCell>
+                                <TableCell className="min-w-[180px] text-muted-foreground">{service.specialita || "-"}</TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    min={5}
+                                    step={5}
+                                    value={service.durata}
+                                    onChange={(event) =>
+                                      aggiornaPrestazioneConvenzioneBase(service.id, "durata", Number(event.target.value) || 0)
+                                    }
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step={1}
+                                    value={service.prezzo}
+                                    onChange={(event) =>
+                                      aggiornaPrestazioneConvenzioneBase(service.id, "prezzo", Number(event.target.value) || 0)
+                                    }
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => rimuoviPrestazioneConvenzioneBase(service.id)}
+                                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                    title="Rimuovi prestazione"
+                                    aria-label={`Rimuovi ${service.nome}`}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
+                        Nessuna prestazione nel modello. Cerca una prestazione e aggiungila.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
+                  Crea un modello convenzione per iniziare.
+                </div>
+              )}
+            </div>
           </SettingsPanel>
         </TabsContent>
 

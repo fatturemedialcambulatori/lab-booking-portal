@@ -15,6 +15,13 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -66,6 +73,23 @@ type ConventionServiceForm = {
   specialita: string;
   durata: number;
   prezzo: string;
+};
+
+type ConventionTemplateService = {
+  id: string;
+  prestazioneId: string;
+  nome: string;
+  specialita: string;
+  durata: number;
+  prezzo: number;
+};
+
+type ConventionTemplate = {
+  id: string;
+  nome: string;
+  descrizione: string;
+  attiva: boolean;
+  services: ConventionTemplateService[];
 };
 
 type PatientForm = {
@@ -182,6 +206,32 @@ const prezzoToDraft = (value: string | number | null | undefined) => {
   return parsed > 0 ? String(parsed).replace(".", ",") : "";
 };
 
+const normalizeConventionTemplate = (value: unknown, index = 0): ConventionTemplate | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const item = value as Partial<ConventionTemplate>;
+  if (typeof item.id !== "string" || typeof item.nome !== "string") return null;
+
+  return {
+    id: item.id,
+    nome: item.nome,
+    descrizione: item.descrizione ?? "",
+    attiva: item.attiva !== false,
+    services: Array.isArray(item.services)
+      ? item.services.map((service, serviceIndex) => {
+          const row = service as Partial<ConventionTemplateService>;
+          return {
+            id: row.id || row.prestazioneId || `convenzione-${index}-${serviceIndex}`,
+            prestazioneId: row.prestazioneId ?? row.id ?? "",
+            nome: row.nome ?? "Prestazione",
+            specialita: row.specialita ?? "",
+            durata: Math.max(5, Number(row.durata ?? 30) || 30),
+            prezzo: Math.max(0, Number(row.prezzo ?? 0) || 0),
+          };
+        }).filter((service) => Boolean(service.prestazioneId))
+      : [],
+  };
+};
+
 const conventionServicesFromPatient = (patient: Patient): ConventionServiceForm[] =>
   (patient.conventionServices ?? []).map((servizio, index) => ({
     id: servizio.id || servizio.prestazioneId || `convenzione-${index}`,
@@ -216,7 +266,10 @@ const patientToForm = (p: Patient): PatientForm => ({
   billingProvincia: p.billingProvincia ?? "",
 });
 
-const isAdminSettingsPrestazioni = (value: unknown): value is { prestazioni: PrestazioneCatalogo[] } =>
+const isAdminSettingsPrestazioni = (value: unknown): value is {
+  prestazioni: PrestazioneCatalogo[];
+  conventionTemplates?: ConventionTemplate[];
+} =>
   Boolean(
     value &&
       typeof value === "object" &&
@@ -278,6 +331,7 @@ export function AdminAnagrafiche() {
   const [editPatient, setEditPatient] = React.useState<{ id: number; form: PatientForm } | null>(null);
   const [schedaPatient, setSchedaPatient] = React.useState<Patient | null>(null);
   const [prestazioniCatalogo, setPrestazioniCatalogo] = React.useState<PrestazioneCatalogo[]>([]);
+  const [conventionTemplates, setConventionTemplates] = React.useState<ConventionTemplate[]>([]);
   const [deleteConfirmId, setDeleteConfirmId] = React.useState<number | null>(null);
   const [formError, setFormError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
@@ -302,6 +356,12 @@ export function AdminAnagrafiche() {
             .sort((a, b) =>
               `${a.specialita} ${a.nome}`.localeCompare(`${b.specialita} ${b.nome}`, "it", { sensitivity: "base" }),
             ),
+        );
+        setConventionTemplates(
+          (data.conventionTemplates ?? [])
+            .map(normalizeConventionTemplate)
+            .filter((template): template is ConventionTemplate => Boolean(template))
+            .filter((template) => template.attiva),
         );
       } catch {
         // Il catalogo resta vuoto: la convenzione si puo comunque salvare come dati anagrafici.
@@ -647,6 +707,7 @@ export function AdminAnagrafiche() {
         error={formError}
         saving={saving}
         conventionOptions={activeConventionOptions}
+        conventionTemplates={conventionTemplates}
         prestazioniOptions={prestazioniCatalogo}
         onClose={() => setShowCreate(false)}
         onSave={handleCreate}
@@ -661,6 +722,7 @@ export function AdminAnagrafiche() {
           error={formError}
           saving={saving}
           conventionOptions={activeConventionOptions}
+          conventionTemplates={conventionTemplates}
           prestazioniOptions={prestazioniCatalogo}
           onClose={() => setEditPatient(null)}
           onSave={(form) => handleUpdate(editPatient.id, form)}
@@ -707,6 +769,7 @@ function PatientFormDialog({
   error,
   saving,
   conventionOptions,
+  conventionTemplates,
   prestazioniOptions,
   onClose,
   onSave,
@@ -717,17 +780,25 @@ function PatientFormDialog({
   error: string | null;
   saving: boolean;
   conventionOptions: Patient[];
+  conventionTemplates: ConventionTemplate[];
   prestazioniOptions: PrestazioneCatalogo[];
   onClose: () => void;
   onSave: (form: PatientForm) => void;
 }) {
   const [form, setForm] = React.useState<PatientForm>(initialForm);
   const [prestazioneSearch, setPrestazioneSearch] = React.useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = React.useState(conventionTemplates[0]?.id ?? "");
 
   React.useEffect(() => {
     if (open) setForm(initialForm);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  React.useEffect(() => {
+    if (!selectedTemplateId || !conventionTemplates.some((template) => template.id === selectedTemplateId)) {
+      setSelectedTemplateId(conventionTemplates[0]?.id ?? "");
+    }
+  }, [conventionTemplates, selectedTemplateId]);
 
   const set = (k: keyof PatientForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -790,6 +861,39 @@ function PatientFormDialog({
       ...f,
       conventionServices: f.conventionServices.filter((servizio) => servizio.id !== id),
     }));
+  };
+
+  const templateSelezionato = conventionTemplates.find((template) => template.id === selectedTemplateId) ?? null;
+
+  const servicesDaTemplate = (template: ConventionTemplate): ConventionServiceForm[] =>
+    template.services.map((service) => ({
+      id: service.id || service.prestazioneId,
+      prestazioneId: service.prestazioneId,
+      nome: service.nome,
+      specialita: service.specialita,
+      durata: service.durata,
+      prezzo: prezzoToDraft(service.prezzo),
+    }));
+
+  const applicaTemplateConvenzione = (mode: "merge" | "replace") => {
+    if (!templateSelezionato) return;
+    const services = servicesDaTemplate(templateSelezionato);
+    setForm((f) => {
+      const currentIds = new Set(f.conventionServices.map((service) => service.prestazioneId));
+      const merged = mode === "replace"
+        ? services
+        : [
+            ...f.conventionServices,
+            ...services.filter((service) => !currentIds.has(service.prestazioneId)),
+          ];
+
+      return {
+        ...f,
+        conventionActive: true,
+        conventionText: f.conventionText.trim() || templateSelezionato.descrizione,
+        conventionServices: merged,
+      };
+    });
   };
 
   const cfInfo = React.useMemo(() => parseFiscalCode(form.codiceFiscale), [form.codiceFiscale]);
@@ -985,6 +1089,53 @@ function PatientFormDialog({
                   Alla scadenza la convenzione viene disattivata automaticamente. Da 30 giorni prima comparira tra le notifiche.
                 </p>
               </div>
+              {conventionTemplates.length > 0 ? (
+                <div className="rounded-md border border-primary/15 bg-primary/5 p-3">
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Modello base</Label>
+                      <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                        <SelectTrigger className="bg-white">
+                          <SelectValue placeholder="Seleziona convenzione base" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {conventionTemplates.map((template) => (
+                            <SelectItem key={template.id} value={template.id}>
+                              {template.nome} · {template.services.length} prestazioni
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => applicaTemplateConvenzione("merge")}
+                      disabled={!templateSelezionato || templateSelezionato.services.length === 0}
+                      className="gap-2 bg-white"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Applica modello
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => applicaTemplateConvenzione("replace")}
+                      disabled={!templateSelezionato || templateSelezionato.services.length === 0}
+                      className="gap-2 bg-white"
+                    >
+                      Sostituisci
+                    </Button>
+                  </div>
+                  {templateSelezionato?.descrizione && (
+                    <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{templateSelezionato.descrizione}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  Nessun modello base configurato. Vai in Impostazioni &gt; Convenzioni per crearne uno.
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
