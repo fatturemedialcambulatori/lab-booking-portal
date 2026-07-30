@@ -286,6 +286,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   const [saveState, setSaveState] = React.useState<SaveState>("loading");
   const [persistenzaAttiva, setPersistenzaAttiva] = React.useState(false);
   const [uploadingDocId, setUploadingDocId] = React.useState<string | null>(null);
+  const [recoveringKey, setRecoveringKey] = React.useState<string | null>(null);
   const [moneyDrafts, setMoneyDrafts] = React.useState<MoneyDrafts>({});
   const [mobileCapture, setMobileCapture] = React.useState<{
     sedeId: SedeCassaId;
@@ -589,6 +590,38 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
     }
   };
 
+  const recuperaDocumenti = async (sedeId: SedeCassaId) => {
+    const key = `${sedeId}-${giorno}`;
+    setRecoveringKey(key);
+
+    try {
+      const response = await fetch("/api/cassa-documents-recover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sedeId, data: giorno }),
+      });
+      if (!response.ok) throw new Error("Recupero allegati non riuscito");
+
+      const data: unknown = await response.json();
+      const payload = data && typeof data === "object" ? data as { recovered?: unknown; state?: unknown } : {};
+      const recovered = Number(payload.recovered ?? 0);
+      const saved = normalizeState(payload.state);
+      setState(saved);
+      writeLocalState(saved);
+      setSaveState("saved");
+
+      if (recovered > 0) {
+        mostraNotifica(`${recovered} allegati recuperati da Supabase Storage.`);
+      } else {
+        mostraNotifica("Nessun allegato trovato nello Storage per questa sede e data.", "destructive");
+      }
+    } catch {
+      mostraNotifica("Recupero allegati non riuscito. Verifica Supabase Storage.", "destructive");
+    } finally {
+      setRecoveringKey(null);
+    }
+  };
+
   const eliminaDocumento = async (id: string) => {
     try {
       await eliminaDocumentoRemoto(id);
@@ -777,6 +810,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             documenti={documentiGiornoSede(sedeId, giorno)}
             nuovaSpesa={nuoveSpese[sedeId]}
             uploadingDocId={uploadingDocId}
+            recovering={recoveringKey === `${sedeId}-${giorno}`}
             onUpdateChiusura={updateChiusura}
             onUpdateNuovaSpesa={(patch) =>
               setNuoveSpese((current) => ({ ...current, [sedeId]: { ...current[sedeId], ...patch } }))
@@ -786,6 +820,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             onDeleteSpesa={eliminaSpesa}
             onUploadDocumento={uploadDocumento}
             onDeleteDocumento={eliminaDocumento}
+            onRecoverDocumenti={() => void recuperaDocumenti(sedeId)}
             onOpenMobileCapture={(tipo) => setMobileCapture({ sedeId, tipo })}
             moneyDrafts={moneyDrafts}
             onMoneyDraftChange={updateMoneyDraft}
@@ -881,6 +916,7 @@ function CassaSedePanel({
   documenti,
   nuovaSpesa,
   uploadingDocId,
+  recovering,
   onUpdateChiusura,
   onUpdateNuovaSpesa,
   onAddSpesa,
@@ -888,6 +924,7 @@ function CassaSedePanel({
   onDeleteSpesa,
   onUploadDocumento,
   onDeleteDocumento,
+  onRecoverDocumenti,
   onOpenMobileCapture,
   moneyDrafts,
   onMoneyDraftChange,
@@ -903,6 +940,7 @@ function CassaSedePanel({
   documenti: DocumentoCassa[];
   nuovaSpesa: NuovaSpesaDraft;
   uploadingDocId: string | null;
+  recovering: boolean;
   onUpdateChiusura: <K extends keyof ChiusuraCassa>(sedeId: SedeCassaId, field: K, value: ChiusuraCassa[K]) => void;
   onUpdateNuovaSpesa: (patch: Partial<NuovaSpesaDraft>) => void;
   onAddSpesa: () => void;
@@ -910,6 +948,7 @@ function CassaSedePanel({
   onDeleteSpesa: (id: string) => void | Promise<void>;
   onUploadDocumento: (sedeId: SedeCassaId, tipo: TipoDocumentoCassa, file: File | undefined) => void | Promise<void>;
   onDeleteDocumento: (id: string) => void | Promise<void>;
+  onRecoverDocumenti: () => void;
   onOpenMobileCapture: (tipo: TipoDocumentoCassa) => void;
   moneyDrafts: MoneyDrafts;
   onMoneyDraftChange: (key: string, value: string) => void;
@@ -941,6 +980,17 @@ function CassaSedePanel({
           <Button type="button" variant="outline" size="sm" onClick={onSaveChiusura} className="gap-2 bg-white">
             <Save className="h-4 w-4" />
             Salva
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onRecoverDocumenti}
+            disabled={recovering}
+            className="gap-2 bg-white"
+          >
+            <RefreshCw className={`h-4 w-4 ${recovering ? "animate-spin" : ""}`} />
+            {recovering ? "Recupero..." : "Recupera allegati"}
           </Button>
           <Button
             type="button"
