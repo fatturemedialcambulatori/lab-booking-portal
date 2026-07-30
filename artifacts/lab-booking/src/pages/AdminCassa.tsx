@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  AlertTriangle,
   Banknote,
   Camera,
   CreditCard,
@@ -10,6 +11,7 @@ import {
   QrCode,
   RefreshCw,
   ReceiptText,
+  RotateCcw,
   Save,
   Trash2,
   Upload,
@@ -41,7 +43,16 @@ type CassaScope = "tutte" | SedeCassaId;
 type TipoDocumentoCassa = "fatturato" | "pos";
 type MetodoPagamentoSpesa = "contanti" | "bancomat" | "assegno" | "bonifico" | "altro";
 type CategoriaSpesa = "medico" | "materiale" | "servizi" | "rimborso" | "altro";
-type SaveState = "loading" | "saving" | "saved" | "error";
+type SaveState = "loading" | "dirty" | "saving" | "saved" | "error";
+type CestinoChiusuraCassa = {
+  id: string;
+  deletedAt: string;
+  sedeId: SedeCassaId;
+  data: string;
+  giorni: ChiusuraCassa[];
+  spese: SpesaCassa[];
+  documenti: DocumentoCassa[];
+};
 
 type ChiusuraCassa = {
   id: string;
@@ -83,6 +94,7 @@ type CassaState = {
   giorni: ChiusuraCassa[];
   spese: SpesaCassa[];
   documenti: DocumentoCassa[];
+  cestino: CestinoChiusuraCassa[];
 };
 
 type NuovaSpesaDraft = {
@@ -136,6 +148,7 @@ const emptyState = (): CassaState => ({
   giorni: [],
   spese: [],
   documenti: [],
+  cestino: [],
 });
 
 const emptySpesa = (): NuovaSpesaDraft => ({
@@ -152,7 +165,7 @@ const documentoId = (sedeId: SedeCassaId, data: string, tipo: TipoDocumentoCassa
 
 const parseImporto = (value: string | number) => {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  const parsed = Number(value.replace(",", "."));
+  const parsed = Number(value.replace(/\./g, "").replace(",", "."));
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
@@ -162,6 +175,13 @@ const formatDate = (data: string) =>
     month: "2-digit",
     year: "numeric",
   }).format(new Date(`${data}T12:00:00`));
+
+const formatTime = (iso: string) =>
+  new Intl.DateTimeFormat("it-IT", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(iso));
 
 const sedeLabel = (sedeId: SedeCassaId) =>
   SEDI_CASSA.find((sede) => sede.id === sedeId)?.label ?? sedeId;
@@ -237,6 +257,22 @@ const normalizeDocumento = (value: unknown): DocumentoCassa | null => {
   };
 };
 
+const normalizeCestinoChiusura = (value: unknown): CestinoChiusuraCassa | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const item = value as Partial<CestinoChiusuraCassa>;
+  if (!isSedeCassa(item.sedeId) || typeof item.data !== "string") return null;
+
+  return {
+    id: typeof item.id === "string" ? item.id : `cestino-${item.sedeId}-${item.data}`,
+    deletedAt: typeof item.deletedAt === "string" ? item.deletedAt : new Date().toISOString(),
+    sedeId: item.sedeId,
+    data: item.data,
+    giorni: Array.isArray(item.giorni) ? item.giorni.map(normalizeChiusura).filter(Boolean) as ChiusuraCassa[] : [],
+    spese: Array.isArray(item.spese) ? item.spese.map(normalizeSpesa).filter(Boolean) as SpesaCassa[] : [],
+    documenti: Array.isArray(item.documenti) ? item.documenti.map(normalizeDocumento).filter(Boolean) as DocumentoCassa[] : [],
+  };
+};
+
 const normalizeState = (value: unknown): CassaState => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return emptyState();
   const item = value as Partial<CassaState>;
@@ -244,6 +280,7 @@ const normalizeState = (value: unknown): CassaState => {
     giorni: Array.isArray(item.giorni) ? item.giorni.map(normalizeChiusura).filter(Boolean) as ChiusuraCassa[] : [],
     spese: Array.isArray(item.spese) ? item.spese.map(normalizeSpesa).filter(Boolean) as SpesaCassa[] : [],
     documenti: Array.isArray(item.documenti) ? item.documenti.map(normalizeDocumento).filter(Boolean) as DocumentoCassa[] : [],
+    cestino: Array.isArray(item.cestino) ? item.cestino.map(normalizeCestinoChiusura).filter(Boolean) as CestinoChiusuraCassa[] : [],
   };
 };
 
@@ -284,10 +321,16 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   const [periodoDal, setPeriodoDal] = React.useState(firstDayOfMonth);
   const [periodoAl, setPeriodoAl] = React.useState(todayKey);
   const [saveState, setSaveState] = React.useState<SaveState>("loading");
+  const [lastSavedAt, setLastSavedAt] = React.useState<string | null>(null);
   const [persistenzaAttiva, setPersistenzaAttiva] = React.useState(false);
   const [uploadingDocId, setUploadingDocId] = React.useState<string | null>(null);
   const [recoveringKey, setRecoveringKey] = React.useState<string | null>(null);
   const [moneyDrafts, setMoneyDrafts] = React.useState<MoneyDrafts>({});
+  const saveTimerRef = React.useRef<number | null>(null);
+  const queuedStateRef = React.useRef<CassaState | null>(null);
+  const saveInFlightRef = React.useRef(false);
+  const saveToastRequestedRef = React.useRef(false);
+  const skipNextAutosaveRef = React.useRef(false);
   const [mobileCapture, setMobileCapture] = React.useState<{
     sedeId: SedeCassaId;
     tipo: TipoDocumentoCassa;
@@ -312,18 +355,111 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
     });
   }, []);
 
+  const flushSaveQueue = React.useCallback(async () => {
+    if (saveInFlightRef.current) return;
+    const payload = queuedStateRef.current;
+    if (!payload) return;
+
+    saveInFlightRef.current = true;
+    queuedStateRef.current = null;
+    writeLocalState(payload);
+    setSaveState("saving");
+
+    try {
+      const response = await fetch("/api/cassa-state", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error("Salvataggio non riuscito");
+
+      const saved: unknown = await response.json();
+      const normalized = normalizeState(saved);
+      const savedAt = new Date().toISOString();
+      setLastSavedAt(savedAt);
+
+      if (!queuedStateRef.current) {
+        skipNextAutosaveRef.current = true;
+        setState(normalized);
+        writeLocalState(normalized);
+        setSaveState("saved");
+        if (saveToastRequestedRef.current) mostraNotifica("Cassa salvata.");
+        saveToastRequestedRef.current = false;
+      } else {
+        setSaveState("dirty");
+      }
+    } catch {
+      setSaveState("error");
+      if (saveToastRequestedRef.current) mostraNotifica("Salvataggio cassa non riuscito.", "destructive");
+      saveToastRequestedRef.current = false;
+    } finally {
+      saveInFlightRef.current = false;
+      if (queuedStateRef.current) {
+        window.setTimeout(() => void flushSaveQueue(), 0);
+      }
+    }
+  }, [mostraNotifica]);
+
+  const queueSave = React.useCallback((
+    nextState: CassaState,
+    options: { immediate?: boolean; showToast?: boolean } = {},
+  ) => {
+    queuedStateRef.current = nextState;
+    writeLocalState(nextState);
+    if (options.showToast) saveToastRequestedRef.current = true;
+    setSaveState(saveInFlightRef.current ? "saving" : "dirty");
+
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    if (options.immediate) {
+      void flushSaveQueue();
+      return;
+    }
+
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      void flushSaveQueue();
+    }, 450);
+  }, [flushSaveQueue]);
+
+  const flushPendingSaves = React.useCallback(async () => {
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    if (queuedStateRef.current && !saveInFlightRef.current) {
+      await flushSaveQueue();
+    }
+
+    while (saveInFlightRef.current || queuedStateRef.current) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 80));
+      if (queuedStateRef.current && !saveInFlightRef.current) {
+        await flushSaveQueue();
+      }
+    }
+  }, [flushSaveQueue]);
+
   const aggiornaDaDb = React.useCallback(async (showToast = true) => {
     try {
+      if (showToast) await flushPendingSaves();
       const response = await fetch("/api/cassa-state");
       if (!response.ok) throw new Error("Cassa non disponibile");
       const data: unknown = await response.json();
-      setState(normalizeState(data));
+      const normalized = normalizeState(data);
+      skipNextAutosaveRef.current = true;
+      setState(normalized);
+      writeLocalState(normalized);
       setSaveState("saved");
+      setLastSavedAt(new Date().toISOString());
       if (showToast) mostraNotifica("Cassa aggiornata dal DB.");
     } catch {
       if (showToast) mostraNotifica("Non sono riuscito ad aggiornare la cassa dal DB.", "destructive");
     }
-  }, [mostraNotifica]);
+  }, [flushPendingSaves, mostraNotifica]);
 
   React.useEffect(() => {
     let active = true;
@@ -334,11 +470,16 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         if (!response.ok) throw new Error("Cassa non disponibile");
         const data: unknown = await response.json();
         if (!active) return;
-        setState(normalizeState(data));
+        const normalized = normalizeState(data);
+        skipNextAutosaveRef.current = true;
+        setState(normalized);
+        writeLocalState(normalized);
         setSaveState("saved");
+        setLastSavedAt(new Date().toISOString());
         setPersistenzaAttiva(true);
       } catch {
         if (!active) return;
+        skipNextAutosaveRef.current = true;
         setState(readLocalState());
         setSaveState("error");
         setPersistenzaAttiva(true);
@@ -355,26 +496,17 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
 
   React.useEffect(() => {
     if (!persistenzaAttiva) return;
-    writeLocalState(state);
-    setSaveState("saving");
+    if (skipNextAutosaveRef.current) {
+      skipNextAutosaveRef.current = false;
+      return;
+    }
 
-    const timer = window.setTimeout(() => {
-      void fetch("/api/cassa-state", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state),
-      })
-        .then((response) => {
-          if (!response.ok) throw new Error("Salvataggio non riuscito");
-          setSaveState("saved");
-        })
-        .catch(() => {
-          setSaveState("error");
-        });
-    }, 600);
+    queueSave(state);
+  }, [persistenzaAttiva, queueSave, state]);
 
-    return () => window.clearTimeout(timer);
-  }, [persistenzaAttiva, state]);
+  React.useEffect(() => () => {
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+  }, []);
 
   React.useEffect(() => {
     if (!mobileCapture) return;
@@ -387,25 +519,8 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
 
   const salvaCassa = React.useCallback(async (payload?: CassaState, showToast = true) => {
     const dataToSave = payload ?? state;
-    writeLocalState(dataToSave);
-    setSaveState("saving");
-
-    try {
-      const response = await fetch("/api/cassa-state", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(dataToSave),
-      });
-      if (!response.ok) throw new Error("Salvataggio non riuscito");
-      const saved: unknown = await response.json();
-      setState(normalizeState(saved));
-      setSaveState("saved");
-      if (showToast) mostraNotifica("Cassa salvata.");
-    } catch {
-      setSaveState("error");
-      if (showToast) mostraNotifica("Salvataggio cassa non riuscito.", "destructive");
-    }
-  }, [mostraNotifica, state]);
+    queueSave(dataToSave, { immediate: true, showToast });
+  }, [queueSave, state]);
 
   const eliminaDocumentoRemoto = React.useCallback(async (id: string) => {
     const response = await fetch("/api/cassa-file-delete", {
@@ -433,6 +548,16 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
       body: JSON.stringify({ sedeId, data }),
     });
     if (!response.ok) throw new Error("Eliminazione chiusura non riuscita");
+    return normalizeState(await response.json());
+  }, []);
+
+  const ripristinaChiusuraRemota = React.useCallback(async (trashId: string) => {
+    const response = await fetch("/api/cassa-chiusura-restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trashId }),
+    });
+    if (!response.ok) throw new Error("Ripristino chiusura non riuscito");
     return normalizeState(await response.json());
   }, []);
 
@@ -508,10 +633,13 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
 
   const eliminaSpesa = async (id: string) => {
     try {
+      await flushPendingSaves();
       const saved = await eliminaSpesaRemota(id);
+      skipNextAutosaveRef.current = true;
       setState(saved);
       writeLocalState(saved);
       setSaveState("saved");
+      setLastSavedAt(new Date().toISOString());
       mostraNotifica("Spesa eliminata.");
     } catch {
       mostraNotifica("Eliminazione spesa non riuscita.", "destructive");
@@ -595,6 +723,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
     setRecoveringKey(key);
 
     try {
+      await flushPendingSaves();
       const response = await fetch("/api/cassa-documents-recover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -606,9 +735,11 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
       const payload = data && typeof data === "object" ? data as { recovered?: unknown; state?: unknown } : {};
       const recovered = Number(payload.recovered ?? 0);
       const saved = normalizeState(payload.state);
+      skipNextAutosaveRef.current = true;
       setState(saved);
       writeLocalState(saved);
       setSaveState("saved");
+      setLastSavedAt(new Date().toISOString());
 
       if (recovered > 0) {
         mostraNotifica(`${recovered} allegati recuperati da Supabase Storage.`);
@@ -624,6 +755,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
 
   const eliminaDocumento = async (id: string) => {
     try {
+      await flushPendingSaves();
       await eliminaDocumentoRemoto(id);
       setState((current) => ({
         ...current,
@@ -638,19 +770,37 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   const eliminaChiusura = async (sedeId: SedeCassaId, data: string) => {
     if (
       typeof window !== "undefined" &&
-      !window.confirm(`Eliminare la chiusura ${sedeLabel(sedeId)} del ${formatDate(data)}?`)
+      !window.confirm(`Spostare nel cestino la chiusura ${sedeLabel(sedeId)} del ${formatDate(data)}? Potrai ripristinarla.`)
     ) {
       return;
     }
 
     try {
+      await flushPendingSaves();
       const saved = await eliminaChiusuraRemota(sedeId, data);
+      skipNextAutosaveRef.current = true;
       setState(saved);
       writeLocalState(saved);
       setSaveState("saved");
-      mostraNotifica(`Chiusura ${sedeLabel(sedeId)} del ${formatDate(data)} eliminata.`);
+      setLastSavedAt(new Date().toISOString());
+      mostraNotifica(`Chiusura ${sedeLabel(sedeId)} del ${formatDate(data)} spostata nel cestino.`);
     } catch {
       mostraNotifica("Eliminazione chiusura non riuscita.", "destructive");
+    }
+  };
+
+  const ripristinaChiusura = async (trashId: string) => {
+    try {
+      await flushPendingSaves();
+      const saved = await ripristinaChiusuraRemota(trashId);
+      skipNextAutosaveRef.current = true;
+      setState(saved);
+      writeLocalState(saved);
+      setSaveState("saved");
+      setLastSavedAt(new Date().toISOString());
+      mostraNotifica("Chiusura ripristinata.");
+    } catch {
+      mostraNotifica("Ripristino chiusura non riuscito.", "destructive");
     }
   };
 
@@ -720,14 +870,63 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
       .sort((a, b) => `${b.data}${b.sedeId}`.localeCompare(`${a.data}${a.sedeId}`));
   }, [sediVisibili, state.documenti, state.giorni, state.spese]);
 
+  const cestinoVisibile = React.useMemo(
+    () => state.cestino
+      .filter((item) => sediVisibili.includes(item.sedeId))
+      .sort((a, b) => b.deletedAt.localeCompare(a.deletedAt)),
+    [sediVisibili, state.cestino],
+  );
+
+  const allegatiSenzaChiusura = React.useMemo(() => {
+    const dataKeys = new Set<string>();
+    state.giorni.forEach((item) => dataKeys.add(`${item.sedeId}|${item.data}`));
+    state.spese.forEach((item) => dataKeys.add(`${item.sedeId}|${item.data}`));
+
+    const grouped = new Map<string, {
+      key: string;
+      sedeId: SedeCassaId;
+      data: string;
+      documentiCount: number;
+    }>();
+
+    state.documenti.forEach((documento) => {
+      if (!sediVisibili.includes(documento.sedeId)) return;
+      if (documento.data < periodoDal || documento.data > periodoAl) return;
+      const key = `${documento.sedeId}|${documento.data}`;
+      if (dataKeys.has(key)) return;
+      const current = grouped.get(key);
+      grouped.set(key, {
+        key,
+        sedeId: documento.sedeId,
+        data: documento.data,
+        documentiCount: (current?.documentiCount ?? 0) + 1,
+      });
+    });
+
+    return Array.from(grouped.values()).sort((a, b) => `${b.data}${b.sedeId}`.localeCompare(`${a.data}${a.sedeId}`));
+  }, [periodoAl, periodoDal, sediVisibili, state.documenti, state.giorni, state.spese]);
+
   const statusLabel =
     saveState === "loading"
       ? "Carico"
+      : saveState === "dirty"
+        ? "Modifiche da salvare"
       : saveState === "saving"
-        ? "Salvataggio"
+        ? "Salvataggio in corso"
         : saveState === "saved"
-          ? "Salvato"
+          ? lastSavedAt ? `Salvato ${formatTime(lastSavedAt)}` : "Salvato"
           : "Solo locale";
+
+  const statusDescription =
+    saveState === "dirty"
+      ? "Ho rilevato modifiche: le sto mettendo in coda."
+      : saveState === "saving"
+        ? "Sto salvando sul DB, una richiesta alla volta."
+        : saveState === "saved"
+          ? "Tutte le modifiche visibili sono state salvate."
+          : saveState === "error"
+            ? "Non sono riuscito a salvare sul DB: resta una copia locale nel browser."
+            : "Caricamento dati cassa.";
 
   const captureUrl = React.useMemo(() => {
     if (!mobileCapture || typeof window === "undefined") return "";
@@ -750,10 +949,31 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             Chiusure giornaliere, spese sostenute, fondo cassa e documenti POS/fatturato.
           </p>
         </div>
-        <Badge variant="secondary" className="w-fit gap-2">
-          <Save className="h-3.5 w-3.5" />
-          {statusLabel}
-        </Badge>
+        <div className="w-full rounded-md border border-border bg-white p-3 shadow-sm lg:w-auto lg:min-w-[320px]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <Badge
+                variant={saveState === "error" ? "destructive" : saveState === "saved" ? "secondary" : "outline"}
+                className="w-fit gap-2"
+              >
+                <Save className={`h-3.5 w-3.5 ${saveState === "saving" ? "animate-pulse" : ""}`} />
+                {statusLabel}
+              </Badge>
+              <p className="mt-2 text-xs text-muted-foreground">{statusDescription}</p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void salvaCassa(undefined, true)}
+              disabled={saveState === "loading" || saveState === "saving"}
+              className="shrink-0 gap-2 bg-white"
+            >
+              <Save className="h-4 w-4" />
+              Salva ora
+            </Button>
+          </div>
+        </div>
         </div>
       </div>
 
@@ -842,6 +1062,21 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         }}
         onSave={() => void salvaCassa()}
         onDelete={(sedeId, data) => void eliminaChiusura(sedeId, data)}
+      />
+
+      {allegatiSenzaChiusura.length > 0 && (
+        <AllegatiSenzaChiusuraAlert
+          rows={allegatiSenzaChiusura}
+          onOpen={(sedeId, data) => {
+            setGiorno(data);
+            mostraNotifica(`Aperto ${sedeLabel(sedeId)} del ${formatDate(data)}: gli allegati sono presenti, i dati contabili vanno reinseriti o ripristinati.`);
+          }}
+        />
+      )}
+
+      <CestinoChiusure
+        rows={cestinoVisibile}
+        onRestore={(trashId) => void ripristinaChiusura(trashId)}
       />
 
       <div className="rounded-md border border-border bg-white">
@@ -1329,6 +1564,115 @@ function ElencoChiusure({
         <div className="p-4">
           <div className="rounded-md border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
             Nessuna chiusura salvata. Compila una sede e premi Salva per inserirla nell'elenco.
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AllegatiSenzaChiusuraAlert({
+  rows,
+  onOpen,
+}: {
+  rows: Array<{
+    key: string;
+    sedeId: SedeCassaId;
+    data: string;
+    documentiCount: number;
+  }>;
+  onOpen: (sedeId: SedeCassaId, data: string) => void;
+}) {
+  return (
+    <section className="rounded-md border border-amber-200 bg-amber-50 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex gap-3">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700">
+            <AlertTriangle className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-amber-950">Allegati presenti senza dati contabili</h2>
+            <p className="mt-1 text-sm text-amber-900">
+              Queste date hanno file caricati ma non hanno piu righe di chiusura o spese: per questo i totali risultano a zero.
+            </p>
+          </div>
+        </div>
+        <Badge className="w-fit bg-amber-100 text-amber-900 hover:bg-amber-100">{rows.length} date</Badge>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {rows.slice(0, 6).map((row) => (
+          <div key={row.key} className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-white px-3 py-2">
+            <div>
+              <p className="text-sm font-semibold text-foreground">{sedeLabel(row.sedeId)} - {formatDate(row.data)}</p>
+              <p className="text-xs text-muted-foreground">{row.documentiCount} allegati recuperati</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => onOpen(row.sedeId, row.data)} className="bg-white">
+              Apri
+            </Button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CestinoChiusure({
+  rows,
+  onRestore,
+}: {
+  rows: CestinoChiusuraCassa[];
+  onRestore: (trashId: string) => void;
+}) {
+  return (
+    <section className="rounded-md border border-border bg-white">
+      <div className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Cestino chiusure</h2>
+          <p className="text-sm text-muted-foreground">
+            Le chiusure eliminate restano ripristinabili insieme a spese e allegati.
+          </p>
+        </div>
+        <Badge variant="secondary">{rows.length} elementi</Badge>
+      </div>
+
+      {rows.length > 0 ? (
+        <div className="divide-y divide-border">
+          {rows.slice(0, 10).map((row) => (
+            <div key={row.id} className="grid gap-3 px-4 py-3 md:grid-cols-[140px_120px_1fr_1fr_auto] md:items-center">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Data</p>
+                <p className="font-semibold text-foreground">{formatDate(row.data)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Sede</p>
+                <p className="font-medium text-foreground">{sedeLabel(row.sedeId)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Contenuto</p>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <Badge variant="outline">{row.giorni.length} chiusure</Badge>
+                  <Badge variant="outline">{row.spese.length} spese</Badge>
+                  <Badge variant="outline">{row.documenti.length} allegati</Badge>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Eliminata</p>
+                <p className="text-sm text-muted-foreground">{formatDate(row.deletedAt.slice(0, 10))} {formatTime(row.deletedAt)}</p>
+              </div>
+              <div className="md:text-right">
+                <Button type="button" variant="outline" size="sm" onClick={() => onRestore(row.id)} className="gap-2 bg-white">
+                  <RotateCcw className="h-4 w-4" />
+                  Ripristina
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="p-4">
+          <div className="rounded-md border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+            Nessuna chiusura eliminata.
           </div>
         </div>
       )}

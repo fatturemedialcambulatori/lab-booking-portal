@@ -8,6 +8,7 @@ const STATE_KEY = "cassa-state";
 const DEFAULT_BUCKET = "certificati-infortunistica";
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const CASSA_DOCUMENT_TYPES = ["fatturato", "pos"] as const;
+const CASSA_TRASH_LIMIT = 80;
 
 type CassaDocument = {
   id: string;
@@ -27,9 +28,19 @@ type CassaState = {
   giorni?: unknown[];
   spese?: unknown[];
   documenti?: CassaDocument[];
+  cestino?: unknown[];
 };
 
 type CassaRecord = Record<string, unknown>;
+type CassaDeletedClosure = {
+  id: string;
+  deletedAt: string;
+  sedeId: string;
+  data: string;
+  giorni: CassaRecord[];
+  spese: CassaRecord[];
+  documenti: CassaDocument[];
+};
 
 const cleanEnv = (value: string | undefined) => value?.trim().replace(/^(['"])(.*)\1$/, "$2");
 
@@ -232,6 +243,44 @@ const mergeCassaRecords = (current: unknown[] | undefined, incoming: unknown[] |
 const matchesSedeData = (record: CassaRecord, sedeId: string, data: string) =>
   readRecordString(record, "sedeId") === sedeId && readRecordString(record, "data") === data;
 
+const normalizeDeletedClosures = (value: unknown): CassaDeletedClosure[] => {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const item = entry as Partial<CassaDeletedClosure>;
+    if (
+      typeof item.id !== "string" ||
+      typeof item.deletedAt !== "string" ||
+      typeof item.sedeId !== "string" ||
+      typeof item.data !== "string"
+    ) {
+      return [];
+    }
+
+    return [{
+      id: item.id,
+      deletedAt: item.deletedAt,
+      sedeId: item.sedeId,
+      data: item.data,
+      giorni: Array.isArray(item.giorni) ? item.giorni.filter(isCassaRecord) : [],
+      spese: Array.isArray(item.spese) ? item.spese.filter(isCassaRecord) : [],
+      documenti: Array.isArray(item.documenti) ? item.documenti.filter(isCassaDocument) : [],
+    }];
+  });
+};
+
+const mergeDeletedClosures = (current: unknown, incoming: unknown) => {
+  const currentItems = normalizeDeletedClosures(current);
+  const incomingItems = normalizeDeletedClosures(incoming);
+  const incomingIds = new Set(incomingItems.map((item) => item.id));
+
+  return [
+    ...currentItems.filter((item) => !incomingIds.has(item.id)),
+    ...incomingItems,
+  ].slice(-CASSA_TRASH_LIMIT);
+};
+
 const withFileUrl = (document: CassaDocument): CassaDocument => ({
   ...document,
   fileUrl: document.fileUrl ?? `/api/cassa-file-download?id=${encodeURIComponent(document.id)}`,
@@ -261,7 +310,7 @@ const loadCassaState = async (): Promise<CassaState> => {
 
   return settings?.value && typeof settings.value === "object" && !Array.isArray(settings.value)
     ? (settings.value as CassaState)
-    : { giorni: [], spese: [], documenti: [] };
+    : { giorni: [], spese: [], documenti: [], cestino: [] };
 };
 
 const saveCassaState = async (state: CassaState): Promise<CassaState> => {
@@ -458,12 +507,17 @@ const mergeCassaState = async (incoming: CassaState) => {
       ...currentDocuments.filter((document) => !incomingIds.has(document.id)),
       ...incomingDocuments,
     ],
+    cestino: mergeDeletedClosures(current.cestino, incoming.cestino),
   };
 };
 
 const withPublicDocumentUrls = (state: CassaState): CassaState => ({
   ...state,
   documenti: Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument).map(withFileUrl) : [],
+  cestino: normalizeDeletedClosures(state.cestino).map((item) => ({
+    ...item,
+    documenti: item.documenti.map(withFileUrl),
+  })),
 });
 
 router.get("/cassa-state", async (req, res) => {
@@ -627,19 +681,76 @@ router.post("/cassa-chiusura-delete", async (req, res) => {
 
   try {
     const state = await loadCassaState();
-    const giorni = (Array.isArray(state.giorni) ? state.giorni : [])
-      .filter(isCassaRecord)
-      .filter((giorno) => !matchesSedeData(giorno, sedeId, data));
-    const spese = (Array.isArray(state.spese) ? state.spese : [])
-      .filter(isCassaRecord)
-      .filter((spesa) => !matchesSedeData(spesa, sedeId, data));
-    const documenti = (Array.isArray(state.documenti) ? state.documenti : [])
-      .filter(isCassaDocument)
-      .filter((documento) => !(documento.sedeId === sedeId && documento.data === data));
+    const currentGiorni = (Array.isArray(state.giorni) ? state.giorni : []).filter(isCassaRecord);
+    const currentSpese = (Array.isArray(state.spese) ? state.spese : []).filter(isCassaRecord);
+    const currentDocumenti = (Array.isArray(state.documenti) ? state.documenti : []).filter(isCassaDocument);
+    const deletedGiorni = currentGiorni.filter((giorno) => matchesSedeData(giorno, sedeId, data));
+    const deletedSpese = currentSpese.filter((spesa) => matchesSedeData(spesa, sedeId, data));
+    const deletedDocumenti = currentDocumenti.filter((documento) => documento.sedeId === sedeId && documento.data === data);
+    const hasDeletedContent = deletedGiorni.length > 0 || deletedSpese.length > 0 || deletedDocumenti.length > 0;
+    const cestino = hasDeletedContent
+      ? [
+          ...normalizeDeletedClosures(state.cestino),
+          {
+            id: `cestino-${sedeId}-${data}-${Date.now()}`,
+            deletedAt: new Date().toISOString(),
+            sedeId,
+            data,
+            giorni: deletedGiorni,
+            spese: deletedSpese,
+            documenti: deletedDocumenti,
+          },
+        ].slice(-CASSA_TRASH_LIMIT)
+      : normalizeDeletedClosures(state.cestino);
 
-    res.json(withPublicDocumentUrls(await saveCassaState({ ...state, giorni, spese, documenti })));
+    res.json(withPublicDocumentUrls(await saveCassaState({
+      ...state,
+      giorni: currentGiorni.filter((giorno) => !matchesSedeData(giorno, sedeId, data)),
+      spese: currentSpese.filter((spesa) => !matchesSedeData(spesa, sedeId, data)),
+      documenti: currentDocumenti.filter((documento) => !(documento.sedeId === sedeId && documento.data === data)),
+      cestino,
+    })));
   } catch (err) {
     req.log.error({ err }, "Failed to delete cassa closure");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/cassa-chiusura-restore", async (req, res) => {
+  const trashId = sanitizeSegment(readBodyString(req.body?.trashId), "cestino");
+
+  try {
+    const state = await loadCassaState();
+    const cestino = normalizeDeletedClosures(state.cestino);
+    const closure = cestino.find((item) => item.id === trashId);
+    if (!closure) {
+      res.status(404).json({ error: "Chiusura eliminata non trovata" });
+      return;
+    }
+
+    const currentGiorni = (Array.isArray(state.giorni) ? state.giorni : []).filter(isCassaRecord);
+    const currentSpese = (Array.isArray(state.spese) ? state.spese : []).filter(isCassaRecord);
+    const currentDocumenti = (Array.isArray(state.documenti) ? state.documenti : []).filter(isCassaDocument);
+    const restoredDocumentIds = new Set(closure.documenti.map((documento) => documento.id));
+
+    res.json(withPublicDocumentUrls(await saveCassaState({
+      ...state,
+      giorni: [
+        ...currentGiorni.filter((giorno) => !matchesSedeData(giorno, closure.sedeId, closure.data)),
+        ...closure.giorni,
+      ],
+      spese: [
+        ...currentSpese.filter((spesa) => !matchesSedeData(spesa, closure.sedeId, closure.data)),
+        ...closure.spese,
+      ],
+      documenti: [
+        ...currentDocumenti.filter((documento) => !restoredDocumentIds.has(documento.id)),
+        ...closure.documenti,
+      ],
+      cestino: cestino.filter((item) => item.id !== trashId),
+    })));
+  } catch (err) {
+    req.log.error({ err }, "Failed to restore cassa closure");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -911,8 +1022,9 @@ const downloadCassaFile: RequestHandler = async (req, res) => {
       "documento",
     );
     const state = await loadCassaState();
-    const document = (Array.isArray(state.documenti) ? state.documenti : [])
-      .filter(isCassaDocument)
+    const activeDocuments = (Array.isArray(state.documenti) ? state.documenti : []).filter(isCassaDocument);
+    const trashDocuments = normalizeDeletedClosures(state.cestino).flatMap((item) => item.documenti);
+    const document = [...activeDocuments, ...trashDocuments]
       .find((item) => item.id === documentId);
 
     if (!document) {
