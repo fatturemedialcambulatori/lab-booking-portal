@@ -163,6 +163,15 @@ const chiusuraId = (sedeId: SedeCassaId, data: string) => `${sedeId}-${data}`;
 const documentoId = (sedeId: SedeCassaId, data: string, tipo: TipoDocumentoCassa) =>
   `${sedeId}-${data}-${tipo}`;
 
+const saveButtonClassName = (enabled: boolean, extra = "") =>
+  [
+    "gap-2 transition-colors",
+    enabled
+      ? "border-slate-950 bg-slate-950 text-white hover:bg-slate-900 hover:text-white"
+      : "border-slate-200 bg-slate-100 text-slate-400 opacity-100",
+    extra,
+  ].filter(Boolean).join(" ");
+
 const parseImporto = (value: string | number) => {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   const parsed = Number(value.replace(/\./g, "").replace(",", "."));
@@ -928,6 +937,8 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             ? "Non sono riuscito a salvare sul DB: resta una copia locale nel browser."
             : "Caricamento dati cassa.";
 
+  const canManualSave = saveState === "dirty" || saveState === "error";
+
   const captureUrl = React.useMemo(() => {
     if (!mobileCapture || typeof window === "undefined") return "";
     const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -966,8 +977,8 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
               variant="outline"
               size="sm"
               onClick={() => void salvaCassa(undefined, true)}
-              disabled={saveState === "loading" || saveState === "saving"}
-              className="shrink-0 gap-2 bg-white"
+              disabled={!canManualSave}
+              className={saveButtonClassName(canManualSave, "shrink-0")}
             >
               <Save className="h-4 w-4" />
               Salva ora
@@ -1046,6 +1057,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             onMoneyDraftChange={updateMoneyDraft}
             onMoneyDraftCommit={clearMoneyDraft}
             onSaveChiusura={() => void salvaCassa()}
+            canSave={canManualSave}
             onDeleteChiusura={() => void eliminaChiusura(sedeId, giorno)}
             wideLayout={scope !== "tutte"}
           />
@@ -1061,6 +1073,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
           mostraNotifica(`Chiusura ${sedeLabel(sedeId)} del ${formatDate(data)} aperta in modifica.`);
         }}
         onSave={() => void salvaCassa()}
+        canSave={canManualSave}
         onDelete={(sedeId, data) => void eliminaChiusura(sedeId, data)}
       />
 
@@ -1165,6 +1178,7 @@ function CassaSedePanel({
   onMoneyDraftChange,
   onMoneyDraftCommit,
   onSaveChiusura,
+  canSave,
   onDeleteChiusura,
   wideLayout,
 }: {
@@ -1189,6 +1203,7 @@ function CassaSedePanel({
   onMoneyDraftChange: (key: string, value: string) => void;
   onMoneyDraftCommit: (key: string) => void;
   onSaveChiusura: () => void;
+  canSave: boolean;
   onDeleteChiusura: () => void;
   wideLayout: boolean;
 }) {
@@ -1212,7 +1227,14 @@ function CassaSedePanel({
           <Badge className="border-green-200 bg-green-100 text-green-700 hover:bg-green-100">
             Saldo {valuta.format(totali.saldo)}
           </Badge>
-          <Button type="button" variant="outline" size="sm" onClick={onSaveChiusura} className="gap-2 bg-white">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onSaveChiusura}
+            disabled={!canSave}
+            className={saveButtonClassName(canSave)}
+          >
             <Save className="h-4 w-4" />
             Salva
           </Button>
@@ -1467,6 +1489,7 @@ function ElencoChiusure({
   activeData,
   onEdit,
   onSave,
+  canSave,
   onDelete,
 }: {
   rows: Array<{
@@ -1480,6 +1503,7 @@ function ElencoChiusure({
   activeData: string;
   onEdit: (sedeId: SedeCassaId, data: string) => void;
   onSave: () => void;
+  canSave: boolean;
   onDelete: (sedeId: SedeCassaId, data: string) => void;
 }) {
   return (
@@ -1541,7 +1565,14 @@ function ElencoChiusure({
                     <Pencil className="h-4 w-4" />
                     Modifica
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={onSave} className="gap-2 bg-white">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onSave}
+                    disabled={!canSave}
+                    className={saveButtonClassName(canSave)}
+                  >
                     <Save className="h-4 w-4" />
                     Salva
                   </Button>
