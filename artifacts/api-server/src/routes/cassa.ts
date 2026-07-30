@@ -28,6 +28,8 @@ type CassaState = {
   documenti?: CassaDocument[];
 };
 
+type CassaRecord = Record<string, unknown>;
+
 const cleanEnv = (value: string | undefined) => value?.trim().replace(/^(['"])(.*)\1$/, "$2");
 
 const deriveSupabaseUrl = () => {
@@ -188,6 +190,39 @@ const isCassaDocument = (value: unknown): value is CassaDocument => {
   );
 };
 
+const isCassaRecord = (value: unknown): value is CassaRecord =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const readRecordString = (record: CassaRecord, key: string) => {
+  const value = record[key];
+  return typeof value === "string" ? value : "";
+};
+
+const cassaRecordKey = (record: CassaRecord, index: number, kind: string) => {
+  const id = readRecordString(record, "id");
+  if (id) return id;
+
+  const sedeId = readRecordString(record, "sedeId");
+  const data = readRecordString(record, "data");
+  if (sedeId && data) return `${kind}-${sedeId}-${data}`;
+
+  return `${kind}-${index}`;
+};
+
+const mergeCassaRecords = (current: unknown[] | undefined, incoming: unknown[] | undefined, kind: string) => {
+  const currentRecords = Array.isArray(current) ? current.filter(isCassaRecord) : [];
+  const incomingRecords = Array.isArray(incoming) ? incoming.filter(isCassaRecord) : [];
+  const incomingKeys = new Set(incomingRecords.map((record, index) => cassaRecordKey(record, index, kind)));
+
+  return [
+    ...currentRecords.filter((record, index) => !incomingKeys.has(cassaRecordKey(record, index, kind))),
+    ...incomingRecords,
+  ];
+};
+
+const matchesSedeData = (record: CassaRecord, sedeId: string, data: string) =>
+  readRecordString(record, "sedeId") === sedeId && readRecordString(record, "data") === data;
+
 const withFileUrl = (document: CassaDocument): CassaDocument => ({
   ...document,
   fileUrl: document.fileUrl ?? `/api/cassa-file-download?id=${encodeURIComponent(document.id)}`,
@@ -319,7 +354,7 @@ const saveCassaDocument = async (document: CassaDocument) => {
   return withFileUrl(document);
 };
 
-const mergeStateDocuments = async (incoming: CassaState) => {
+const mergeCassaState = async (incoming: CassaState) => {
   const current = await loadCassaState();
   const currentDocuments = Array.isArray(current.documenti) ? current.documenti.filter(isCassaDocument) : [];
   const incomingDocuments = Array.isArray(incoming.documenti) ? incoming.documenti.filter(isCassaDocument) : [];
@@ -327,6 +362,8 @@ const mergeStateDocuments = async (incoming: CassaState) => {
 
   return {
     ...incoming,
+    giorni: mergeCassaRecords(current.giorni, incoming.giorni, "giorno"),
+    spese: mergeCassaRecords(current.spese, incoming.spese, "spesa"),
     documenti: [
       ...currentDocuments.filter((document) => !incomingIds.has(document.id)),
       ...incomingDocuments,
@@ -355,7 +392,7 @@ router.put("/cassa-state", async (req, res) => {
   }
 
   try {
-    res.json(withPublicDocumentUrls(await saveCassaState(await mergeStateDocuments(req.body as CassaState))));
+    res.json(withPublicDocumentUrls(await saveCassaState(await mergeCassaState(req.body as CassaState))));
   } catch (err) {
     req.log.error({ err }, "Failed to save cassa state");
     res.status(500).json({ error: "Internal server error" });
@@ -474,6 +511,45 @@ router.post("/cassa-file-delete", async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     req.log.error({ err }, "Failed to delete cassa document");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/cassa-spesa-delete", async (req, res) => {
+  const spesaId = sanitizeSegment(readBodyString(req.body?.spesaId), "spesa");
+
+  try {
+    const state = await loadCassaState();
+    const spese = (Array.isArray(state.spese) ? state.spese : [])
+      .filter(isCassaRecord)
+      .filter((spesa) => readRecordString(spesa, "id") !== spesaId);
+
+    res.json(withPublicDocumentUrls(await saveCassaState({ ...state, spese })));
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete cassa expense");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/cassa-chiusura-delete", async (req, res) => {
+  const sedeId = sanitizeSegment(readBodyString(req.body?.sedeId), "sede");
+  const data = sanitizeSegment(readBodyString(req.body?.data), "data");
+
+  try {
+    const state = await loadCassaState();
+    const giorni = (Array.isArray(state.giorni) ? state.giorni : [])
+      .filter(isCassaRecord)
+      .filter((giorno) => !matchesSedeData(giorno, sedeId, data));
+    const spese = (Array.isArray(state.spese) ? state.spese : [])
+      .filter(isCassaRecord)
+      .filter((spesa) => !matchesSedeData(spesa, sedeId, data));
+    const documenti = (Array.isArray(state.documenti) ? state.documenti : [])
+      .filter(isCassaDocument)
+      .filter((documento) => !(documento.sedeId === sedeId && documento.data === data));
+
+    res.json(withPublicDocumentUrls(await saveCassaState({ ...state, giorni, spese, documenti })));
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete cassa closure");
     res.status(500).json({ error: "Internal server error" });
   }
 });

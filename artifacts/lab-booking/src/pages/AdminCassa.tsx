@@ -407,11 +407,32 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   }, [mostraNotifica, state]);
 
   const eliminaDocumentoRemoto = React.useCallback(async (id: string) => {
-    await fetch("/api/cassa-file-delete", {
+    const response = await fetch("/api/cassa-file-delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ documentId: id }),
-    }).catch(() => null);
+    });
+    if (!response.ok) throw new Error("Eliminazione documento non riuscita");
+  }, []);
+
+  const eliminaSpesaRemota = React.useCallback(async (id: string) => {
+    const response = await fetch("/api/cassa-spesa-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spesaId: id }),
+    });
+    if (!response.ok) throw new Error("Eliminazione spesa non riuscita");
+    return normalizeState(await response.json());
+  }, []);
+
+  const eliminaChiusuraRemota = React.useCallback(async (sedeId: SedeCassaId, data: string) => {
+    const response = await fetch("/api/cassa-chiusura-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sedeId, data }),
+    });
+    if (!response.ok) throw new Error("Eliminazione chiusura non riuscita");
+    return normalizeState(await response.json());
   }, []);
 
   const getChiusura = React.useCallback(
@@ -484,11 +505,16 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
     });
   }, []);
 
-  const eliminaSpesa = (id: string) => {
-    setState((current) => ({
-      ...current,
-      spese: current.spese.filter((spesa) => spesa.id !== id),
-    }));
+  const eliminaSpesa = async (id: string) => {
+    try {
+      const saved = await eliminaSpesaRemota(id);
+      setState(saved);
+      writeLocalState(saved);
+      setSaveState("saved");
+      mostraNotifica("Spesa eliminata.");
+    } catch {
+      mostraNotifica("Eliminazione spesa non riuscita.", "destructive");
+    }
   };
 
   const aggiungiSpesa = (sedeId: SedeCassaId) => {
@@ -564,11 +590,16 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   };
 
   const eliminaDocumento = async (id: string) => {
-    await eliminaDocumentoRemoto(id);
-    setState((current) => ({
-      ...current,
-      documenti: current.documenti.filter((documento) => documento.id !== id),
-    }));
+    try {
+      await eliminaDocumentoRemoto(id);
+      setState((current) => ({
+        ...current,
+        documenti: current.documenti.filter((documento) => documento.id !== id),
+      }));
+      mostraNotifica("Documento eliminato.");
+    } catch {
+      mostraNotifica("Eliminazione documento non riuscita.", "destructive");
+    }
   };
 
   const eliminaChiusura = async (sedeId: SedeCassaId, data: string) => {
@@ -579,20 +610,15 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
       return;
     }
 
-    const documentiDaEliminare = state.documenti.filter(
-      (documento) => documento.sedeId === sedeId && documento.data === data,
-    );
-    await Promise.all(documentiDaEliminare.map((documento) => eliminaDocumentoRemoto(documento.id)));
-
-    const nextState: CassaState = {
-      ...state,
-      giorni: state.giorni.filter((item) => !(item.sedeId === sedeId && item.data === data)),
-      spese: state.spese.filter((item) => !(item.sedeId === sedeId && item.data === data)),
-      documenti: state.documenti.filter((item) => !(item.sedeId === sedeId && item.data === data)),
-    };
-    setState(nextState);
-    await salvaCassa(nextState, false);
-    mostraNotifica(`Chiusura ${sedeLabel(sedeId)} del ${formatDate(data)} eliminata.`);
+    try {
+      const saved = await eliminaChiusuraRemota(sedeId, data);
+      setState(saved);
+      writeLocalState(saved);
+      setSaveState("saved");
+      mostraNotifica(`Chiusura ${sedeLabel(sedeId)} del ${formatDate(data)} eliminata.`);
+    } catch {
+      mostraNotifica("Eliminazione chiusura non riuscita.", "destructive");
+    }
   };
 
   const chiusureGiorno = sediVisibili.map((sedeId) => getChiusura(sedeId, giorno));
@@ -881,9 +907,9 @@ function CassaSedePanel({
   onUpdateNuovaSpesa: (patch: Partial<NuovaSpesaDraft>) => void;
   onAddSpesa: () => void;
   onUpdateSpesa: <K extends keyof SpesaCassa>(id: string, field: K, value: SpesaCassa[K]) => void;
-  onDeleteSpesa: (id: string) => void;
+  onDeleteSpesa: (id: string) => void | Promise<void>;
   onUploadDocumento: (sedeId: SedeCassaId, tipo: TipoDocumentoCassa, file: File | undefined) => void | Promise<void>;
-  onDeleteDocumento: (id: string) => void;
+  onDeleteDocumento: (id: string) => void | Promise<void>;
   onOpenMobileCapture: (tipo: TipoDocumentoCassa) => void;
   moneyDrafts: MoneyDrafts;
   onMoneyDraftChange: (key: string, value: string) => void;
