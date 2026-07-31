@@ -104,7 +104,7 @@ function ComponentPicker({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       <div className="flex items-center justify-between">
         <Label>Esami inclusi nel composito</Label>
         <span className="text-xs text-muted-foreground">{selectedIds.length} selezionati</span>
@@ -125,7 +125,7 @@ function ComponentPicker({
           filtered.map((e) => (
             <label
               key={e.id}
-              className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-muted/40 cursor-pointer"
+              className="flex min-w-0 items-center gap-2.5 px-3 py-1.5 hover:bg-muted/40 cursor-pointer"
             >
               <input
                 type="checkbox"
@@ -136,7 +136,7 @@ function ComponentPicker({
               <span className="font-mono text-[10px] text-muted-foreground w-20 flex-shrink-0 truncate">
                 {e.codiceAnalisi}
               </span>
-              <span className="text-xs flex-1 truncate">{e.descrizione}</span>
+              <span className="min-w-0 flex-1 truncate text-xs">{e.descrizione}</span>
             </label>
           ))
         )}
@@ -167,12 +167,12 @@ function ExamForm({
   const isPacchetto = value.tipo === "pacchetto";
 
   return (
-    <div className="grid gap-3 py-2">
-      <div className="rounded-md border border-border bg-muted/20 px-3 py-2.5">
-        <div className="flex items-center justify-between gap-3">
-          <div className="space-y-0.5">
+    <div className="grid min-w-0 gap-4 py-2">
+      <div className="overflow-hidden rounded-md border border-border bg-muted/20 px-3 py-2.5">
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0 space-y-0.5">
             <Label htmlFor={compositoId} className="cursor-pointer">Esame composito</Label>
-            <p className="text-xs text-muted-foreground">
+            <p className="max-w-full whitespace-normal break-words text-xs leading-snug text-muted-foreground">
               Di default è un esame singolo. Attiva per includere altri esami già presenti nel listino.
             </p>
           </div>
@@ -186,7 +186,7 @@ function ExamForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label>Codice Analisi *</Label>
           <Input value={value.codiceAnalisi} onChange={(e) => set("codiceAnalisi", e.target.value)} placeholder="ES-001" />
@@ -204,7 +204,7 @@ function ExamForm({
 
       {!isPacchetto && (
         <>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Colore Provetta</Label>
               <Input value={value.colorProvetta} onChange={(e) => set("colorProvetta", e.target.value)} placeholder="es. GIALLO" />
@@ -215,7 +215,7 @@ function ExamForm({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Metodo</Label>
               <Input value={value.metodo} onChange={(e) => set("metodo", e.target.value)} />
@@ -547,13 +547,13 @@ export function AdminExams() {
 
       {/* Create dialog */}
       <Dialog open={isCreating} onOpenChange={(o) => !o && setIsCreating(false)}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[88vh] w-[calc(100vw-2rem)] max-w-[760px] overflow-y-auto overflow-x-hidden p-5 sm:p-6">
           <DialogHeader>
             <DialogTitle>Nuovo esame</DialogTitle>
           </DialogHeader>
           <ExamForm value={formValues} onChange={setFormValues} singleExams={singleExams} />
           {formError && <p className="text-sm text-destructive">{formError}</p>}
-          <DialogFooter>
+          <DialogFooter className="sticky -bottom-5 border-t border-border bg-background pt-4 sm:-bottom-6">
             <Button variant="outline" onClick={() => setIsCreating(false)}>Annulla</Button>
             <Button onClick={handleCreate} disabled={createMutation.isPending}>
               {createMutation.isPending ? "Salvataggio..." : "Crea"}
@@ -564,13 +564,13 @@ export function AdminExams() {
 
       {/* Edit dialog */}
       <Dialog open={!!editExam} onOpenChange={(o) => !o && setEditExam(null)}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[88vh] w-[calc(100vw-2rem)] max-w-[760px] overflow-y-auto overflow-x-hidden p-5 sm:p-6">
           <DialogHeader>
             <DialogTitle>{editExam?.tipo === "pacchetto" ? "Modifica esame composito" : "Modifica esame"}</DialogTitle>
           </DialogHeader>
           <ExamForm value={formValues} onChange={setFormValues} singleExams={singleExamsForPicker} />
           {formError && <p className="text-sm text-destructive">{formError}</p>}
-          <DialogFooter>
+          <DialogFooter className="sticky -bottom-5 border-t border-border bg-background pt-4 sm:-bottom-6">
             <Button variant="outline" onClick={() => setEditExam(null)}>Annulla</Button>
             <Button onClick={handleUpdate} disabled={updateMutation.isPending}>
               {updateMutation.isPending ? "Salvataggio..." : "Salva"}
