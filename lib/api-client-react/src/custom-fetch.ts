@@ -165,6 +165,34 @@ function withPath(input: RequestInfo | URL, path: string): RequestInfo | URL {
   return input;
 }
 
+function withPathAndSearch(
+  input: RequestInfo | URL,
+  path: string,
+  search: string,
+): RequestInfo | URL {
+  const normalizedSearch = search && !search.startsWith("?") ? `?${search}` : search;
+
+  if (typeof input === "string") {
+    if (input.startsWith("http://") || input.startsWith("https://")) {
+      const url = new URL(input);
+      url.pathname = path;
+      url.search = normalizedSearch;
+      return url.toString();
+    }
+
+    return `${path}${normalizedSearch}`;
+  }
+
+  if (isUrl(input)) {
+    const url = new URL(input.toString());
+    url.pathname = path;
+    url.search = normalizedSearch;
+    return url;
+  }
+
+  return input;
+}
+
 function rewritePatientMutationForVercel(
   input: RequestInfo | URL,
   init: RequestInit,
@@ -230,6 +258,114 @@ function rewriteBookingStatusMutationForVercel(
     } catch {
       return { input, init, method };
     }
+  }
+
+  return { input, init, method };
+}
+
+function rewriteExamMutationForVercel(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  method: string,
+): { input: RequestInfo | URL; init: RequestInit; method: string } {
+  const match = pathnameFor(input).match(/^\/api\/exams\/(\d+)$/);
+  if (!match) {
+    return { input, init, method };
+  }
+
+  const id = Number(match[1]);
+  if (!Number.isInteger(id) || id <= 0) {
+    return { input, init, method };
+  }
+
+  if (method === "PUT" && typeof init.body === "string" && looksLikeJson(init.body)) {
+    try {
+      const body = JSON.parse(init.body) as Record<string, unknown>;
+      return {
+        input: withPath(input, "/api/exams-update"),
+        init: { ...init, method: "POST", body: JSON.stringify({ id, ...body }) },
+        method: "POST",
+      };
+    } catch {
+      return { input, init, method };
+    }
+  }
+
+  if (method === "DELETE") {
+    return {
+      input: withPath(input, "/api/exams-delete"),
+      init: { ...init, method: "POST", body: JSON.stringify({ id }) },
+      method: "POST",
+    };
+  }
+
+  return { input, init, method };
+}
+
+function rewriteExamReferenceRangeMutationForVercel(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  method: string,
+): { input: RequestInfo | URL; init: RequestInit; method: string } {
+  const listMatch = pathnameFor(input).match(/^\/api\/exams\/(\d+)\/reference-ranges$/);
+  if (listMatch) {
+    const examId = Number(listMatch[1]);
+    if (!Number.isInteger(examId) || examId <= 0) {
+      return { input, init, method };
+    }
+
+    if (method === "GET") {
+      return {
+        input: withPathAndSearch(input, "/api/exam-reference-ranges", `examId=${encodeURIComponent(String(examId))}`),
+        init,
+        method,
+      };
+    }
+
+    if (method === "POST" && typeof init.body === "string" && looksLikeJson(init.body)) {
+      try {
+        const body = JSON.parse(init.body) as Record<string, unknown>;
+        return {
+          input: withPath(input, "/api/exam-reference-ranges"),
+          init: { ...init, method: "POST", body: JSON.stringify({ examId, ...body }) },
+          method: "POST",
+        };
+      } catch {
+        return { input, init, method };
+      }
+    }
+  }
+
+  const itemMatch = pathnameFor(input).match(/^\/api\/exams\/(\d+)\/reference-ranges\/(\d+)$/);
+  if (!itemMatch) {
+    return { input, init, method };
+  }
+
+  const examId = Number(itemMatch[1]);
+  const rangeId = Number(itemMatch[2]);
+  if (!Number.isInteger(examId) || examId <= 0 || !Number.isInteger(rangeId) || rangeId <= 0) {
+    return { input, init, method };
+  }
+
+  if (method === "PUT" && typeof init.body === "string" && looksLikeJson(init.body)) {
+    try {
+      const body = JSON.parse(init.body) as Record<string, unknown>;
+      return {
+        input: withPath(input, "/api/exam-reference-ranges-update"),
+        init: { ...init, method: "POST", body: JSON.stringify({ examId, rangeId, ...body }) },
+        method: "POST",
+      };
+    } catch {
+      return { input, init, method };
+    }
+  }
+
+  if (method === "DELETE") {
+    return {
+      input: withPath(input, "/api/exam-reference-ranges-delete"),
+      init: { ...init, method: "POST", body: JSON.stringify({ examId, rangeId }) },
+      method: "POST",
+    };
   }
 
   return { input, init, method };
@@ -434,6 +570,8 @@ export async function customFetch<T = unknown>(
   let method = resolveMethod(input, init.method);
   ({ input, init, method } = rewritePatientMutationForVercel(input, init, method));
   ({ input, init, method } = rewriteBookingStatusMutationForVercel(input, init, method));
+  ({ input, init, method } = rewriteExamMutationForVercel(input, init, method));
+  ({ input, init, method } = rewriteExamReferenceRangeMutationForVercel(input, init, method));
 
   if (init.body != null && (method === "GET" || method === "HEAD")) {
     throw new TypeError(`customFetch: ${method} requests cannot have a body.`);

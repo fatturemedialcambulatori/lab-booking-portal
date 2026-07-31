@@ -288,6 +288,10 @@ export function AdminExams() {
   };
 
   const toNull = (s: string) => s.trim() || null;
+  const mutationErrorMessage = (action: string, error: unknown) => {
+    const detail = error instanceof Error ? error.message : "";
+    return detail ? `Errore durante ${action}: ${detail}` : `Errore durante ${action}.`;
+  };
 
   const handleCreate = () => {
     if (!formValues.codiceAnalisi.trim() || !formValues.descrizione.trim()) {
@@ -314,7 +318,7 @@ export function AdminExams() {
       },
       {
         onSuccess: () => { setIsCreating(false); refetch(); },
-        onError: () => setFormError("Errore durante la creazione. Riprova."),
+        onError: (error) => setFormError(mutationErrorMessage("la creazione", error)),
       }
     );
   };
@@ -346,7 +350,7 @@ export function AdminExams() {
       },
       {
         onSuccess: () => { setEditExam(null); refetch(); },
-        onError: () => setFormError("Errore durante l'aggiornamento. Riprova."),
+        onError: (error) => setFormError(mutationErrorMessage("l'aggiornamento", error)),
       }
     );
   };
@@ -355,7 +359,10 @@ export function AdminExams() {
     if (!deleteTarget) return;
     deleteMutation.mutate(
       { id: deleteTarget.id },
-      { onSuccess: () => { setDeleteTarget(null); refetch(); } }
+      {
+        onSuccess: () => { setDeleteTarget(null); refetch(); },
+        onError: (error) => setFormError(mutationErrorMessage("l'eliminazione", error)),
+      }
     );
   };
 
