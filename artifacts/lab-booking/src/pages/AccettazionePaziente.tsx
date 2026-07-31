@@ -65,6 +65,7 @@ type Visit = {
   status: BookingStatus;
   refertiCount: number;
   expectedRefertiCount: number;
+  sourceArea?: "laboratorio" | "ambulatorio";
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -216,7 +217,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
     return [...(dayBookings as Array<{
       id: number; date: string; time: string; firstName: string; lastName: string;
       dateOfBirth: string; codiceFiscale?: string | null; email: string; phone: string; notes?: string | null;
-      examIds: number[]; examNames: string[]; status: string; refertiCount?: number;
+      examIds: number[]; examNames: string[]; status: string; refertiCount?: number; sourceArea?: "laboratorio" | "ambulatorio";
     }>)]
       .sort((a, b) => a.time.localeCompare(b.time))
       .map((b) => ({
@@ -236,6 +237,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
         status: b.status as BookingStatus,
         refertiCount: b.refertiCount ?? 0,
         expectedRefertiCount: (b as any).expectedRefertiCount ?? b.examIds.length,
+        sourceArea: b.sourceArea ?? (b.notes?.startsWith("Agenda ambulatorio:") ? "ambulatorio" : "laboratorio"),
       }));
   }, [dayBookings]);
 
@@ -285,7 +287,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
           <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Accettazione Pazienti</h1>
           <p className="text-muted-foreground text-sm">
             {role === "laboratorio"
-              ? "Pazienti accettati dalla segreteria — pronti per gli esami."
+              ? "Pazienti accettati dalla segreteria o dall'ambulatorio — pronti per gli esami."
               : "Gestisci l'arrivo e l'accettazione dei pazienti."}
           </p>
         </div>
@@ -616,6 +618,11 @@ function VisitCard({
                   {visit.firstName} {visit.lastName}
                 </button>
                 <StatusBadge status={visit.status} />
+                {role === "laboratorio" && visit.sourceArea === "ambulatorio" && (
+                  <Badge className="bg-violet-100 text-violet-700 border-violet-200 hover:bg-violet-100">
+                    Da ambulatorio
+                  </Badge>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">

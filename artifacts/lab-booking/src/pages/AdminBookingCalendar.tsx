@@ -129,6 +129,12 @@ type AdminSettingsData = {
   listini?: ListinoSettings[];
 };
 
+type LabExamOption = {
+  id: number;
+  codiceAnalisi: string;
+  descrizione: string;
+};
+
 type MedicoAgenda = {
   id: string;
   nome: string;
@@ -153,6 +159,8 @@ type PrenotazioneAgenda = {
   pazienteEmail?: string;
   pazienteTelefono?: string;
   prestazione: string;
+  labExamIds?: number[];
+  labBookingId?: number | null;
   note?: string;
   data: string;
   ora: string;
@@ -181,6 +189,8 @@ type NuovoAppuntamentoDraft = {
   sede: SedeOperativa;
   prestazioneId: string;
   prestazioneNome: string;
+  labExamIds: number[];
+  labExamSearch: string;
   pazienteId: string;
   pazienteSearch: string;
   creaNuovoPaziente: boolean;
@@ -1182,6 +1192,7 @@ export function AdminBookingCalendar({
   const [settingsAgenda, setSettingsAgenda] = React.useState<AdminSettingsData | null>(null);
   const [mediciConfigurati, setMediciConfigurati] = React.useState<MedicoAgenda[] | null>(null);
   const [settingsCaricate, setSettingsCaricate] = React.useState(false);
+  const [labExams, setLabExams] = React.useState<LabExamOption[]>([]);
   const [sede, setSede] = React.useState<SedeId>("tutte");
   const [specialitaFiltro, setSpecialitaFiltro] = React.useState("tutte");
   const [prestazioneFiltro, setPrestazioneFiltro] = React.useState("tutte");
@@ -1244,6 +1255,36 @@ export function AdminBookingCalendar({
       active = false;
     };
   }, [area]);
+
+  React.useEffect(() => {
+    let active = true;
+
+    const caricaEsamiLaboratorio = async () => {
+      try {
+        const response = await fetch("/api/exams");
+        if (!response.ok) throw new Error("Listino laboratorio non disponibile");
+        const data: unknown = await response.json();
+        if (!active || !Array.isArray(data)) return;
+        setLabExams(
+          data
+            .filter((item): item is LabExamOption => {
+              const exam = item as Partial<LabExamOption>;
+              return typeof exam.id === "number" && typeof exam.codiceAnalisi === "string" && typeof exam.descrizione === "string";
+            })
+            .sort((a, b) => a.descrizione.localeCompare(b.descrizione, "it")),
+        );
+      } catch {
+        if (!active) return;
+        setLabExams([]);
+      }
+    };
+
+    void caricaEsamiLaboratorio();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   React.useEffect(() => {
     let active = true;
@@ -1575,6 +1616,8 @@ export function AdminBookingCalendar({
         sede: dettaglio.sede,
         prestazioneId: prestazioneDefault?.id ?? "",
         prestazioneNome: prestazioneDefault?.nome ?? "",
+        labExamIds: [],
+        labExamSearch: "",
         pazienteId: "",
         pazienteSearch: "",
         creaNuovoPaziente: false,
@@ -1614,6 +1657,16 @@ export function AdminBookingCalendar({
       )
       .slice(0, 8);
   }, [appuntamentoDraft?.pazienteSearch, pazientiAgenda]);
+  const esamiLaboratorioFiltratiDialog = React.useMemo(() => {
+    const query = normalizza(appuntamentoDraft?.labExamSearch ?? "");
+    const selectedIds = new Set(appuntamentoDraft?.labExamIds ?? []);
+    const selected = labExams.filter((exam) => selectedIds.has(exam.id));
+    const disponibili = labExams
+      .filter((exam) => !selectedIds.has(exam.id))
+      .filter((exam) => !query || matchQueryWords([exam.codiceAnalisi, exam.descrizione], query))
+      .slice(0, 12);
+    return { selected, disponibili };
+  }, [appuntamentoDraft?.labExamIds, appuntamentoDraft?.labExamSearch, labExams]);
   const pazienteSelezionatoDialog = React.useMemo(
     () =>
       pazientiAgenda.find((paziente) => String(paziente.id) === appuntamentoDraft?.pazienteId) ?? null,
@@ -1655,20 +1708,26 @@ export function AdminBookingCalendar({
 
     try {
       let pazienteId: number | string | undefined = pazienteSelezionatoDialog?.id;
+      let pazienteFirstName = pazienteSelezionatoDialog?.firstName ?? "";
+      let pazienteLastName = pazienteSelezionatoDialog?.lastName ?? "";
       let pazienteNome = pazienteSelezionatoDialog ? nomePazienteAgenda(pazienteSelezionatoDialog) : "";
       let pazienteEmail = pazienteSelezionatoDialog?.email ?? "";
       let pazienteTelefono = pazienteSelezionatoDialog?.phone ?? "";
+      let pazienteDataNascita = pazienteSelezionatoDialog?.dateOfBirth ?? "1900-01-01";
+      let pazienteCodiceFiscale = pazienteSelezionatoDialog?.codiceFiscale ?? null;
+      let pazienteGenere = pazienteSelezionatoDialog?.gender ?? null;
 
       if (appuntamentoDraft.creaNuovoPaziente) {
         const firstName = appuntamentoDraft.firstName.trim();
         const lastName = appuntamentoDraft.lastName.trim();
+        const dateOfBirth = appuntamentoDraft.dateOfBirth || "1900-01-01";
         const response = await fetch("/api/patients", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             firstName,
             lastName,
-            dateOfBirth: appuntamentoDraft.dateOfBirth || "1900-01-01",
+            dateOfBirth,
             codiceFiscale: null,
             gender: null,
             email: appuntamentoDraft.email.trim() || `${slugFile(`${firstName}-${lastName}`)}-${Date.now()}@mmedical.local`,
@@ -1686,13 +1745,52 @@ export function AdminBookingCalendar({
         if (!isPazienteAgenda(pazienteCreato)) throw new Error("Risposta paziente non valida");
 
         pazienteId = pazienteCreato.id;
+        pazienteFirstName = pazienteCreato.firstName;
+        pazienteLastName = pazienteCreato.lastName;
         pazienteNome = nomePazienteAgenda(pazienteCreato);
         pazienteEmail = pazienteCreato.email;
         pazienteTelefono = pazienteCreato.phone;
+        pazienteDataNascita = pazienteCreato.dateOfBirth;
+        pazienteCodiceFiscale = pazienteCreato.codiceFiscale ?? null;
+        pazienteGenere = pazienteCreato.gender ?? null;
         setPazientiAgenda((correnti) => [pazienteCreato, ...correnti.filter((paziente) => paziente.id !== pazienteCreato.id)]);
       }
 
       const appuntamento = calcolaDraftAppuntamento(appuntamentoDraft);
+      let labBookingId: number | null = null;
+
+      if (area === "ambulatorio" && appuntamento.labExamIds.length > 0) {
+        const labBookingResponse = await fetch("/api/bookings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            examIds: appuntamento.labExamIds,
+            date: appuntamento.data,
+            time: appuntamento.ora,
+            firstName: pazienteFirstName || pazienteNome,
+            lastName: pazienteLastName || "Paziente",
+            dateOfBirth: pazienteDataNascita,
+            codiceFiscale: pazienteCodiceFiscale,
+            gender: pazienteGenere,
+            email: pazienteEmail || `${slugFile(pazienteNome)}-${Date.now()}@mmedical.local`,
+            phone: pazienteTelefono || "N/D",
+            notes: [
+              `Agenda ambulatorio: ${medicoAppuntamento.nome} - ${prestazione}`,
+              appuntamento.notaPrenotazione.trim(),
+            ].filter(Boolean).join(" | "),
+          }),
+        });
+
+        if (!labBookingResponse.ok) {
+          throw new Error("Appuntamento salvato non riuscito: non riesco a creare l'accettazione laboratorio collegata.");
+        }
+
+        const labBooking: unknown = await labBookingResponse.json();
+        if (labBooking && typeof labBooking === "object" && typeof (labBooking as { id?: unknown }).id === "number") {
+          labBookingId = (labBooking as { id: number }).id;
+        }
+      }
+
       const nuovaPrenotazione: PrenotazioneAgenda = {
         id: `agenda-${Date.now()}`,
         area,
@@ -1703,6 +1801,8 @@ export function AdminBookingCalendar({
         pazienteEmail,
         pazienteTelefono,
         prestazione,
+        labExamIds: appuntamento.labExamIds,
+        labBookingId,
         note: appuntamento.notaPrenotazione.trim() || undefined,
         data: appuntamento.data,
         ora: appuntamento.ora,
@@ -1722,9 +1822,11 @@ export function AdminBookingCalendar({
       setAppuntamentoDraft(null);
       toast({
         title: "Notifica",
-        description: appuntamento.overbooking
-          ? "Appuntamento salvato come overbooking."
-          : "Appuntamento salvato in agenda.",
+        description: labBookingId
+          ? "Appuntamento salvato e accettazione laboratorio collegata creata."
+          : appuntamento.overbooking
+            ? "Appuntamento salvato come overbooking."
+            : "Appuntamento salvato in agenda.",
       });
     } catch (error) {
       toast({
@@ -2502,6 +2604,71 @@ export function AdminBookingCalendar({
                   />
                 </Field>
               </div>
+
+              {area === "ambulatorio" && (
+                <div className="space-y-3 rounded-md border border-border p-3">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Esami laboratorio collegati</p>
+                    <p className="text-xs text-muted-foreground">
+                      Se la visita ambulatoriale richiede esami di laboratorio, selezionali qui: verranno inviati in accettazione laboratorio.
+                    </p>
+                  </div>
+
+                  <Input
+                    value={appuntamentoDraft.labExamSearch}
+                    onChange={(event) => aggiornaDraftAppuntamento({ labExamSearch: event.target.value })}
+                    placeholder="Cerca esame per codice o descrizione..."
+                  />
+
+                  {esamiLaboratorioFiltratiDialog.selected.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {esamiLaboratorioFiltratiDialog.selected.map((exam) => (
+                        <Badge key={exam.id} variant="secondary" className="gap-2 py-1">
+                          <span>{exam.codiceAnalisi} · {exam.descrizione}</span>
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-muted-foreground hover:text-destructive"
+                            onClick={() =>
+                              aggiornaDraftAppuntamento({
+                                labExamIds: appuntamentoDraft.labExamIds.filter((id) => id !== exam.id),
+                              })
+                            }
+                          >
+                            Rimuovi
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="max-h-52 overflow-y-auto rounded-md border border-border">
+                    {labExams.length === 0 ? (
+                      <p className="px-3 py-4 text-sm text-muted-foreground">Listino laboratorio non disponibile.</p>
+                    ) : esamiLaboratorioFiltratiDialog.disponibili.length > 0 ? (
+                      esamiLaboratorioFiltratiDialog.disponibili.map((exam) => (
+                        <button
+                          key={exam.id}
+                          type="button"
+                          className="flex w-full items-center gap-3 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted/50"
+                          onClick={() =>
+                            aggiornaDraftAppuntamento({
+                              labExamIds: Array.from(new Set([...appuntamentoDraft.labExamIds, exam.id])),
+                            })
+                          }
+                        >
+                          <Checkbox checked={false} />
+                          <span className="font-mono text-xs text-muted-foreground">{exam.codiceAnalisi}</span>
+                          <span className="font-medium text-foreground">{exam.descrizione}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="px-3 py-4 text-sm text-muted-foreground">
+                        Nessun esame disponibile per questa ricerca.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <Field label="Nota prenotazione">
                 <Textarea
