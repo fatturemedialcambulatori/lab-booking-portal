@@ -106,7 +106,7 @@ function ComponentPicker({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <Label>Esami componenti</Label>
+        <Label>Esami inclusi nel composito</Label>
         <span className="text-xs text-muted-foreground">{selectedIds.length} selezionati</span>
       </div>
       <div className="relative">
@@ -149,20 +149,43 @@ function ExamForm({
   value,
   onChange,
   singleExams,
-  fixedTipo,
 }: {
   value: typeof EMPTY_FORM;
   onChange: (v: typeof EMPTY_FORM) => void;
   singleExams?: SimplExam[];
-  fixedTipo?: "singolo" | "pacchetto";
 }) {
+  const compositoId = React.useId();
   const set = (k: keyof typeof EMPTY_FORM, v: string | boolean | number[]) =>
     onChange({ ...value, [k]: v });
+  const setTipo = (isComposito: boolean) =>
+    onChange({
+      ...value,
+      tipo: isComposito ? "pacchetto" : "singolo",
+      componentIds: isComposito ? value.componentIds : [],
+    });
 
-  const isPacchetto = (fixedTipo ?? value.tipo) === "pacchetto";
+  const isPacchetto = value.tipo === "pacchetto";
 
   return (
     <div className="grid gap-3 py-2">
+      <div className="rounded-md border border-border bg-muted/20 px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <Label htmlFor={compositoId} className="cursor-pointer">Esame composito</Label>
+            <p className="text-xs text-muted-foreground">
+              Di default è un esame singolo. Attiva per includere altri esami già presenti nel listino.
+            </p>
+          </div>
+          <input
+            id={compositoId}
+            type="checkbox"
+            checked={isPacchetto}
+            onChange={(e) => setTipo(e.target.checked)}
+            className="h-5 w-5 rounded border-gray-300 accent-primary flex-shrink-0"
+          />
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label>Codice Analisi *</Label>
@@ -176,7 +199,7 @@ function ExamForm({
 
       <div className="space-y-1">
         <Label>Descrizione *</Label>
-        <Input value={value.descrizione} onChange={(e) => set("descrizione", e.target.value)} placeholder={isPacchetto ? "Nome del pacchetto" : "Nome dell'esame"} />
+        <Input value={value.descrizione} onChange={(e) => set("descrizione", e.target.value)} placeholder={isPacchetto ? "Nome dell'esame composito" : "Nome dell'esame"} />
       </div>
 
       {!isPacchetto && (
@@ -264,7 +287,7 @@ export function AdminExams() {
   }, [exams, search, activeTab]);
 
   const openCreate = () => {
-    setFormValues({ ...EMPTY_FORM, tipo: activeTab });
+    setFormValues({ ...EMPTY_FORM, tipo: "singolo", componentIds: [] });
     setFormError("");
     setIsCreating(true);
   };
@@ -299,6 +322,10 @@ export function AdminExams() {
       return;
     }
     const isPacchetto = formValues.tipo === "pacchetto";
+    if (isPacchetto && formValues.componentIds.length === 0) {
+      setFormError("Aggiungi almeno un esame già presente nel listino.");
+      return;
+    }
     createMutation.mutate(
       {
         data: {
@@ -317,7 +344,7 @@ export function AdminExams() {
         } as any,
       },
       {
-        onSuccess: () => { setIsCreating(false); refetch(); },
+        onSuccess: () => { setIsCreating(false); setActiveTab(isPacchetto ? "pacchetto" : "singolo"); refetch(); },
         onError: (error) => setFormError(mutationErrorMessage("la creazione", error)),
       }
     );
@@ -330,6 +357,10 @@ export function AdminExams() {
       return;
     }
     const isPacchetto = formValues.tipo === "pacchetto";
+    if (isPacchetto && formValues.componentIds.length === 0) {
+      setFormError("Aggiungi almeno un esame già presente nel listino.");
+      return;
+    }
     updateMutation.mutate(
       {
         id: editExam.id,
@@ -349,7 +380,7 @@ export function AdminExams() {
         } as any,
       },
       {
-        onSuccess: () => { setEditExam(null); refetch(); },
+        onSuccess: () => { setEditExam(null); setActiveTab(isPacchetto ? "pacchetto" : "singolo"); refetch(); },
         onError: (error) => setFormError(mutationErrorMessage("l'aggiornamento", error)),
       }
     );
@@ -394,7 +425,7 @@ export function AdminExams() {
           }`}
         >
           <Package className="h-3.5 w-3.5" />
-          Pacchetti
+          Esami compositi
           <span className="ml-1 text-xs bg-muted text-muted-foreground rounded-full px-1.5 py-0.5 leading-none">{totalPacchetti}</span>
         </button>
       </div>
@@ -403,7 +434,7 @@ export function AdminExams() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
-            placeholder={activeTab === "pacchetto" ? "Cerca pacchetto..." : "Cerca esame..."}
+            placeholder={activeTab === "pacchetto" ? "Cerca esame composito..." : "Cerca esame..."}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -411,7 +442,7 @@ export function AdminExams() {
         </div>
         <Button onClick={openCreate} className="gap-2 flex-shrink-0">
           <Plus className="h-4 w-4" />
-          {activeTab === "pacchetto" ? "Nuovo pacchetto" : "Nuovo esame"}
+          Nuovo esame
         </Button>
       </div>
 
@@ -422,7 +453,7 @@ export function AdminExams() {
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
           {activeTab === "pacchetto" ? <Package className="h-10 w-10 mx-auto mb-3 opacity-30" /> : <FlaskConical className="h-10 w-10 mx-auto mb-3 opacity-30" />}
-          <p className="font-medium">{activeTab === "pacchetto" ? "Nessun pacchetto trovato" : "Nessun esame trovato"}</p>
+          <p className="font-medium">{activeTab === "pacchetto" ? "Nessun esame composito trovato" : "Nessun esame trovato"}</p>
           {search && <p className="text-sm">Prova con un altro termine di ricerca.</p>}
         </div>
       ) : (
@@ -509,7 +540,7 @@ export function AdminExams() {
             </tbody>
           </table>
           <div className="px-4 py-2 bg-muted/20 border-t border-border text-xs text-muted-foreground">
-            {filtered.length} {activeTab === "pacchetto" ? (filtered.length === 1 ? "pacchetto" : "pacchetti") : (filtered.length === 1 ? "esame" : "esami")}
+            {filtered.length} {activeTab === "pacchetto" ? (filtered.length === 1 ? "esame composito" : "esami compositi") : (filtered.length === 1 ? "esame" : "esami")}
           </div>
         </div>
       )}
@@ -518,9 +549,9 @@ export function AdminExams() {
       <Dialog open={isCreating} onOpenChange={(o) => !o && setIsCreating(false)}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{activeTab === "pacchetto" ? "Nuovo pacchetto" : "Nuovo esame"}</DialogTitle>
+            <DialogTitle>Nuovo esame</DialogTitle>
           </DialogHeader>
-          <ExamForm value={formValues} onChange={setFormValues} singleExams={singleExams} fixedTipo={activeTab} />
+          <ExamForm value={formValues} onChange={setFormValues} singleExams={singleExams} />
           {formError && <p className="text-sm text-destructive">{formError}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsCreating(false)}>Annulla</Button>
@@ -535,7 +566,7 @@ export function AdminExams() {
       <Dialog open={!!editExam} onOpenChange={(o) => !o && setEditExam(null)}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editExam?.tipo === "pacchetto" ? "Modifica pacchetto" : "Modifica esame"}</DialogTitle>
+            <DialogTitle>{editExam?.tipo === "pacchetto" ? "Modifica esame composito" : "Modifica esame"}</DialogTitle>
           </DialogHeader>
           <ExamForm value={formValues} onChange={setFormValues} singleExams={singleExamsForPicker} />
           {formError && <p className="text-sm text-destructive">{formError}</p>}
@@ -561,7 +592,7 @@ export function AdminExams() {
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Elimina {deleteTarget?.tipo === "pacchetto" ? "pacchetto" : "esame"}</AlertDialogTitle>
+            <AlertDialogTitle>Elimina {deleteTarget?.tipo === "pacchetto" ? "esame composito" : "esame"}</AlertDialogTitle>
             <AlertDialogDescription>
               Sei sicuro di voler eliminare <strong>{deleteTarget?.descrizione}</strong>? L'operazione non è reversibile.
             </AlertDialogDescription>
