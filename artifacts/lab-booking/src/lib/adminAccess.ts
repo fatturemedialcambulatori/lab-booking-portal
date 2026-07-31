@@ -86,8 +86,8 @@ const DEFAULT_ACCESS_CONFIG: AdminAccessConfig = {
     {
       id: "laboratorio",
       nome: "Laboratorio",
-      descrizione: "Area laboratorio, agenda e refertazione operativa.",
-      permessi: ["laboratorio.accettazione", "laboratorio.agenda", "laboratorio.listino", "anagrafiche"],
+      descrizione: "Area laboratorio e refertazione operativa.",
+      permessi: ["laboratorio.accettazione", "laboratorio.listino", "anagrafiche"],
     },
     {
       id: "medico",
@@ -197,11 +197,17 @@ const mergeDefaultAccessConfig = (config: AdminAccessConfig): AdminAccessConfig 
     ruoli[existingIndex] = {
       ...ruoli[existingIndex],
       descrizione:
-        ruoloDefault.id === "avvocato" || ruoloDefault.id === "segreteria-modena" || ruoloDefault.id === "segreteria-sassuolo"
+        ruoloDefault.id === "laboratorio" ||
+        ruoloDefault.id === "avvocato" ||
+        ruoloDefault.id === "segreteria-modena" ||
+        ruoloDefault.id === "segreteria-sassuolo"
           ? ruoloDefault.descrizione
           : ruoli[existingIndex].descrizione,
       permessi:
-        ruoloDefault.id === "avvocato" || ruoloDefault.id === "segreteria-modena" || ruoloDefault.id === "segreteria-sassuolo"
+        ruoloDefault.id === "laboratorio" ||
+        ruoloDefault.id === "avvocato" ||
+        ruoloDefault.id === "segreteria-modena" ||
+        ruoloDefault.id === "segreteria-sassuolo"
           ? ruoloDefault.permessi
           : Array.from(new Set([...ruoli[existingIndex].permessi, ...ruoloDefault.permessi])),
     };
