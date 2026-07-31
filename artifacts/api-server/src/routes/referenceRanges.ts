@@ -4,6 +4,10 @@ import { examReferenceRangesTable, type Fascia } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 
 const router = Router();
+const VALID_REFERENCE_RANGE_TYPES = ["range", "gt", "gte", "lt", "lte", "qualitative", "fasce"] as const;
+
+const isReferenceRangeType = (value: unknown): value is (typeof VALID_REFERENCE_RANGE_TYPES)[number] =>
+  typeof value === "string" && (VALID_REFERENCE_RANGE_TYPES as readonly string[]).includes(value);
 
 async function listReferenceRangesByExamId(examId: number, req: Request, res: Response) {
   if (!Number.isInteger(examId)) return res.status(400).json({ error: "ID non valido" });
@@ -38,8 +42,8 @@ async function createReferenceRangeForExam(examId: number, body: unknown, req: R
     ordinamento,
   } = body as Record<string, unknown>;
 
-  if (!tipo || !["range", "qualitative", "fasce"].includes(tipo as string)) {
-    return res.status(400).json({ error: "tipo deve essere range, qualitative o fasce" });
+  if (!isReferenceRangeType(tipo)) {
+    return res.status(400).json({ error: "tipo deve essere range, gt, gte, lt, lte, qualitative o fasce" });
   }
 
   try {
@@ -49,7 +53,7 @@ async function createReferenceRangeForExam(examId: number, body: unknown, req: R
       ageMin: ageMin != null ? Number(ageMin) : null,
       ageMax: ageMax != null ? Number(ageMax) : null,
       statoFisiologico: (statoFisiologico as string | null) ?? null,
-      tipo: tipo as string,
+      tipo,
       valoreMin: valoreMin != null ? String(valoreMin) : null,
       valoreMax: valoreMax != null ? String(valoreMax) : null,
       valoriAccettabili: (valoriAccettabili as string | null) ?? null,
@@ -92,6 +96,10 @@ async function updateReferenceRangeById(
     ordinamento,
   } = body as Record<string, unknown>;
 
+  if (!isReferenceRangeType(tipo)) {
+    return res.status(400).json({ error: "tipo deve essere range, gt, gte, lt, lte, qualitative o fasce" });
+  }
+
   try {
     const [range] = await db
       .update(examReferenceRangesTable)
@@ -100,7 +108,7 @@ async function updateReferenceRangeById(
         ageMin: ageMin != null ? Number(ageMin) : null,
         ageMax: ageMax != null ? Number(ageMax) : null,
         statoFisiologico: (statoFisiologico as string | null) ?? null,
-        tipo: tipo as string,
+        tipo,
         valoreMin: valoreMin != null ? String(valoreMin) : null,
         valoreMax: valoreMax != null ? String(valoreMax) : null,
         valoriAccettabili: (valoriAccettabili as string | null) ?? null,

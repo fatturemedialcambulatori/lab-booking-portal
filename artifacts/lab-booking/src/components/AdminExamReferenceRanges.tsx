@@ -73,6 +73,17 @@ function isSingleValue(tipo: string): tipo is SingleValueTipo {
   return SINGLE_VALUE_TIPOS.includes(tipo as SingleValueTipo);
 }
 
+function rangeTypeBadge(tipo: string) {
+  if (tipo === "range") return "Range";
+  if (tipo === "qualitative") return "Qualit.";
+  if (tipo === "fasce") return "Fasce";
+  if (tipo === "gte") return "≥";
+  if (tipo === "gt") return ">";
+  if (tipo === "lte") return "≤";
+  if (tipo === "lt") return "<";
+  return tipo;
+}
+
 function formToBody(f: RangeFormState) {
   const isRange = f.tipo === "range";
   const isMin = f.tipo === "gt" || f.tipo === "gte";
@@ -429,7 +440,7 @@ export function AdminExamReferenceRanges({
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <Badge variant="outline" className="text-[10px] font-mono flex-shrink-0">
-                      {rTyped.tipo === "range" ? "Range" : rTyped.tipo === "qualitative" ? "Qualit." : "Fasce"}
+                      {rangeTypeBadge(rTyped.tipo)}
                     </Badge>
                     <span className="text-xs font-medium text-muted-foreground">{describeRangeConditions(rTyped)}</span>
                     <span className="text-xs font-semibold text-foreground truncate">{displayStructuredRange(rTyped)}</span>

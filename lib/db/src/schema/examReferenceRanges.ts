@@ -4,7 +4,9 @@ import { examsTable } from "./exams";
 export type Fascia = {
   label: string;
   min?: number;
+  minOp?: ">=" | ">";
   max?: number;
+  maxOp?: "<" | "<=";
   color?: "green" | "yellow" | "orange" | "red";
   nota?: string;
 };
@@ -18,10 +20,10 @@ export const examReferenceRangesTable = pgTable("exam_reference_ranges", {
   ageMax: integer("age_max"),         // in anni, null = nessun limite superiore
   statoFisiologico: text("stato_fisiologico"),  // 'gravidanza', null = standard
 
-  tipo: text("tipo").notNull().default("range"),  // 'range' | 'qualitative' | 'fasce'
+  tipo: text("tipo").notNull().default("range"),  // 'range' | 'gt' | 'gte' | 'lt' | 'lte' | 'qualitative' | 'fasce'
 
-  valoreMin: numeric("valore_min"),   // per tipo 'range'
-  valoreMax: numeric("valore_max"),   // per tipo 'range'
+  valoreMin: numeric("valore_min"),   // per tipo 'range', 'gt', 'gte'
+  valoreMax: numeric("valore_max"),   // per tipo 'range', 'lt', 'lte'
 
   valoriAccettabili: text("valori_accettabili"),  // per tipo 'qualitative', es. "Negativo,Assente"
 
