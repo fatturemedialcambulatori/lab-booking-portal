@@ -268,6 +268,7 @@ function AdminDashboard({
   const isCassaTab = activeTab.startsWith("cassa-");
   const showSettingsSave = activeTab === "impostazioni";
   const settingsSaveEnabled = Boolean(settingsSaveControl?.canSave);
+  const isReadOnlyLaboratoryListino = activeArea === "laboratorio" && role === "segreteria";
   const settingsSaving = settingsSaveControl?.state === "saving";
   const settingsSaveButtonClass = settingsSaveEnabled
     ? "gap-2 border-slate-950 bg-slate-950 text-white hover:bg-slate-900 hover:text-white"
@@ -496,10 +497,12 @@ function AdminDashboard({
                 <div>
                   <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">{activeItem.label}</h1>
                   <p className="text-muted-foreground text-sm">
-                    Gestisci il catalogo {activeArea === "ambulatorio" ? "delle prestazioni" : "degli esami"} del modulo {activeGroup.label.toLowerCase()}.
+                    {isReadOnlyLaboratoryListino
+                      ? "Consulta il catalogo degli esami del laboratorio."
+                      : `Gestisci il catalogo ${activeArea === "ambulatorio" ? "delle prestazioni" : "degli esami"} del modulo ${activeGroup.label.toLowerCase()}.`}
                   </p>
                 </div>
-                <AdminExams />
+                <AdminExams readOnly={isReadOnlyLaboratoryListino} />
               </div>
             )}
 

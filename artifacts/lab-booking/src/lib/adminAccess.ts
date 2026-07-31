@@ -75,13 +75,25 @@ export const TUTTI_I_PERMESSI = PERMESSI_GRUPPI.flatMap((gruppo) =>
   gruppo.permessi.map((permesso) => permesso.id),
 );
 
+const SEGRETERIA_PERMESSI: PermissionId[] = TUTTI_I_PERMESSI.filter(
+  (permesso) => permesso !== "laboratorio.agenda",
+);
+
+const RUOLI_DEFAULT_FORZATI = new Set([
+  "segreteria",
+  "laboratorio",
+  "avvocato",
+  "segreteria-modena",
+  "segreteria-sassuolo",
+]);
+
 const DEFAULT_ACCESS_CONFIG: AdminAccessConfig = {
   ruoli: [
     {
       id: "segreteria",
       nome: "Segreteria",
       descrizione: "Gestione operativa completa dello studio.",
-      permessi: TUTTI_I_PERMESSI,
+      permessi: SEGRETERIA_PERMESSI,
     },
     {
       id: "laboratorio",
@@ -196,20 +208,12 @@ const mergeDefaultAccessConfig = (config: AdminAccessConfig): AdminAccessConfig 
     }
     ruoli[existingIndex] = {
       ...ruoli[existingIndex],
-      descrizione:
-        ruoloDefault.id === "laboratorio" ||
-        ruoloDefault.id === "avvocato" ||
-        ruoloDefault.id === "segreteria-modena" ||
-        ruoloDefault.id === "segreteria-sassuolo"
-          ? ruoloDefault.descrizione
-          : ruoli[existingIndex].descrizione,
-      permessi:
-        ruoloDefault.id === "laboratorio" ||
-        ruoloDefault.id === "avvocato" ||
-        ruoloDefault.id === "segreteria-modena" ||
-        ruoloDefault.id === "segreteria-sassuolo"
-          ? ruoloDefault.permessi
-          : Array.from(new Set([...ruoli[existingIndex].permessi, ...ruoloDefault.permessi])),
+      descrizione: RUOLI_DEFAULT_FORZATI.has(ruoloDefault.id)
+        ? ruoloDefault.descrizione
+        : ruoli[existingIndex].descrizione,
+      permessi: RUOLI_DEFAULT_FORZATI.has(ruoloDefault.id)
+        ? ruoloDefault.permessi
+        : Array.from(new Set([...ruoli[existingIndex].permessi, ...ruoloDefault.permessi])),
     };
   });
 
@@ -270,6 +274,7 @@ export const roleHasPermission = (
   ruoloId: string | null | undefined,
   permesso: PermissionId,
 ) => {
+  if (ruoloId === "segreteria" && permesso === "laboratorio.agenda") return false;
   const permessi = getRoleById(config, ruoloId)?.permessi ?? [];
   if (permesso === "cassa.modena") return permessi.includes("cassa") || permessi.includes("cassa.modena");
   if (permesso === "cassa.sassuolo") return permessi.includes("cassa") || permessi.includes("cassa.sassuolo");

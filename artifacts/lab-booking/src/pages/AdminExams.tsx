@@ -281,7 +281,11 @@ function ExamForm({
   );
 }
 
-export function AdminExams() {
+type AdminExamsProps = {
+  readOnly?: boolean;
+};
+
+export function AdminExams({ readOnly = false }: AdminExamsProps) {
   const { data: exams, isLoading, refetch } = useListExams();
   const createMutation = useCreateExam();
   const updateMutation = useUpdateExam();
@@ -319,12 +323,14 @@ export function AdminExams() {
   }, [exams, search, activeTab]);
 
   const openCreate = () => {
+    if (readOnly) return;
     setFormValues({ ...EMPTY_FORM, tipo: activeTab, componentIds: [] });
     setFormError("");
     setIsCreating(true);
   };
 
   const openEdit = (exam: Exam) => {
+    if (readOnly) return;
     setFormValues({
       codiceAnalisi: exam.codiceAnalisi,
       descrizione: exam.descrizione,
@@ -349,6 +355,7 @@ export function AdminExams() {
   };
 
   const handleCreate = () => {
+    if (readOnly) return;
     if (!formValues.codiceAnalisi.trim() || !formValues.descrizione.trim()) {
       setFormError("Codice Analisi e Descrizione sono obbligatori.");
       return;
@@ -383,6 +390,7 @@ export function AdminExams() {
   };
 
   const handleUpdate = () => {
+    if (readOnly) return;
     if (!editExam) return;
     if (!formValues.codiceAnalisi.trim() || !formValues.descrizione.trim()) {
       setFormError("Codice Analisi e Descrizione sono obbligatori.");
@@ -419,6 +427,7 @@ export function AdminExams() {
   };
 
   const handleDelete = () => {
+    if (readOnly) return;
     if (!deleteTarget) return;
     deleteMutation.mutate(
       { id: deleteTarget.id },
@@ -491,10 +500,16 @@ export function AdminExams() {
             className="pl-9"
           />
         </div>
-        <Button onClick={openCreate} className="gap-2 flex-shrink-0">
-          <Plus className="h-4 w-4" />
-          {activeTab === "pacchetto" ? "Nuovo pacchetto" : activeTab === "composito" ? "Nuovo composito" : "Nuovo esame"}
-        </Button>
+        {readOnly ? (
+          <span className="inline-flex h-9 items-center rounded-md border border-border bg-muted/40 px-3 text-sm font-medium text-muted-foreground">
+            Sola lettura
+          </span>
+        ) : (
+          <Button onClick={openCreate} className="gap-2 flex-shrink-0">
+            <Plus className="h-4 w-4" />
+            {activeTab === "pacchetto" ? "Nuovo pacchetto" : activeTab === "composito" ? "Nuovo composito" : "Nuovo esame"}
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -536,7 +551,7 @@ export function AdminExams() {
                   <th className="text-left px-3 py-2.5 font-medium text-muted-foreground text-xs uppercase tracking-wider hidden sm:table-cell">Componenti</th>
                 )}
                 <th className="text-right px-3 py-2.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">Importo</th>
-                <th className="px-3 py-2.5 w-20"></th>
+                {!readOnly && <th className="px-3 py-2.5 w-20"></th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
@@ -571,33 +586,35 @@ export function AdminExams() {
                   <td className="px-3 py-2.5 text-right font-semibold text-primary">
                     {exam.importo ? `€ ${Number(exam.importo).toFixed(2)}` : <span className="text-muted-foreground font-normal">—</span>}
                   </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center justify-end gap-1">
-                      {activeTab === "singolo" && (
+                  {!readOnly && (
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center justify-end gap-1">
+                        {activeTab === "singolo" && (
+                          <button
+                            onClick={() => setRefRangesExam(exam as Exam)}
+                            className="p-1.5 rounded hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition-colors"
+                            title="Valori di riferimento"
+                          >
+                            <Ruler className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         <button
-                          onClick={() => setRefRangesExam(exam as Exam)}
-                          className="p-1.5 rounded hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition-colors"
-                          title="Valori di riferimento"
+                          onClick={() => openEdit(exam as Exam)}
+                          className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                          title="Modifica"
                         >
-                          <Ruler className="h-3.5 w-3.5" />
+                          <Pencil className="h-3.5 w-3.5" />
                         </button>
-                      )}
-                      <button
-                        onClick={() => openEdit(exam as Exam)}
-                        className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                        title="Modifica"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteTarget(exam as Exam)}
-                        className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                        title="Elimina"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </td>
+                        <button
+                          onClick={() => setDeleteTarget(exam as Exam)}
+                          className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                          title="Elimina"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -614,7 +631,7 @@ export function AdminExams() {
       )}
 
       {/* Create dialog */}
-      <Dialog open={isCreating} onOpenChange={(o) => !o && setIsCreating(false)}>
+      {!readOnly && <Dialog open={isCreating} onOpenChange={(o) => !o && setIsCreating(false)}>
         <DialogContent className="max-h-[88vh] w-[calc(100vw-2rem)] max-w-[760px] overflow-y-auto overflow-x-hidden p-5 sm:p-6">
           <DialogHeader>
             <DialogTitle>
@@ -634,10 +651,10 @@ export function AdminExams() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog>}
 
       {/* Edit dialog */}
-      <Dialog open={!!editExam} onOpenChange={(o) => !o && setEditExam(null)}>
+      {!readOnly && <Dialog open={!!editExam} onOpenChange={(o) => !o && setEditExam(null)}>
         <DialogContent className="max-h-[88vh] w-[calc(100vw-2rem)] max-w-[760px] overflow-y-auto overflow-x-hidden p-5 sm:p-6">
           <DialogHeader>
             <DialogTitle>Modifica {examTypeLabel(editExam?.tipo)}</DialogTitle>
@@ -651,10 +668,10 @@ export function AdminExams() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog>}
 
       {/* Reference ranges dialog */}
-      {refRangesExam && (
+      {!readOnly && refRangesExam && (
         <AdminExamReferenceRanges
           examId={refRangesExam.id}
           examName={refRangesExam.descrizione}
@@ -663,7 +680,7 @@ export function AdminExams() {
       )}
 
       {/* Delete confirm */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+      {!readOnly && <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Elimina {examTypeLabel(deleteTarget?.tipo)}</AlertDialogTitle>
@@ -681,7 +698,7 @@ export function AdminExams() {
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
+      </AlertDialog>}
     </div>
   );
 }
