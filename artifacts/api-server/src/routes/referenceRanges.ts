@@ -9,6 +9,38 @@ const VALID_REFERENCE_RANGE_TYPES = ["range", "gt", "gte", "lt", "lte", "qualita
 const isReferenceRangeType = (value: unknown): value is (typeof VALID_REFERENCE_RANGE_TYPES)[number] =>
   typeof value === "string" && (VALID_REFERENCE_RANGE_TYPES as readonly string[]).includes(value);
 
+const parseMedicalNumber = (value: unknown): number | null => {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const text = String(value).trim().replace(",", ".");
+  const fraction = text.match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)$/);
+  if (fraction) {
+    const denominator = Number(fraction[2]);
+    if (!Number.isFinite(denominator) || denominator === 0) return null;
+    return Number(fraction[1]) / denominator;
+  }
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizeFasce = (value: unknown): Fascia[] | null => {
+  if (!Array.isArray(value)) return null;
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    .map((item, index) => ({
+      label: String(item["label"] ?? `Fascia ${index + 1}`).trim() || `Fascia ${index + 1}`,
+      min: parseMedicalNumber(item["min"]) ?? undefined,
+      minOp: item["minOp"] === ">" ? ">" : item["minOp"] === ">=" ? ">=" : undefined,
+      max: parseMedicalNumber(item["max"]) ?? undefined,
+      maxOp: item["maxOp"] === "<=" ? "<=" : item["maxOp"] === "<" ? "<" : undefined,
+      color:
+        item["color"] === "yellow" || item["color"] === "orange" || item["color"] === "red" || item["color"] === "green"
+          ? item["color"]
+          : undefined,
+      nota: typeof item["nota"] === "string" && item["nota"].trim() ? item["nota"].trim() : undefined,
+    }));
+};
+
 async function listReferenceRangesByExamId(examId: number, req: Request, res: Response) {
   if (!Number.isInteger(examId)) return res.status(400).json({ error: "ID non valido" });
   try {
@@ -57,7 +89,7 @@ async function createReferenceRangeForExam(examId: number, body: unknown, req: R
       valoreMin: valoreMin != null ? String(valoreMin) : null,
       valoreMax: valoreMax != null ? String(valoreMax) : null,
       valoriAccettabili: (valoriAccettabili as string | null) ?? null,
-      fasce: (fasce as Fascia[] | null) ?? null,
+      fasce: tipo === "fasce" ? normalizeFasce(fasce) : null,
       unita: (unita as string | null) ?? null,
       note: (note as string | null) ?? null,
       ordinamento: ordinamento != null ? Number(ordinamento) : 0,
@@ -112,7 +144,7 @@ async function updateReferenceRangeById(
         valoreMin: valoreMin != null ? String(valoreMin) : null,
         valoreMax: valoreMax != null ? String(valoreMax) : null,
         valoriAccettabili: (valoriAccettabili as string | null) ?? null,
-        fasce: (fasce as Fascia[] | null) ?? null,
+        fasce: tipo === "fasce" ? normalizeFasce(fasce) : null,
         unita: (unita as string | null) ?? null,
         note: (note as string | null) ?? null,
         ordinamento: ordinamento != null ? Number(ordinamento) : 0,

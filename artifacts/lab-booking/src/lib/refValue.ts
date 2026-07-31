@@ -237,8 +237,8 @@ export function displayStructuredRange(r: StructuredRefRange): string {
  */
 export function matchFascia(r: StructuredRefRange, valueStr: string | null | undefined): Fascia | null {
   if (!r.fasce?.length || !valueStr) return null;
-  const value = parseFloat(String(valueStr).replace(",", "."));
-  if (isNaN(value)) return null;
+  const value = parseMedicalNumber(valueStr);
+  if (value == null) return null;
 
   for (const f of r.fasce) {
     const hasMin = f.min != null;
@@ -270,8 +270,8 @@ export function isOutOfRangeStructured(
 
   const numericTipos = ["range", "gt", "gte", "lt", "lte"];
   if (numericTipos.includes(r.tipo)) {
-    const value = parseFloat(String(resultStr).replace(",", "."));
-    if (isNaN(value)) return false;
+    const value = parseMedicalNumber(resultStr);
+    if (value == null) return false;
     if (r.tipo === "range") {
       if (r.valoreMin != null && value < Number(r.valoreMin)) return true;
       if (r.valoreMax != null && value > Number(r.valoreMax)) return true;

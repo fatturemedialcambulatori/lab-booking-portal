@@ -62,6 +62,12 @@ const COLORI_FASCIA: { value: string; label: string; cls: string }[] = [
   { value: "red", label: "Rosso", cls: "bg-red-100 text-red-800 border-red-200" },
 ];
 
+const FASCE_ESEMPIO: Fascia[] = [
+  { label: "Normale", min: 0, minOp: ">=", max: 1, maxOp: "<", color: "green" },
+  { label: "Alterato", min: 1, minOp: ">=", max: 2, maxOp: "<", color: "orange" },
+  { label: "Grave", min: 2, minOp: ">=", max: 3, maxOp: "<=", color: "red" },
+];
+
 function colorClass(color?: string | null) {
   return COLORI_FASCIA.find((c) => c.value === color)?.cls ?? "bg-gray-100 text-gray-800 border-gray-200";
 }
@@ -88,6 +94,15 @@ function formToBody(f: RangeFormState) {
   const isRange = f.tipo === "range";
   const isMin = f.tipo === "gt" || f.tipo === "gte";
   const isMax = f.tipo === "lt" || f.tipo === "lte";
+  const fasce = f.fasce.map((fascia, index) => ({
+    label: fascia.label?.trim() || `Fascia ${index + 1}`,
+    min: fascia.min == null || fascia.min === "" ? null : parseMedicalNumber(fascia.min),
+    minOp: fascia.minOp ?? null,
+    max: fascia.max == null || fascia.max === "" ? null : parseMedicalNumber(fascia.max),
+    maxOp: fascia.maxOp ?? null,
+    color: fascia.color ?? "green",
+    nota: fascia.nota?.trim() || null,
+  }));
   return {
     gender: f.gender || null,
     ageMin: f.ageMin ? parseInt(f.ageMin) : null,
@@ -97,7 +112,7 @@ function formToBody(f: RangeFormState) {
     valoreMin: (isRange && f.valoreMin) || isMin ? parseMedicalNumber(f.valoreMin) : null,
     valoreMax: (isRange && f.valoreMax) || isMax ? parseMedicalNumber(f.valoreMax) : null,
     valoriAccettabili: f.tipo === "qualitative" ? f.valoriAccettabili || null : null,
-    fasce: f.tipo === "fasce" ? f.fasce : null,
+    fasce: f.tipo === "fasce" ? fasce : null,
     unita: f.unita || null,
     note: f.note || null,
     ordinamento: parseInt(f.ordinamento) || 0,
@@ -140,6 +155,9 @@ function RangeForm({
 
   const addFascia = () =>
     set("fasce", [...value.fasce, { label: "", color: "green" }]);
+
+  const addFasceEsempio = () =>
+    set("fasce", value.fasce.length > 0 ? [...value.fasce, ...FASCE_ESEMPIO] : FASCE_ESEMPIO);
 
   const updateFascia = (i: number, patch: Partial<Fascia>) =>
     set("fasce", value.fasce.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
@@ -207,7 +225,7 @@ function RangeForm({
             <SelectItem value="lte">≤ Minore o uguale a</SelectItem>
             <SelectItem value="lt">&lt; Minore di (stretto)</SelectItem>
             <SelectItem value="qualitative">Qualitativo (es. Negativo, Assente)</SelectItem>
-            <SelectItem value="fasce">Fasce condizionali (es. Ottimale / Borderline / Alto rischio)</SelectItem>
+            <SelectItem value="fasce">Fasce multiple (es. Normale / Alterato / Grave)</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -259,10 +277,20 @@ function RangeForm({
       {value.tipo === "fasce" && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label className="text-xs">Fasce</Label>
-            <Button type="button" variant="outline" size="sm" onClick={addFascia} className="h-6 text-xs gap-1">
-              <Plus className="h-3 w-3" /> Aggiungi fascia
-            </Button>
+            <div>
+              <Label className="text-xs">Fasce di interpretazione</Label>
+              <p className="text-[11px] text-muted-foreground">
+                Es. 0-1 normale, 1-2 alterato, 2-3 grave.
+              </p>
+            </div>
+            <div className="flex gap-1">
+              <Button type="button" variant="outline" size="sm" onClick={addFasceEsempio} className="h-6 text-xs">
+                Esempio
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={addFascia} className="h-6 text-xs gap-1">
+                <Plus className="h-3 w-3" /> Fascia
+              </Button>
+            </div>
           </div>
           {value.fasce.length === 0 && (
             <p className="text-xs text-muted-foreground text-center py-2">Nessuna fascia configurata.</p>
