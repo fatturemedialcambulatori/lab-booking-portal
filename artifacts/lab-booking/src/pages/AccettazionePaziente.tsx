@@ -136,7 +136,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
       const examsWithResults: PrintExamWithResult[] = visit.examIds.map((id) => {
         const exam = exams.find((e) => e.id === id);
         const examAny = exam as any;
-        if (examAny?.tipo === "pacchetto") {
+        if (examAny?.tipo === "pacchetto" || examAny?.tipo === "composito") {
           const subResults = (examAny.components ?? []).map((c: any) => {
             const sub = c.componentExam;
             const subReferto = referti.find((r) => r.examId === c.componentExamId && r.parentExamId === id);
@@ -161,7 +161,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
             valoreRiferimento: exam?.valoreRiferimento,
             referenceRanges: (exam as any)?.referenceRanges ?? null,
             preparationInstructions: exam?.preparationInstructions,
-            tipo: "pacchetto",
+            tipo: examAny?.tipo,
             valore: null,
             refertaNote: null,
             subResults,

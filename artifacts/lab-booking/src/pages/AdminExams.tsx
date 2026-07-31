@@ -27,7 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, Search, FlaskConical, Package, Ruler } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, FlaskConical, Package, Ruler, Layers } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -66,6 +66,7 @@ type Exam = {
 };
 
 type SimplExam = { id: number; codiceAnalisi: string; descrizione: string };
+type ExamTipo = "singolo" | "composito" | "pacchetto";
 
 const EMPTY_FORM = {
   codiceAnalisi: "",
@@ -77,18 +78,28 @@ const EMPTY_FORM = {
   regola: "",
   importo: "",
   preparationInstructions: "",
-  tipo: "singolo" as "singolo" | "pacchetto",
+  tipo: "singolo" as ExamTipo,
   componentIds: [] as number[],
+};
+
+const isContainerExam = (tipo: ExamTipo) => tipo === "composito" || tipo === "pacchetto";
+
+const examTypeLabel = (tipo?: string) => {
+  if (tipo === "pacchetto") return "pacchetto";
+  if (tipo === "composito") return "esame composito";
+  return "esame";
 };
 
 function ComponentPicker({
   singleExams,
   selectedIds,
   onChange,
+  label,
 }: {
   singleExams: SimplExam[];
   selectedIds: number[];
   onChange: (ids: number[]) => void;
+  label: string;
 }) {
   const [search, setSearch] = React.useState("");
   const filtered = React.useMemo(() => {
@@ -106,7 +117,7 @@ function ComponentPicker({
   return (
     <div className="min-w-0 space-y-2">
       <div className="flex items-center justify-between">
-        <Label>Esami inclusi nel composito</Label>
+        <Label>{label}</Label>
         <span className="text-xs text-muted-foreground">{selectedIds.length} selezionati</span>
       </div>
       <div className="relative">
@@ -160,31 +171,47 @@ function ExamForm({
   const setTipo = (isComposito: boolean) =>
     onChange({
       ...value,
-      tipo: isComposito ? "pacchetto" : "singolo",
+      tipo: isComposito ? "composito" : "singolo",
       componentIds: isComposito ? value.componentIds : [],
     });
 
   const isPacchetto = value.tipo === "pacchetto";
+  const isComposito = value.tipo === "composito";
+  const isContainer = isContainerExam(value.tipo);
 
   return (
     <div className="grid min-w-0 gap-4 py-2">
-      <div className="overflow-hidden rounded-md border border-border bg-muted/20 px-3 py-2.5">
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="min-w-0 space-y-0.5">
-            <Label htmlFor={compositoId} className="cursor-pointer">Esame composito</Label>
-            <p className="max-w-full whitespace-normal break-words text-xs leading-snug text-muted-foreground">
-              Di default è un esame singolo. Attiva per includere altri esami già presenti nel listino.
-            </p>
+      {isPacchetto ? (
+        <div className="overflow-hidden rounded-md border border-border bg-muted/20 px-3 py-2.5">
+          <div className="flex min-w-0 items-start gap-3">
+            <Package className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <div className="min-w-0 space-y-0.5">
+              <Label>Pacchetto esami</Label>
+              <p className="max-w-full whitespace-normal break-words text-xs leading-snug text-muted-foreground">
+                Crea un pacchetto commerciale composto da più esami già presenti nel listino.
+              </p>
+            </div>
           </div>
-          <input
-            id={compositoId}
-            type="checkbox"
-            checked={isPacchetto}
-            onChange={(e) => setTipo(e.target.checked)}
-            className="h-5 w-5 rounded border-gray-300 accent-primary flex-shrink-0"
-          />
         </div>
-      </div>
+      ) : (
+        <div className="overflow-hidden rounded-md border border-border bg-muted/20 px-3 py-2.5">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor={compositoId} className="cursor-pointer">Esame composito</Label>
+              <p className="max-w-full whitespace-normal break-words text-xs leading-snug text-muted-foreground">
+                Di default è un esame singolo. Attiva per includere altri esami già presenti nel listino.
+              </p>
+            </div>
+            <input
+              id={compositoId}
+              type="checkbox"
+              checked={isComposito}
+              onChange={(e) => setTipo(e.target.checked)}
+              className="h-5 w-5 rounded border-gray-300 accent-primary flex-shrink-0"
+            />
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1">
@@ -199,10 +226,14 @@ function ExamForm({
 
       <div className="space-y-1">
         <Label>Descrizione *</Label>
-        <Input value={value.descrizione} onChange={(e) => set("descrizione", e.target.value)} placeholder={isPacchetto ? "Nome dell'esame composito" : "Nome dell'esame"} />
+        <Input
+          value={value.descrizione}
+          onChange={(e) => set("descrizione", e.target.value)}
+          placeholder={isPacchetto ? "Nome del pacchetto" : isComposito ? "Nome dell'esame composito" : "Nome dell'esame"}
+        />
       </div>
 
-      {!isPacchetto && (
+      {!isContainer && (
         <>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
@@ -238,11 +269,12 @@ function ExamForm({
         </>
       )}
 
-      {isPacchetto && singleExams && (
+      {isContainer && singleExams && (
         <ComponentPicker
           singleExams={singleExams}
           selectedIds={value.componentIds}
           onChange={(ids) => set("componentIds", ids)}
+          label={isPacchetto ? "Esami inclusi nel pacchetto" : "Esami inclusi nel composito"}
         />
       )}
     </div>
@@ -255,7 +287,7 @@ export function AdminExams() {
   const updateMutation = useUpdateExam();
   const deleteMutation = useDeleteExam();
 
-  const [activeTab, setActiveTab] = React.useState<"singolo" | "pacchetto">("singolo");
+  const [activeTab, setActiveTab] = React.useState<ExamTipo>("singolo");
   const [search, setSearch] = React.useState("");
   const [editExam, setEditExam] = React.useState<Exam | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
@@ -265,7 +297,7 @@ export function AdminExams() {
   const [refRangesExam, setRefRangesExam] = React.useState<Exam | null>(null);
 
   const singleExams: SimplExam[] = React.useMemo(
-    () => (exams ?? []).filter((e) => (e as any).tipo !== "pacchetto").map((e) => ({ id: e.id, codiceAnalisi: e.codiceAnalisi, descrizione: e.descrizione })),
+    () => (exams ?? []).filter((e) => ((e as any).tipo ?? "singolo") === "singolo").map((e) => ({ id: e.id, codiceAnalisi: e.codiceAnalisi, descrizione: e.descrizione })),
     [exams]
   );
 
@@ -287,7 +319,7 @@ export function AdminExams() {
   }, [exams, search, activeTab]);
 
   const openCreate = () => {
-    setFormValues({ ...EMPTY_FORM, tipo: "singolo", componentIds: [] });
+    setFormValues({ ...EMPTY_FORM, tipo: activeTab, componentIds: [] });
     setFormError("");
     setIsCreating(true);
   };
@@ -303,7 +335,7 @@ export function AdminExams() {
       regola: exam.regola ?? "",
       importo: exam.importo ?? "",
       preparationInstructions: exam.preparationInstructions,
-      tipo: (exam.tipo ?? "singolo") as "singolo" | "pacchetto",
+      tipo: (exam.tipo ?? "singolo") as ExamTipo,
       componentIds: (exam.components ?? []).map((c) => c.componentExamId),
     });
     setFormError("");
@@ -321,8 +353,8 @@ export function AdminExams() {
       setFormError("Codice Analisi e Descrizione sono obbligatori.");
       return;
     }
-    const isPacchetto = formValues.tipo === "pacchetto";
-    if (isPacchetto && formValues.componentIds.length === 0) {
+    const isContainer = isContainerExam(formValues.tipo);
+    if (isContainer && formValues.componentIds.length === 0) {
       setFormError("Aggiungi almeno un esame già presente nel listino.");
       return;
     }
@@ -331,20 +363,20 @@ export function AdminExams() {
         data: {
           codiceAnalisi: formValues.codiceAnalisi.trim(),
           descrizione: formValues.descrizione.trim(),
-          colorProvetta: isPacchetto ? null : toNull(formValues.colorProvetta),
-          synlab: isPacchetto ? false : formValues.synlab,
-          um: isPacchetto ? null : toNull(formValues.um),
-          metodo: isPacchetto ? null : toNull(formValues.metodo),
-          regola: isPacchetto ? null : toNull(formValues.regola),
+          colorProvetta: isContainer ? null : toNull(formValues.colorProvetta),
+          synlab: isContainer ? false : formValues.synlab,
+          um: isContainer ? null : toNull(formValues.um),
+          metodo: isContainer ? null : toNull(formValues.metodo),
+          regola: isContainer ? null : toNull(formValues.regola),
           importo: toNull(formValues.importo),
           valoreRiferimento: null,
           preparationInstructions: formValues.preparationInstructions.trim(),
           tipo: formValues.tipo,
-          componentIds: isPacchetto ? formValues.componentIds : [],
+          componentIds: isContainer ? formValues.componentIds : [],
         } as any,
       },
       {
-        onSuccess: () => { setIsCreating(false); setActiveTab(isPacchetto ? "pacchetto" : "singolo"); refetch(); },
+        onSuccess: () => { setIsCreating(false); setActiveTab(formValues.tipo); refetch(); },
         onError: (error) => setFormError(mutationErrorMessage("la creazione", error)),
       }
     );
@@ -356,8 +388,8 @@ export function AdminExams() {
       setFormError("Codice Analisi e Descrizione sono obbligatori.");
       return;
     }
-    const isPacchetto = formValues.tipo === "pacchetto";
-    if (isPacchetto && formValues.componentIds.length === 0) {
+    const isContainer = isContainerExam(formValues.tipo);
+    if (isContainer && formValues.componentIds.length === 0) {
       setFormError("Aggiungi almeno un esame già presente nel listino.");
       return;
     }
@@ -367,20 +399,20 @@ export function AdminExams() {
         data: {
           codiceAnalisi: formValues.codiceAnalisi.trim(),
           descrizione: formValues.descrizione.trim(),
-          colorProvetta: isPacchetto ? null : toNull(formValues.colorProvetta),
-          synlab: isPacchetto ? false : formValues.synlab,
-          um: isPacchetto ? null : toNull(formValues.um),
-          metodo: isPacchetto ? null : toNull(formValues.metodo),
-          regola: isPacchetto ? null : toNull(formValues.regola),
+          colorProvetta: isContainer ? null : toNull(formValues.colorProvetta),
+          synlab: isContainer ? false : formValues.synlab,
+          um: isContainer ? null : toNull(formValues.um),
+          metodo: isContainer ? null : toNull(formValues.metodo),
+          regola: isContainer ? null : toNull(formValues.regola),
           importo: toNull(formValues.importo),
           valoreRiferimento: null,
           preparationInstructions: formValues.preparationInstructions.trim(),
           tipo: formValues.tipo,
-          componentIds: isPacchetto ? formValues.componentIds : [],
+          componentIds: isContainer ? formValues.componentIds : [],
         } as any,
       },
       {
-        onSuccess: () => { setEditExam(null); setActiveTab(isPacchetto ? "pacchetto" : "singolo"); refetch(); },
+        onSuccess: () => { setEditExam(null); setActiveTab(formValues.tipo); refetch(); },
         onError: (error) => setFormError(mutationErrorMessage("l'aggiornamento", error)),
       }
     );
@@ -397,7 +429,8 @@ export function AdminExams() {
     );
   };
 
-  const totalSingoli = (exams ?? []).filter((e) => (e as any).tipo !== "pacchetto").length;
+  const totalSingoli = (exams ?? []).filter((e) => ((e as any).tipo ?? "singolo") === "singolo").length;
+  const totalCompositi = (exams ?? []).filter((e) => (e as any).tipo === "composito").length;
   const totalPacchetti = (exams ?? []).filter((e) => (e as any).tipo === "pacchetto").length;
 
   return (
@@ -425,8 +458,20 @@ export function AdminExams() {
           }`}
         >
           <Package className="h-3.5 w-3.5" />
-          Esami compositi
+          Pacchetti
           <span className="ml-1 text-xs bg-muted text-muted-foreground rounded-full px-1.5 py-0.5 leading-none">{totalPacchetti}</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("composito")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px flex items-center gap-1.5 ${
+            activeTab === "composito"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Layers className="h-3.5 w-3.5" />
+          Esami compositi
+          <span className="ml-1 text-xs bg-muted text-muted-foreground rounded-full px-1.5 py-0.5 leading-none">{totalCompositi}</span>
         </button>
       </div>
 
@@ -434,7 +479,13 @@ export function AdminExams() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
-            placeholder={activeTab === "pacchetto" ? "Cerca esame composito..." : "Cerca esame..."}
+            placeholder={
+              activeTab === "pacchetto"
+                ? "Cerca pacchetto..."
+                : activeTab === "composito"
+                  ? "Cerca esame composito..."
+                  : "Cerca esame..."
+            }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -442,7 +493,7 @@ export function AdminExams() {
         </div>
         <Button onClick={openCreate} className="gap-2 flex-shrink-0">
           <Plus className="h-4 w-4" />
-          Nuovo esame
+          {activeTab === "pacchetto" ? "Nuovo pacchetto" : activeTab === "composito" ? "Nuovo composito" : "Nuovo esame"}
         </Button>
       </div>
 
@@ -452,8 +503,20 @@ export function AdminExams() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
-          {activeTab === "pacchetto" ? <Package className="h-10 w-10 mx-auto mb-3 opacity-30" /> : <FlaskConical className="h-10 w-10 mx-auto mb-3 opacity-30" />}
-          <p className="font-medium">{activeTab === "pacchetto" ? "Nessun esame composito trovato" : "Nessun esame trovato"}</p>
+          {activeTab === "pacchetto" ? (
+            <Package className="h-10 w-10 mx-auto mb-3 opacity-30" />
+          ) : activeTab === "composito" ? (
+            <Layers className="h-10 w-10 mx-auto mb-3 opacity-30" />
+          ) : (
+            <FlaskConical className="h-10 w-10 mx-auto mb-3 opacity-30" />
+          )}
+          <p className="font-medium">
+            {activeTab === "pacchetto"
+              ? "Nessun pacchetto trovato"
+              : activeTab === "composito"
+                ? "Nessun esame composito trovato"
+                : "Nessun esame trovato"}
+          </p>
           {search && <p className="text-sm">Prova con un altro termine di ricerca.</p>}
         </div>
       ) : (
@@ -540,7 +603,12 @@ export function AdminExams() {
             </tbody>
           </table>
           <div className="px-4 py-2 bg-muted/20 border-t border-border text-xs text-muted-foreground">
-            {filtered.length} {activeTab === "pacchetto" ? (filtered.length === 1 ? "esame composito" : "esami compositi") : (filtered.length === 1 ? "esame" : "esami")}
+            {filtered.length}{" "}
+            {activeTab === "pacchetto"
+              ? filtered.length === 1 ? "pacchetto" : "pacchetti"
+              : activeTab === "composito"
+                ? filtered.length === 1 ? "esame composito" : "esami compositi"
+                : filtered.length === 1 ? "esame" : "esami"}
           </div>
         </div>
       )}
@@ -549,7 +617,13 @@ export function AdminExams() {
       <Dialog open={isCreating} onOpenChange={(o) => !o && setIsCreating(false)}>
         <DialogContent className="max-h-[88vh] w-[calc(100vw-2rem)] max-w-[760px] overflow-y-auto overflow-x-hidden p-5 sm:p-6">
           <DialogHeader>
-            <DialogTitle>Nuovo esame</DialogTitle>
+            <DialogTitle>
+              {formValues.tipo === "pacchetto"
+                ? "Nuovo pacchetto"
+                : formValues.tipo === "composito"
+                  ? "Nuovo esame composito"
+                  : "Nuovo esame"}
+            </DialogTitle>
           </DialogHeader>
           <ExamForm value={formValues} onChange={setFormValues} singleExams={singleExams} />
           {formError && <p className="text-sm text-destructive">{formError}</p>}
@@ -566,7 +640,7 @@ export function AdminExams() {
       <Dialog open={!!editExam} onOpenChange={(o) => !o && setEditExam(null)}>
         <DialogContent className="max-h-[88vh] w-[calc(100vw-2rem)] max-w-[760px] overflow-y-auto overflow-x-hidden p-5 sm:p-6">
           <DialogHeader>
-            <DialogTitle>{editExam?.tipo === "pacchetto" ? "Modifica esame composito" : "Modifica esame"}</DialogTitle>
+            <DialogTitle>Modifica {examTypeLabel(editExam?.tipo)}</DialogTitle>
           </DialogHeader>
           <ExamForm value={formValues} onChange={setFormValues} singleExams={singleExamsForPicker} />
           {formError && <p className="text-sm text-destructive">{formError}</p>}
@@ -592,7 +666,7 @@ export function AdminExams() {
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Elimina {deleteTarget?.tipo === "pacchetto" ? "esame composito" : "esame"}</AlertDialogTitle>
+            <AlertDialogTitle>Elimina {examTypeLabel(deleteTarget?.tipo)}</AlertDialogTitle>
             <AlertDialogDescription>
               Sei sicuro di voler eliminare <strong>{deleteTarget?.descrizione}</strong>? L'operazione non è reversibile.
             </AlertDialogDescription>

@@ -34,14 +34,14 @@ export const ListExamsResponseItem = zod.object({
   "importo": zod.string().nullish().describe('Price as decimal string'),
   "valoreRiferimento": zod.string().nullish().describe('Legacy reference value range (JSON string)'),
   "preparationInstructions": zod.string().optional(),
-  "tipo": zod.enum(['singolo', 'pacchetto']).default(listExamsResponseTipoDefault),
+  "tipo": zod.enum(['singolo', 'composito', 'pacchetto']).default(listExamsResponseTipoDefault),
   "components": zod.array(zod.object({
   "id": zod.number(),
   "packageExamId": zod.number(),
   "componentExamId": zod.number(),
   "ordinamento": zod.number(),
   "componentExam": zod.unknown()
-})).optional().describe('Sub-exams for pacchetto type (empty for singolo)'),
+})).optional().describe('Sub-exams for composito/pacchetto type (empty for singolo)'),
   "referenceRanges": zod.array(zod.object({
   "id": zod.number(),
   "examId": zod.number(),
@@ -86,8 +86,8 @@ export const CreateExamBody = zod.object({
   "importo": zod.string().nullish().describe('Price as decimal string'),
   "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
   "preparationInstructions": zod.string().default(createExamBodyPreparationInstructionsDefault),
-  "tipo": zod.enum(['singolo', 'pacchetto']).default(createExamBodyTipoDefault),
-  "componentIds": zod.array(zod.number()).optional().describe('IDs of single exams that compose this package (only for tipo=pacchetto)')
+  "tipo": zod.enum(['singolo', 'composito', 'pacchetto']).default(createExamBodyTipoDefault),
+  "componentIds": zod.array(zod.number()).optional().describe('IDs of single exams that compose this exam/package (only for tipo=composito/pacchetto)')
 })
 
 export const createExamResponseTipoDefault = `singolo`;
@@ -104,14 +104,14 @@ export const CreateExamResponse = zod.object({
   "importo": zod.string().nullish().describe('Price as decimal string'),
   "valoreRiferimento": zod.string().nullish().describe('Legacy reference value range (JSON string)'),
   "preparationInstructions": zod.string().optional(),
-  "tipo": zod.enum(['singolo', 'pacchetto']).default(createExamResponseTipoDefault),
+  "tipo": zod.enum(['singolo', 'composito', 'pacchetto']).default(createExamResponseTipoDefault),
   "components": zod.array(zod.object({
   "id": zod.number(),
   "packageExamId": zod.number(),
   "componentExamId": zod.number(),
   "ordinamento": zod.number(),
   "componentExam": zod.unknown()
-})).optional().describe('Sub-exams for pacchetto type (empty for singolo)'),
+})).optional().describe('Sub-exams for composito/pacchetto type (empty for singolo)'),
   "referenceRanges": zod.array(zod.object({
   "id": zod.number(),
   "examId": zod.number(),
@@ -159,8 +159,8 @@ export const UpdateExamBody = zod.object({
   "importo": zod.string().nullish().describe('Price as decimal string'),
   "valoreRiferimento": zod.string().nullish().describe('Reference value range for the exam'),
   "preparationInstructions": zod.string().default(updateExamBodyPreparationInstructionsDefault),
-  "tipo": zod.enum(['singolo', 'pacchetto']).default(updateExamBodyTipoDefault),
-  "componentIds": zod.array(zod.number()).optional().describe('IDs of single exams that compose this package (only for tipo=pacchetto)')
+  "tipo": zod.enum(['singolo', 'composito', 'pacchetto']).default(updateExamBodyTipoDefault),
+  "componentIds": zod.array(zod.number()).optional().describe('IDs of single exams that compose this exam/package (only for tipo=composito/pacchetto)')
 })
 
 export const updateExamResponseTipoDefault = `singolo`;
@@ -177,14 +177,14 @@ export const UpdateExamResponse = zod.object({
   "importo": zod.string().nullish().describe('Price as decimal string'),
   "valoreRiferimento": zod.string().nullish().describe('Legacy reference value range (JSON string)'),
   "preparationInstructions": zod.string().optional(),
-  "tipo": zod.enum(['singolo', 'pacchetto']).default(updateExamResponseTipoDefault),
+  "tipo": zod.enum(['singolo', 'composito', 'pacchetto']).default(updateExamResponseTipoDefault),
   "components": zod.array(zod.object({
   "id": zod.number(),
   "packageExamId": zod.number(),
   "componentExamId": zod.number(),
   "ordinamento": zod.number(),
   "componentExam": zod.unknown()
-})).optional().describe('Sub-exams for pacchetto type (empty for singolo)'),
+})).optional().describe('Sub-exams for composito/pacchetto type (empty for singolo)'),
   "referenceRanges": zod.array(zod.object({
   "id": zod.number(),
   "examId": zod.number(),

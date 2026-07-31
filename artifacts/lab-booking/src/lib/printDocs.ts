@@ -49,6 +49,9 @@ export type PrintPatient = {
   billingProvincia?: string | null;
 };
 
+const isContainerExamType = (tipo?: string) => tipo === "composito" || tipo === "pacchetto";
+const containerExamPrintLabel = (tipo?: string) => (tipo === "pacchetto" ? "PACCHETTO" : "COMPOSITO");
+
 export type PrintLegalClient = {
   nome: string;
   codiceFiscale?: string | null;
@@ -418,7 +421,8 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
 
   let rowIndex = 0;
   const rows = exams.map((e) => {
-    if (e.tipo === "pacchetto" && e.subResults?.length) {
+    if (isContainerExamType(e.tipo) && e.subResults?.length) {
+      const label = containerExamPrintLabel(e.tipo);
       rowIndex++;
       const headerRow = `
         <tr style="background:#eff6ff !important;">
@@ -426,7 +430,7 @@ export function printReferto(patient: PrintPatient, exams: PrintExamWithResult[]
           <td style="font-weight:700;color:#1e40af">${e.codiceAnalisi}</td>
           <td colspan="7" style="font-weight:700;color:#1e40af">
             ${e.descrizione}
-            <span style="display:inline-block;margin-left:6px;background:#dbeafe;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:8px;font-size:8px;font-weight:700;padding:1px 7px;">PACCHETTO</span>
+            <span style="display:inline-block;margin-left:6px;background:#dbeafe;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:8px;font-size:8px;font-weight:700;padding:1px 7px;">${label}</span>
           </td>
         </tr>`;
       const subRows = e.subResults.map((sub) => {

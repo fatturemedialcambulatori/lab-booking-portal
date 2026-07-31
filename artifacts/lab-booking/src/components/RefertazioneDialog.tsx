@@ -79,6 +79,10 @@ type ExamRow = {
   }>;
 };
 
+const isContainerExamType = (tipo?: string) => tipo === "composito" || tipo === "pacchetto";
+
+const containerExamLabel = (tipo?: string) => (tipo === "pacchetto" ? "Pacchetto" : "Composito");
+
 const FASCIA_COLOR_CLS: Record<string, string> = {
   green:  "bg-green-100 text-green-800 border-green-200",
   yellow: "bg-yellow-100 text-yellow-800 border-yellow-200",
@@ -205,12 +209,12 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
   };
 
   const totalSlots = React.useMemo(() => exams.reduce((s, e) => {
-    if (e.tipo === "pacchetto") return s + ((e.components ?? []).length || 1);
+    if (isContainerExamType(e.tipo)) return s + ((e.components ?? []).length || 1);
     return s + 1;
   }, 0), [exams]);
 
   const doneSlots = React.useMemo(() => exams.reduce((s, e) => {
-    if (e.tipo === "pacchetto") {
+    if (isContainerExamType(e.tipo)) {
       return s + (e.components ?? []).filter((c) => savedIds.has(subKey(c.componentExamId, e.id))).length;
     }
     return s + (savedIds.has(singleKey(e.id)) ? 1 : 0);
@@ -354,10 +358,11 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
   };
 
   const renderExamCard = (exam: ExamRow) => {
-    const isPacchetto = exam.tipo === "pacchetto";
+    const isContainer = isContainerExamType(exam.tipo);
     const components = exam.components ?? [];
 
-    if (isPacchetto) {
+    if (isContainer) {
+      const label = containerExamLabel(exam.tipo);
       const packageDone = components.length > 0 && components.every((c) => savedIds.has(subKey(c.componentExamId, exam.id)));
       const packageDoneCount = components.filter((c) => savedIds.has(subKey(c.componentExamId, exam.id))).length;
 
@@ -374,7 +379,7 @@ export function RefertazioneDialog({ visit, onClose, onCompleted }: Props) {
                   <span className="font-semibold text-sm text-foreground">{exam.descrizione}</span>
                   <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">{exam.codiceAnalisi}</Badge>
                   <Badge className="bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100 text-[10px] px-1.5 py-0 gap-1">
-                    <Package className="h-2.5 w-2.5" />Pacchetto
+                    <Package className="h-2.5 w-2.5" />{label}
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">

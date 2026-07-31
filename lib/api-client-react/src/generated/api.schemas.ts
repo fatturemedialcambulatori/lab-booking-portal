@@ -14,6 +14,7 @@ export type ExamInputTipo = typeof ExamInputTipo[keyof typeof ExamInputTipo];
 
 export const ExamInputTipo = {
   singolo: 'singolo',
+  composito: 'composito',
   pacchetto: 'pacchetto',
 } as const;
 
@@ -41,7 +42,7 @@ export interface ExamInput {
   valoreRiferimento?: string | null;
   preparationInstructions?: string;
   tipo?: ExamInputTipo;
-  /** IDs of single exams that compose this package (only for tipo=pacchetto) */
+  /** IDs of single exams that compose this exam/package (only for tipo=composito/pacchetto) */
   componentIds?: number[];
 }
 
@@ -50,6 +51,7 @@ export type ExamTipo = typeof ExamTipo[keyof typeof ExamTipo];
 
 export const ExamTipo = {
   singolo: 'singolo',
+  composito: 'composito',
   pacchetto: 'pacchetto',
 } as const;
 
@@ -130,7 +132,7 @@ export interface Exam {
   valoreRiferimento?: string | null;
   preparationInstructions?: string;
   tipo: ExamTipo;
-  /** Sub-exams for pacchetto type (empty for singolo) */
+  /** Sub-exams for composito/pacchetto type (empty for singolo) */
   components?: ExamComponentItem[];
   /** Structured reference ranges (by gender/age/state) */
   referenceRanges?: ExamReferenceRange[];

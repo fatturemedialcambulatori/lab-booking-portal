@@ -614,13 +614,13 @@ components:
           default: ""
         tipo:
           type: string
-          enum: [singolo, pacchetto]
+          enum: [singolo, composito, pacchetto]
           default: singolo
         componentIds:
           type: array
           items:
             type: integer
-          description: IDs of single exams that compose this package (only for tipo=pacchetto)
+          description: IDs of single exams that compose this exam/package (only for tipo=composito/pacchetto)
 
     ExamComponentItem:
       type: object
@@ -667,13 +667,13 @@ components:
           type: string
         tipo:
           type: string
-          enum: [singolo, pacchetto]
+          enum: [singolo, composito, pacchetto]
           default: singolo
         components:
           type: array
           items:
             $ref: "#/components/schemas/ExamComponentItem"
-          description: Sub-exams for pacchetto type (empty for singolo)
+          description: Sub-exams for composito/pacchetto type (empty for singolo)
         referenceRanges:
           type: array
           items:

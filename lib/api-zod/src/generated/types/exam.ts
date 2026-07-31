@@ -34,7 +34,7 @@ export interface Exam {
   valoreRiferimento?: string | null;
   preparationInstructions?: string;
   tipo: ExamTipo;
-  /** Sub-exams for pacchetto type (empty for singolo) */
+  /** Sub-exams for composito/pacchetto type (empty for singolo) */
   components?: ExamComponentItem[];
   /** Structured reference ranges (by gender/age/state) */
   referenceRanges?: ExamReferenceRange[];

@@ -31,6 +31,6 @@ export interface ExamInput {
   valoreRiferimento?: string | null;
   preparationInstructions?: string;
   tipo?: ExamInputTipo;
-  /** IDs of single exams that compose this package (only for tipo=pacchetto) */
+  /** IDs of single exams that compose this exam/package (only for tipo=composito/pacchetto) */
   componentIds?: number[];
 }

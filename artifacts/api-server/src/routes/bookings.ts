@@ -6,6 +6,7 @@ import { CreateBookingBody, GetBookingParams } from "@workspace/api-zod";
 
 const router = Router();
 const VALID_BOOKING_STATUSES = ["confirmed", "pending", "accepted", "completed", "cancelled"] as const;
+const CONTAINER_EXAM_TYPES = new Set(["composito", "pacchetto"]);
 
 type BookingStatusValue = (typeof VALID_BOOKING_STATUSES)[number];
 
@@ -15,6 +16,9 @@ const toDateStr = (v: string | Date | null): string =>
 function isBookingStatus(value: unknown): value is BookingStatusValue {
   return typeof value === "string" && (VALID_BOOKING_STATUSES as readonly string[]).includes(value);
 }
+
+const isContainerExamType = (tipo: unknown) =>
+  typeof tipo === "string" && CONTAINER_EXAM_TYPES.has(tipo);
 
 async function persistBookingStatus(id: number, status: BookingStatusValue) {
   const existing = await db
@@ -95,7 +99,7 @@ router.get("/bookings", async (req, res) => {
       examsByBooking.get(link.bookingId)!.push({ examId: link.examId, descrizione: link.descrizione ?? "Esame", tipo: link.tipo ?? "singolo" });
     }
 
-    const packageExamIds = examLinks.filter((e) => e.tipo === "pacchetto").map((e) => e.examId);
+    const packageExamIds = examLinks.filter((e) => isContainerExamType(e.tipo)).map((e) => e.examId);
     const componentCounts = new Map<number, number>();
     if (packageExamIds.length > 0) {
       const counts = await db
@@ -116,7 +120,7 @@ router.get("/bookings", async (req, res) => {
     const result = bookings.map((b) => {
       const exams = examsByBooking.get(b.id) ?? [];
       const expectedRefertiCount = exams.reduce((sum, e) => {
-        if (e.tipo === "pacchetto") return sum + (componentCounts.get(e.examId) ?? 1);
+        if (isContainerExamType(e.tipo)) return sum + (componentCounts.get(e.examId) ?? 1);
         return sum + 1;
       }, 0);
       return {

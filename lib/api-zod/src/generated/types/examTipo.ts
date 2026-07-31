@@ -11,5 +11,6 @@ export type ExamTipo = typeof ExamTipo[keyof typeof ExamTipo];
 
 export const ExamTipo = {
   singolo: 'singolo',
+  composito: 'composito',
   pacchetto: 'pacchetto',
 } as const;

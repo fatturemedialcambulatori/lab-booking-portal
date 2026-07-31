@@ -5,6 +5,10 @@ import { eq, inArray } from "drizzle-orm";
 import { CreateExamBody, UpdateExamBody } from "@workspace/api-zod";
 
 const router = Router();
+const CONTAINER_EXAM_TYPES = new Set(["composito", "pacchetto"]);
+
+const isContainerExamType = (tipo: unknown) =>
+  typeof tipo === "string" && CONTAINER_EXAM_TYPES.has(tipo);
 
 async function loadExamComponents(packageExamId: number) {
   const components = await db
@@ -55,7 +59,7 @@ async function updateExamById(id: number, body: unknown, req: Request, res: Resp
       .returning();
     if (!exam) return res.status(404).json({ error: "Esame non trovato" });
 
-    if ((examData as any).tipo === "pacchetto") {
+    if (isContainerExamType((examData as any).tipo)) {
       await db.delete(examComponentsTable).where(eq(examComponentsTable.packageExamId, id));
       if (componentIds?.length) {
         await db.insert(examComponentsTable).values(
@@ -93,7 +97,7 @@ router.get("/exams", async (req, res) => {
   try {
     const exams = await db.select().from(examsTable).orderBy(examsTable.codiceAnalisi);
 
-    const packageIds = exams.filter((e) => e.tipo === "pacchetto").map((e) => e.id);
+    const packageIds = exams.filter((e) => isContainerExamType(e.tipo)).map((e) => e.id);
     let componentsByPackage = new Map<number, { id: number; packageExamId: number; componentExamId: number; ordinamento: number; componentExam: typeof exams[0] }[]>();
 
     if (packageIds.length > 0) {
@@ -169,13 +173,14 @@ router.post("/exams", async (req, res) => {
       tipo: (examData as any).tipo ?? "singolo",
     }).returning();
 
-    if ((examData as any).tipo === "pacchetto" && componentIds?.length) {
+    if (isContainerExamType((examData as any).tipo) && componentIds?.length) {
       await db.insert(examComponentsTable).values(
         componentIds.map((cid, i) => ({ packageExamId: exam.id, componentExamId: cid, ordinamento: i }))
       );
     }
 
-    return res.status(201).json({ ...exam, components: [] });
+    const components = isContainerExamType((examData as any).tipo) ? await loadExamComponents(exam.id) : [];
+    return res.status(201).json({ ...exam, components });
   } catch (err) {
     req.log.error({ err }, "Failed to create exam");
     return res.status(500).json({ error: "Internal server error" });
