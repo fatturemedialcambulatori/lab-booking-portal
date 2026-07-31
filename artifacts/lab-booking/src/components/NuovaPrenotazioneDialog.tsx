@@ -36,6 +36,7 @@ import {
   UserCheck,
   Printer,
   FileText,
+  Stethoscope,
 } from "lucide-react";
 import { parseFiscalCode } from "@/lib/fiscalCode";
 import { printPreventivo, printSchedaLaboratorio } from "@/lib/printDocs";
@@ -56,9 +57,41 @@ type PatientData = {
   billingProvincia?: string;
 };
 
+type PrestazioneSettings = {
+  id: string;
+  nome: string;
+  specialita: string;
+  durata?: number;
+  attiva?: boolean;
+};
+
+type MedicoSettings = {
+  id: string;
+  nome: string;
+  specialita: string;
+};
+
+type ListinoSettings = {
+  id?: string;
+  medicoId: string;
+  prestazioneId?: string;
+  durata?: number;
+  prezzo?: number | string;
+};
+
+type AdminSettingsData = {
+  prestazioni?: PrestazioneSettings[];
+  medici?: MedicoSettings[];
+  listini?: ListinoSettings[];
+};
+
 type Step = 1 | 2 | 3;
 
-const STEP_LABELS = ["Paziente", "Esami", "Data e Ora"];
+const STEP_LABELS = ["Paziente", "Esami e prestazioni", "Data e Ora"];
+const SEDI_AMBULATORIO = [
+  { id: "modena", label: "Modena" },
+  { id: "sassuolo", label: "Sassuolo" },
+] as const;
 
 interface Props {
   open: boolean;
@@ -82,6 +115,13 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
   const [selectedDate, setSelectedDate] = React.useState(defaultDate ?? new Date().toISOString().slice(0, 10));
   const [selectedTime, setSelectedTime] = React.useState("");
   const [notes, setNotes] = React.useState("");
+  const [prestazioneSearch, setPrestazioneSearch] = React.useState("");
+  const [selectedPrestazioneId, setSelectedPrestazioneId] = React.useState("");
+  const [selectedMedicoId, setSelectedMedicoId] = React.useState("");
+  const [selectedSede, setSelectedSede] = React.useState<(typeof SEDI_AMBULATORIO)[number]["id"]>("modena");
+  const [durataPrestazione, setDurataPrestazione] = React.useState("30");
+  const [settingsData, setSettingsData] = React.useState<AdminSettingsData | null>(null);
+  const [settingsLoading, setSettingsLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -104,6 +144,30 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
   const createPatient = useCreatePatient();
   const createBooking = useCreateBooking();
 
+  React.useEffect(() => {
+    if (!open) return;
+    let active = true;
+    const loadSettings = async () => {
+      setSettingsLoading(true);
+      try {
+        const response = await fetch("/api/admin-settings");
+        if (!response.ok) throw new Error("Impostazioni non disponibili");
+        const data: unknown = await response.json();
+        if (!active) return;
+        setSettingsData(data && typeof data === "object" ? (data as AdminSettingsData) : null);
+      } catch {
+        if (active) setSettingsData(null);
+      } finally {
+        if (active) setSettingsLoading(false);
+      }
+    };
+
+    void loadSettings();
+    return () => {
+      active = false;
+    };
+  }, [open]);
+
   const filteredExams = React.useMemo(() => {
     if (!exams) return [];
     const q = examSearch.trim().toLowerCase();
@@ -120,10 +184,82 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
     [exams, selectedExamIds]
   );
 
-  const totalPrice = selectedExams.reduce(
+  const prestazioni = React.useMemo(
+    () => (settingsData?.prestazioni ?? []).filter((prestazione) => prestazione.attiva !== false),
+    [settingsData?.prestazioni],
+  );
+
+  const medici = React.useMemo(
+    () => settingsData?.medici ?? [],
+    [settingsData?.medici],
+  );
+
+  const listini = React.useMemo(
+    () => settingsData?.listini ?? [],
+    [settingsData?.listini],
+  );
+
+  const selectedPrestazione = React.useMemo(
+    () => prestazioni.find((prestazione) => prestazione.id === selectedPrestazioneId) ?? null,
+    [prestazioni, selectedPrestazioneId],
+  );
+
+  const listiniPrestazione = React.useMemo(
+    () => listini.filter((listino) => listino.prestazioneId === selectedPrestazioneId),
+    [listini, selectedPrestazioneId],
+  );
+
+  const mediciPrestazione = React.useMemo(() => {
+    if (!selectedPrestazione) return [];
+    const mediciDaListino = listiniPrestazione
+      .map((listino) => medici.find((medico) => medico.id === listino.medicoId))
+      .filter((medico): medico is MedicoSettings => Boolean(medico));
+    const base = mediciDaListino.length > 0
+      ? mediciDaListino
+      : medici.filter((medico) => medico.specialita === selectedPrestazione.specialita);
+    return Array.from(new Map(base.map((medico) => [medico.id, medico])).values());
+  }, [listiniPrestazione, medici, selectedPrestazione]);
+
+  const selectedMedico = React.useMemo(
+    () => medici.find((medico) => medico.id === selectedMedicoId) ?? null,
+    [medici, selectedMedicoId],
+  );
+
+  const selectedListino = React.useMemo(
+    () => listiniPrestazione.find((listino) => listino.medicoId === selectedMedicoId) ?? null,
+    [listiniPrestazione, selectedMedicoId],
+  );
+
+  const filteredPrestazioni = React.useMemo(() => {
+    const q = prestazioneSearch.trim().toLowerCase();
+    if (!q) return prestazioni.slice(0, 18);
+    return prestazioni
+      .filter((prestazione) =>
+        [prestazione.nome, prestazione.specialita].some((campo) => campo.toLowerCase().includes(q)),
+      )
+      .slice(0, 18);
+  }, [prestazioneSearch, prestazioni]);
+
+  React.useEffect(() => {
+    if (!selectedPrestazione) {
+      setSelectedMedicoId("");
+      setDurataPrestazione("30");
+      return;
+    }
+
+    const medicoAncoraValido = mediciPrestazione.some((medico) => medico.id === selectedMedicoId);
+    const prossimoMedico = medicoAncoraValido ? selectedMedicoId : mediciPrestazione[0]?.id ?? "";
+    const prossimoListino = listiniPrestazione.find((listino) => listino.medicoId === prossimoMedico);
+    setSelectedMedicoId(prossimoMedico);
+    setDurataPrestazione(String(prossimoListino?.durata ?? selectedPrestazione.durata ?? 30));
+  }, [listiniPrestazione, mediciPrestazione, selectedMedicoId, selectedPrestazione]);
+
+  const examTotal = selectedExams.reduce(
     (sum, e) => sum + (e.importo ? Number(e.importo) : 0),
     0
   );
+  const prestazioneTotal = selectedListino?.prezzo ? Number(selectedListino.prezzo) : 0;
+  const totalPrice = examTotal + prestazioneTotal;
 
   const activePatient: PatientData | null = creatingNew
     ? newPatient
@@ -136,8 +272,8 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
     activePatient.email.trim() &&
     activePatient.phone.trim();
 
-  const step2Valid = selectedExamIds.length > 0;
-  const step3Valid = selectedDate && selectedTime;
+  const step2Valid = selectedExamIds.length > 0 || Boolean(selectedPrestazione && selectedMedicoId);
+  const step3Valid = selectedDate && selectedTime && step2Valid;
 
   const handleReset = () => {
     setStep(1);
@@ -147,6 +283,11 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
     setNewPatient({ firstName: "", lastName: "", dateOfBirth: "", codiceFiscale: "", gender: undefined, email: "", phone: "", notes: "", billingAddress: "", billingCap: "", billingCity: "", billingProvincia: "" });
     setExamSearch("");
     setSelectedExamIds([]);
+    setPrestazioneSearch("");
+    setSelectedPrestazioneId("");
+    setSelectedMedicoId("");
+    setSelectedSede("modena");
+    setDurataPrestazione("30");
     setSelectedDate(defaultDate ?? new Date().toISOString().slice(0, 10));
     setSelectedTime("");
     setNotes("");
@@ -196,26 +337,80 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
         await queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
       }
 
-      await createBooking.mutateAsync({
-        data: {
-          examIds: selectedExamIds,
-          date: selectedDate,
-          time: selectedTime,
-          firstName: patientData.firstName,
-          lastName: patientData.lastName,
-          dateOfBirth: patientData.dateOfBirth,
-          codiceFiscale: patientData.codiceFiscale || null,
-          gender: patientData.gender || null,
-          email: patientData.email,
-          phone: patientData.phone,
-          notes: notes || null,
-        },
-      });
+      let labBookingId: number | null = null;
+
+      if (selectedExamIds.length > 0) {
+        const labBooking = await createBooking.mutateAsync({
+          data: {
+            examIds: selectedExamIds,
+            date: selectedDate,
+            time: selectedTime,
+            firstName: patientData.firstName,
+            lastName: patientData.lastName,
+            dateOfBirth: patientData.dateOfBirth,
+            codiceFiscale: patientData.codiceFiscale || null,
+            gender: patientData.gender || null,
+            email: patientData.email,
+            phone: patientData.phone,
+            notes: [
+              selectedPrestazione && selectedMedico
+                ? `Agenda ambulatorio: ${selectedMedico.nome} - ${selectedPrestazione.nome}`
+                : "Accettazione laboratorio da segreteria",
+              notes,
+            ].filter(Boolean).join(" | ") || null,
+          },
+        });
+        labBookingId = labBooking.id;
+
+        const acceptResponse = await fetch(`/api/bookings/${labBooking.id}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "accepted" }),
+        });
+        if (!acceptResponse.ok) {
+          throw new Error("Accettazione laboratorio creata ma non marcata come accettata.");
+        }
+      }
+
+      if (selectedPrestazione && selectedMedico) {
+        const appointment = {
+          id: `frontoffice-${Date.now()}`,
+          area: "ambulatorio",
+          sede: selectedSede,
+          medicoId: selectedMedico.id,
+          pazienteId: patientData.id,
+          paziente: `${patientData.firstName} ${patientData.lastName}`.trim(),
+          pazienteEmail: patientData.email,
+          pazienteTelefono: patientData.phone,
+          prestazione: selectedPrestazione.nome,
+          labExamIds: selectedExamIds,
+          labBookingId,
+          note: [
+            notes,
+            labBookingId ? `Accettazione laboratorio #${labBookingId}` : "",
+          ].filter(Boolean).join(" | ") || undefined,
+          data: selectedDate,
+          ora: selectedTime,
+          durata: Math.max(5, Number(durataPrestazione) || selectedPrestazione.durata || 30),
+          stato: "accettata",
+          overbooking: false,
+        };
+
+        const response = await fetch("/api/agenda-appointments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(appointment),
+        });
+
+        if (!response.ok) {
+          throw new Error("Accettazione ambulatorio non salvata. Verifica la route agenda.");
+        }
+      }
 
       await queryClient.invalidateQueries({ queryKey: getListBookingsQueryKey() });
       handleClose();
-    } catch {
-      setError("Errore durante la creazione. Riprova.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Errore durante la creazione. Riprova.");
     } finally {
       setSubmitting(false);
     }
@@ -225,11 +420,11 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <DialogContent className="!max-w-none !w-screen !h-screen !rounded-none !top-0 !left-0 !translate-x-0 !translate-y-0 flex flex-col gap-0 p-0">
+      <DialogContent className="!w-[calc(100vw-2rem)] !max-w-5xl max-h-[90vh] overflow-hidden flex flex-col gap-0 p-0">
         <DialogHeader className="px-6 pt-5 pb-4 border-b border-border shrink-0 [&>*]:max-w-3xl [&>*]:mx-auto">
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-primary" />
-            Nuova Prenotazione
+            Nuova accettazione
           </DialogTitle>
           {/* Step indicator */}
           <div className="flex items-center gap-1 mt-2">
@@ -396,92 +591,210 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
               </div>
             )}
 
-            {/* ─── STEP 2: ESAMI ─── */}
+            {/* ─── STEP 2: ESAMI + PRESTAZIONI ─── */}
             {step === 2 && (
-              <div className="space-y-3">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                  <Input
-                    placeholder="Cerca esame per nome o codice..."
-                    value={examSearch}
-                    onChange={(e) => setExamSearch(e.target.value)}
-                    className="pl-9"
-                    autoFocus
-                  />
+              <div className="space-y-4">
+                <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <FlaskConical className="h-4 w-4 text-primary" />
+                        Esami laboratorio
+                      </p>
+                      <p className="text-xs text-muted-foreground">Seleziona uno o più esami da inviare al laboratorio.</p>
+                    </div>
+                    {selectedExamIds.length > 0 && <Badge variant="secondary">{selectedExamIds.length} esami</Badge>}
+                  </div>
+
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                    <Input
+                      placeholder="Cerca esame per nome o codice..."
+                      value={examSearch}
+                      onChange={(e) => setExamSearch(e.target.value)}
+                      className="pl-9"
+                      autoFocus
+                    />
+                  </div>
+
+                  {selectedExamIds.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-primary/5 border border-primary/20">
+                      {selectedExams.map((e) => (
+                        <Badge key={e.id} variant="secondary" className="gap-1 pr-1 text-xs">
+                          <span className="max-w-[160px] truncate">{e.descrizione}</span>
+                          <button onClick={() => setSelectedExamIds((ids) => ids.filter((id) => id !== e.id))} className="ml-0.5 hover:text-destructive">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="max-h-64 overflow-y-auto space-y-1 pr-1">
+                    {filteredExams.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">Nessun esame trovato.</p>
+                    ) : filteredExams.map((exam) => {
+                      const sel = selectedExamIds.includes(exam.id);
+                      return (
+                        <button
+                          key={exam.id}
+                          className={`w-full text-left rounded-lg border px-3 py-2 flex items-center gap-3 transition-colors ${
+                            sel ? "border-primary bg-primary/5" : "border-border hover:border-border hover:bg-muted/40"
+                          }`}
+                          onClick={() => setSelectedExamIds((ids) => sel ? ids.filter((id) => id !== exam.id) : [...ids, exam.id])}
+                        >
+                          <div className={`h-4 w-4 rounded flex-shrink-0 border-2 flex items-center justify-center ${sel ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                            {sel && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{exam.descrizione}</p>
+                            <p className="text-xs text-muted-foreground">{exam.codiceAnalisi}</p>
+                          </div>
+                          {exam.importo && (
+                            <span className="text-sm font-semibold text-primary flex-shrink-0">€ {Number(exam.importo).toFixed(2)}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {selectedExamIds.length > 0 && activePatient && (
+                    <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                        <Printer className="h-3.5 w-3.5" />
+                        Stampa / Esporta PDF
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-2 text-xs"
+                          onClick={() => printPreventivo(activePatient, selectedExams)}
+                        >
+                          <FileText className="h-3.5 w-3.5 text-primary" />
+                          Preventivo Paziente
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-2 text-xs"
+                          onClick={() => printSchedaLaboratorio(activePatient, selectedExams)}
+                        >
+                          <FlaskConical className="h-3.5 w-3.5 text-primary" />
+                          Scheda Laboratorio
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {selectedExamIds.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-primary/5 border border-primary/20">
-                    {selectedExams.map((e) => (
-                      <Badge key={e.id} variant="secondary" className="gap-1 pr-1 text-xs">
-                        <span className="max-w-[160px] truncate">{e.descrizione}</span>
-                        <button onClick={() => setSelectedExamIds((ids) => ids.filter((id) => id !== e.id))} className="ml-0.5 hover:text-destructive">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    ))}
-                    <span className="text-xs text-muted-foreground self-center ml-auto">€ {totalPrice.toFixed(2)}</span>
-                  </div>
-                )}
-
-                {/* ─── Stampa documenti ─── */}
-                {selectedExamIds.length > 0 && activePatient && (
-                  <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-                      <Printer className="h-3.5 w-3.5" />
-                      Stampa / Esporta PDF
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="gap-2 text-xs"
-                        onClick={() => printPreventivo(activePatient, selectedExams)}
-                      >
-                        <FileText className="h-3.5 w-3.5 text-primary" />
-                        Preventivo Paziente
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="gap-2 text-xs"
-                        onClick={() => printSchedaLaboratorio(activePatient, selectedExams)}
-                      >
-                        <FlaskConical className="h-3.5 w-3.5 text-primary" />
-                        Scheda Laboratorio
-                      </Button>
+                <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <Stethoscope className="h-4 w-4 text-primary" />
+                        Prestazione ambulatorio
+                      </p>
+                      <p className="text-xs text-muted-foreground">Seleziona una prestazione da inviare all'agenda ambulatorio.</p>
                     </div>
+                    {selectedPrestazione && <Badge variant="secondary">Ambulatorio</Badge>}
                   </div>
-                )}
 
-                <div className="space-y-1">
-                  {filteredExams.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">Nessun esame trovato.</p>
-                  ) : filteredExams.map((exam) => {
-                    const sel = selectedExamIds.includes(exam.id);
-                    return (
-                      <button
-                        key={exam.id}
-                        className={`w-full text-left rounded-lg border px-3 py-2 flex items-center gap-3 transition-colors ${
-                          sel ? "border-primary bg-primary/5" : "border-border hover:border-border hover:bg-muted/40"
-                        }`}
-                        onClick={() => setSelectedExamIds((ids) => sel ? ids.filter((id) => id !== exam.id) : [...ids, exam.id])}
-                      >
-                        <div className={`h-4 w-4 rounded flex-shrink-0 border-2 flex items-center justify-center ${sel ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
-                          {sel && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium truncate">{exam.descrizione}</p>
-                          <p className="text-xs text-muted-foreground">{exam.codiceAnalisi}</p>
-                        </div>
-                        {exam.importo && (
-                          <span className="text-sm font-semibold text-primary flex-shrink-0">€ {Number(exam.importo).toFixed(2)}</span>
-                        )}
-                      </button>
-                    );
-                  })}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                    <Input
+                      placeholder="Cerca prestazione per nome o specialità..."
+                      value={prestazioneSearch}
+                      onChange={(e) => setPrestazioneSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+
+                  {settingsLoading ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">Caricamento prestazioni...</p>
+                  ) : filteredPrestazioni.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      Nessuna prestazione trovata nelle impostazioni.
+                    </p>
+                  ) : (
+                    <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
+                      {filteredPrestazioni.map((prestazione) => {
+                        const sel = selectedPrestazioneId === prestazione.id;
+                        return (
+                          <button
+                            key={prestazione.id}
+                            className={`w-full text-left rounded-lg border px-3 py-2 flex items-center gap-3 transition-colors ${
+                              sel ? "border-primary bg-primary/5" : "border-border hover:border-border hover:bg-muted/40"
+                            }`}
+                            onClick={() => setSelectedPrestazioneId(sel ? "" : prestazione.id)}
+                          >
+                            <div className={`h-4 w-4 rounded flex-shrink-0 border-2 flex items-center justify-center ${sel ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                              {sel && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium truncate">{prestazione.nome}</p>
+                              <p className="text-xs text-muted-foreground">{prestazione.specialita} · {prestazione.durata ?? 30} min</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {selectedPrestazione && (
+                    <div className="grid gap-3 border-t border-border pt-3 sm:grid-cols-3">
+                      <div className="space-y-1 sm:col-span-1">
+                        <Label className="text-xs">Medico *</Label>
+                        <select
+                          value={selectedMedicoId}
+                          onChange={(e) => setSelectedMedicoId(e.target.value)}
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          {mediciPrestazione.length === 0 ? (
+                            <option value="">Nessun medico collegato</option>
+                          ) : (
+                            mediciPrestazione.map((medico) => (
+                              <option key={medico.id} value={medico.id}>
+                                {medico.nome}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Sede *</Label>
+                        <select
+                          value={selectedSede}
+                          onChange={(e) => setSelectedSede(e.target.value as typeof selectedSede)}
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          {SEDI_AMBULATORIO.map((sede) => (
+                            <option key={sede.id} value={sede.id}>{sede.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Durata *</Label>
+                        <Input
+                          type="number"
+                          min={5}
+                          step={5}
+                          value={durataPrestazione}
+                          onChange={(e) => setDurataPrestazione(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">
+                    Totale selezionato: {selectedExamIds.length} esami
+                    {selectedPrestazione ? ` + ${selectedPrestazione.nome}` : ""}
+                  </span>
+                  <span className="font-semibold text-primary">€ {totalPrice.toFixed(2)}</span>
                 </div>
               </div>
             )}
@@ -540,7 +853,17 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
                   </div>
                   <div className="flex items-start gap-2">
                     <FlaskConical className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
-                    <span className="text-muted-foreground">{selectedExams.map((e) => e.descrizione).join(", ")}</span>
+                    <span className="text-muted-foreground">
+                      {selectedExams.length > 0 ? selectedExams.map((e) => e.descrizione).join(", ") : "Nessun esame laboratorio"}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Stethoscope className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
+                    <span className="text-muted-foreground">
+                      {selectedPrestazione
+                        ? `${selectedPrestazione.nome}${selectedMedico ? ` · ${selectedMedico.nome}` : ""} · ${selectedSede === "modena" ? "Modena" : "Sassuolo"}`
+                        : "Nessuna prestazione ambulatorio"}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -575,7 +898,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
             </Button>
           ) : (
             <Button onClick={handleSubmit} disabled={!step3Valid || submitting}>
-              {submitting ? "Salvataggio..." : "Conferma prenotazione"}
+              {submitting ? "Salvataggio..." : "Conferma accettazione"}
             </Button>
           )}
         </DialogFooter>

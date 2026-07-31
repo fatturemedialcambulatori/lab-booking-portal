@@ -295,7 +295,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
         {role === "segreteria" && (
           <Button onClick={() => setShowNuovaPrenotazione(true)} className="gap-2 shrink-0">
             <Plus className="h-4 w-4" />
-            Nuova Prenotazione
+            Nuova accettazione
           </Button>
         )}
 
