@@ -5,9 +5,32 @@ import { eq, desc, inArray, or, and, isNotNull, sql } from "drizzle-orm";
 import { CreateBookingBody, GetBookingParams } from "@workspace/api-zod";
 
 const router = Router();
+const VALID_BOOKING_STATUSES = ["confirmed", "pending", "accepted", "completed", "cancelled"] as const;
+
+type BookingStatusValue = (typeof VALID_BOOKING_STATUSES)[number];
 
 const toDateStr = (v: string | Date | null): string =>
   !v ? "" : typeof v === "string" ? v.slice(0, 10) : v.toISOString().slice(0, 10);
+
+function isBookingStatus(value: unknown): value is BookingStatusValue {
+  return typeof value === "string" && (VALID_BOOKING_STATUSES as readonly string[]).includes(value);
+}
+
+async function persistBookingStatus(id: number, status: BookingStatusValue) {
+  const existing = await db
+    .select()
+    .from(bookingsTable)
+    .where(eq(bookingsTable.id, id))
+    .limit(1);
+
+  if (existing.length === 0) {
+    return null;
+  }
+
+  await db.update(bookingsTable).set({ status }).where(eq(bookingsTable.id, id));
+
+  return formatBooking(id);
+}
 
 async function formatBooking(bookingId: number) {
   const booking = await db
@@ -223,26 +246,39 @@ router.patch("/bookings/:id/status", async (req, res) => {
     return res.status(400).json({ error: "Invalid booking ID" });
   }
 
-  const VALID_STATUSES = ["confirmed", "pending", "accepted", "completed", "cancelled"];
-  const { status } = req.body as { status?: string };
-  if (!status || !VALID_STATUSES.includes(status)) {
+  const { status } = req.body as { status?: unknown };
+  if (!isBookingStatus(status)) {
     return res.status(400).json({ error: "Invalid status" });
   }
 
   try {
-    const existing = await db
-      .select()
-      .from(bookingsTable)
-      .where(eq(bookingsTable.id, id))
-      .limit(1);
-
-    if (existing.length === 0) {
+    const result = await persistBookingStatus(id, status);
+    if (!result) {
       return res.status(404).json({ error: "Booking not found" });
     }
+    return res.json(result);
+  } catch (err) {
+    req.log.error({ err }, "Failed to update booking status");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
 
-    await db.update(bookingsTable).set({ status }).where(eq(bookingsTable.id, id));
+router.post("/bookings-status", async (req, res) => {
+  const { id: rawId, status } = req.body as { id?: unknown; status?: unknown };
+  const id = Number(rawId);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: "Invalid booking ID" });
+  }
 
-    const result = await formatBooking(id);
+  if (!isBookingStatus(status)) {
+    return res.status(400).json({ error: "Invalid status" });
+  }
+
+  try {
+    const result = await persistBookingStatus(id, status);
+    if (!result) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
     return res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to update booking status");

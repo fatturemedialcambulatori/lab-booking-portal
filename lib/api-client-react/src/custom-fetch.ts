@@ -204,6 +204,37 @@ function rewritePatientMutationForVercel(
   return { input, init, method };
 }
 
+function rewriteBookingStatusMutationForVercel(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  method: string,
+): { input: RequestInfo | URL; init: RequestInit; method: string } {
+  const match = pathnameFor(input).match(/^\/api\/bookings\/(\d+)\/status$/);
+  if (!match) {
+    return { input, init, method };
+  }
+
+  const id = Number(match[1]);
+  if (!Number.isInteger(id) || id <= 0) {
+    return { input, init, method };
+  }
+
+  if (method === "PATCH" && typeof init.body === "string" && looksLikeJson(init.body)) {
+    try {
+      const body = JSON.parse(init.body) as Record<string, unknown>;
+      return {
+        input: withPath(input, "/api/bookings-status"),
+        init: { ...init, method: "POST", body: JSON.stringify({ id, ...body }) },
+        method: "POST",
+      };
+    } catch {
+      return { input, init, method };
+    }
+  }
+
+  return { input, init, method };
+}
+
 function getStringField(value: unknown, key: string): string | undefined {
   if (!value || typeof value !== "object") return undefined;
 
@@ -402,6 +433,7 @@ export async function customFetch<T = unknown>(
 
   let method = resolveMethod(input, init.method);
   ({ input, init, method } = rewritePatientMutationForVercel(input, init, method));
+  ({ input, init, method } = rewriteBookingStatusMutationForVercel(input, init, method));
 
   if (init.body != null && (method === "GET" || method === "HEAD")) {
     throw new TypeError(`customFetch: ${method} requests cannot have a body.`);
