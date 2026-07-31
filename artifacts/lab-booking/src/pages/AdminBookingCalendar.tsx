@@ -31,7 +31,6 @@ import {
   Settings,
   UserPlus,
   UserRound,
-  Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -196,12 +195,10 @@ type NuovoAppuntamentoDraft = {
   overbookingReason: string;
 };
 
-const DEMO_TODAY = new Date("2026-07-24T12:00:00");
 const ORA_INIZIO = 7;
 const ORA_FINE = 19;
 const SLOT_MINUTES = 30;
 const SLOT_HEIGHT = 40;
-const CURRENT_TIME = "13:40";
 
 const SEDI: Array<{ id: SedeId; label: string }> = [
   { id: "tutte", label: "Tutte le sedi" },
@@ -753,6 +750,11 @@ const agendaSlots = Array.from(
 
 const dateKey = (date: Date) => format(date, "yyyy-MM-dd");
 const AGENDA_APPOINTMENTS_STORAGE_KEY = "m-medical-agenda-appointments";
+const todayAgendaDate = () => {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
+};
+const currentTimeLabel = () => format(new Date(), "HH:mm");
 
 const normalizza = (value: string) =>
   value
@@ -760,6 +762,14 @@ const normalizza = (value: string) =>
     .toLocaleLowerCase("it-IT")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+
+const matchQueryWords = (fields: Array<string | null | undefined>, rawQuery: string) => {
+  const words = normalizza(rawQuery).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+
+  const haystack = normalizza(fields.filter(Boolean).join(" "));
+  return words.every((word) => haystack.includes(word));
+};
 
 const isSedeOperativa = (value: unknown): value is SedeOperativa =>
   value === "modena" || value === "sassuolo";
@@ -1168,14 +1178,14 @@ export function AdminBookingCalendar({
   onOpenDoctor?: (doctorId: string) => void;
 }) {
   const [view, setView] = React.useState<CalendarView>("giorno");
-  const [currentDate, setCurrentDate] = React.useState(DEMO_TODAY);
+  const [currentDate, setCurrentDate] = React.useState(() => todayAgendaDate());
   const [settingsAgenda, setSettingsAgenda] = React.useState<AdminSettingsData | null>(null);
   const [mediciConfigurati, setMediciConfigurati] = React.useState<MedicoAgenda[] | null>(null);
   const [settingsCaricate, setSettingsCaricate] = React.useState(false);
   const [sede, setSede] = React.useState<SedeId>("tutte");
   const [specialitaFiltro, setSpecialitaFiltro] = React.useState("tutte");
   const [prestazioneFiltro, setPrestazioneFiltro] = React.useState("tutte");
-  const [medicoId, setMedicoId] = React.useState("tutti");
+  const [selectedMediciIds, setSelectedMediciIds] = React.useState<string[]>([]);
   const [search, setSearch] = React.useState("");
   const [agendaSearch, setAgendaSearch] = React.useState("");
   const [giorniPreferiti, setGiorniPreferiti] = React.useState(GIORNI_AGENDA);
@@ -1183,8 +1193,8 @@ export function AdminBookingCalendar({
   const [soloMediciConPrenotazioni, setSoloMediciConPrenotazioni] = React.useState(false);
   const [workListDate, setWorkListDate] = React.useState<string | null>(null);
   const [workListPeriodo, setWorkListPeriodo] = React.useState<WorkListPeriodo>("giorno");
-  const [workListDal, setWorkListDal] = React.useState(dateKey(DEMO_TODAY));
-  const [workListAl, setWorkListAl] = React.useState(dateKey(DEMO_TODAY));
+  const [workListDal, setWorkListDal] = React.useState(() => dateKey(todayAgendaDate()));
+  const [workListAl, setWorkListAl] = React.useState(() => dateKey(todayAgendaDate()));
   const [workListSede, setWorkListSede] = React.useState<SedeId>("tutte");
   const [workListDoctorId, setWorkListDoctorId] = React.useState("tutti");
   const [workListDoctorSearch, setWorkListDoctorSearch] = React.useState("");
@@ -1352,19 +1362,14 @@ export function AdminBookingCalendar({
     () =>
       mediciAgenda.filter((medico) => {
         const sedeCompatibile = sede === "tutte" || medico.sedi.includes(sede);
-        const query = normalizza(agendaSearch);
-        const matchAgenda =
-          !query ||
-          [medico.nome, medico.specialita].some((campo) => normalizza(campo).includes(query));
         const matchSpecialita = specialitaFiltro === "tutte" || medico.specialita === specialitaFiltro;
         const matchPrestazione =
           prestazioneFiltro === "tutte" ||
           mediciCompatibiliPrestazione?.has(medico.id) ||
           (prestazioneSelezionata ? normalizza(prestazioneSelezionata.specialita) === normalizza(medico.specialita) : false);
-        return medico.area === area && sedeCompatibile && matchAgenda && matchSpecialita && matchPrestazione;
+        return medico.area === area && sedeCompatibile && matchSpecialita && matchPrestazione;
       }),
     [
-      agendaSearch,
       area,
       mediciAgenda,
       mediciCompatibiliPrestazione,
@@ -1374,6 +1379,28 @@ export function AdminBookingCalendar({
       specialitaFiltro,
     ],
   );
+
+  const mediciListaFiltrati = React.useMemo(
+    () =>
+      mediciArea.filter((medico) =>
+        matchQueryWords(
+          [
+            medico.nome,
+            medico.specialita,
+            medico.sedi.map((item) => (item === "modena" ? "Modena" : "Sassuolo")).join(" "),
+          ],
+          agendaSearch,
+        ),
+      ),
+    [agendaSearch, mediciArea],
+  );
+
+  const selectedMediciSet = React.useMemo(() => new Set(selectedMediciIds), [selectedMediciIds]);
+
+  React.useEffect(() => {
+    const validIds = new Set(mediciArea.map((medico) => medico.id));
+    setSelectedMediciIds((current) => current.filter((id) => validIds.has(id)));
+  }, [mediciArea]);
 
   const specialitaDisponibili = React.useMemo(() => {
     const nomi = new Set<string>();
@@ -1405,23 +1432,32 @@ export function AdminBookingCalendar({
     const mediciValidi = new Set(mediciArea.map((medico) => medico.id));
     return prenotazioniAgenda.filter((prenotazione) => {
       const medico = mediciAgenda.find((item) => item.id === prenotazione.medicoId);
-      const query = normalizza(search);
-      const matchSearch =
-        !query ||
-        [medico?.nome ?? "", medico?.specialita ?? "", prenotazione.paziente, prenotazione.prestazione].some(
-          (campo) => normalizza(campo).includes(query),
-        );
+      const matchSearch = matchQueryWords(
+        [
+          prenotazione.paziente,
+          prenotazione.pazienteTelefono,
+          prenotazione.pazienteEmail,
+          prenotazione.prestazione,
+          prenotazione.note,
+          medico?.nome,
+          medico?.specialita,
+          prenotazione.ora,
+          prenotazione.data,
+          statoLabel(prenotazione.stato),
+        ],
+        search,
+      );
 
       return (
         prenotazione.area === area &&
         visibleDateKeys.has(prenotazione.data) &&
         (sede === "tutte" || prenotazione.sede === sede) &&
-        (medicoId === "tutti" || prenotazione.medicoId === medicoId) &&
+        (selectedMediciSet.size === 0 || selectedMediciSet.has(prenotazione.medicoId)) &&
         mediciValidi.has(prenotazione.medicoId) &&
         matchSearch
       );
     }).sort((a, b) => `${a.data}${a.ora}`.localeCompare(`${b.data}${b.ora}`));
-  }, [area, medicoId, mediciAgenda, mediciArea, prenotazioniAgenda, search, sede, visibleDateKeys]);
+  }, [area, mediciAgenda, mediciArea, prenotazioniAgenda, search, sede, selectedMediciSet, visibleDateKeys]);
 
   const mediciConDisponibilita = React.useMemo(
     () =>
@@ -1436,11 +1472,13 @@ export function AdminBookingCalendar({
   const mediciVisibili = React.useMemo(
     () =>
       mediciArea.filter((medico) => {
-        const matchMedico = medicoId === "tutti" || medico.id === medicoId;
-        const matchAttivita = !soloMediciConPrenotazioni || mediciConDisponibilita.has(medico.id);
-        return matchMedico && matchAttivita;
+        if (selectedMediciSet.size > 0) {
+          return selectedMediciSet.has(medico.id);
+        }
+
+        return !soloMediciConPrenotazioni || mediciConDisponibilita.has(medico.id);
       }),
-    [mediciArea, medicoId, mediciConDisponibilita, soloMediciConPrenotazioni],
+    [mediciArea, mediciConDisponibilita, selectedMediciSet, soloMediciConPrenotazioni],
   );
 
   const prestazioniPerMedico = React.useCallback(
@@ -1708,6 +1746,13 @@ export function AdminBookingCalendar({
     setCurrentDate((date) => addDays(date, view === "giorno" ? 1 : 7));
 
   const areaLabel = area === "ambulatorio" ? "Ambulatorio" : "Laboratorio";
+  const toggleMedicoAgenda = React.useCallback((doctorId: string) => {
+    setSelectedMediciIds((current) =>
+      current.includes(doctorId)
+        ? current.filter((id) => id !== doctorId)
+        : [...current, doctorId],
+    );
+  }, []);
 
   const workListRange = React.useMemo(() => {
     const dal = workListDal || workListDate || dateKey(currentDate);
@@ -1765,11 +1810,12 @@ export function AdminBookingCalendar({
 
   const apriListaLavoro = (date: Date) => {
     const day = dateKey(date);
+    const singleSelectedDoctorId = selectedMediciIds.length === 1 ? selectedMediciIds[0] : "tutti";
     const selectedDoctorStampabile =
-      medicoId !== "tutti" &&
+      singleSelectedDoctorId !== "tutti" &&
       mediciAgenda.some(
         (medico) =>
-          medico.id === medicoId &&
+          medico.id === singleSelectedDoctorId &&
           medico.area === area &&
           (sede === "tutte" || medico.sedi.includes(sede)),
       );
@@ -1779,7 +1825,7 @@ export function AdminBookingCalendar({
     setWorkListDal(day);
     setWorkListAl(day);
     setWorkListSede(sede);
-    setWorkListDoctorId(selectedDoctorStampabile ? medicoId : "tutti");
+    setWorkListDoctorId(selectedDoctorStampabile ? singleSelectedDoctorId : "tutti");
     setWorkListDoctorSearch("");
   };
 
@@ -1937,6 +1983,7 @@ export function AdminBookingCalendar({
 
   const miniCalendarDates = periodoVista("mese", currentDate);
   const selectedDateKey = dateKey(currentDate);
+  const todayDate = todayAgendaDate();
   const sedeLabel = SEDI.find((item) => item.id === sede)?.label ?? "Tutte le sedi";
   const ultimoGiornoVisibile = visibleDates[visibleDates.length - 1] ?? currentDate;
   const titoloAgenda =
@@ -1990,7 +2037,7 @@ export function AdminBookingCalendar({
               {miniCalendarDates.map((date) => {
                 const dayKey = dateKey(date);
                 const selected = dayKey === selectedDateKey;
-                const today = isSameDay(date, DEMO_TODAY);
+                const today = isSameDay(date, todayDate);
                 const hasWork = prenotazioniAgenda.some(
                   (prenotazione) =>
                     prenotazione.area === area &&
@@ -2145,7 +2192,14 @@ export function AdminBookingCalendar({
 
             <div className="space-y-3 border-t border-border pt-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-foreground">Agende</p>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Dottori</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {selectedMediciIds.length > 0
+                      ? `${selectedMediciIds.length} selezionati`
+                      : "Nessun filtro medico manuale"}
+                  </p>
+                </div>
                 <Badge variant="secondary">{mediciVisibili.length}</Badge>
               </div>
               <div className="relative">
@@ -2153,7 +2207,7 @@ export function AdminBookingCalendar({
                 <Input
                   value={agendaSearch}
                   onChange={(event) => setAgendaSearch(event.target.value)}
-                  placeholder="Cerca per agenda"
+                  placeholder="Cerca medico o specialità..."
                   className="bg-white pl-9"
                 />
               </div>
@@ -2177,33 +2231,74 @@ export function AdminBookingCalendar({
                   />
                 </button>
               </div>
-              <div className="max-h-[250px] space-y-1 overflow-y-auto pr-1">
-                <button
+              {selectedMediciIds.length > 0 && (
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  I medici selezionati restano visibili anche se non hanno disponibilità oggi.
+                </p>
+              )}
+              <div className="flex items-center gap-2">
+                <Button
                   type="button"
-                  onClick={() => setMedicoId("tutti")}
-                  className={`flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm ${
-                    medicoId === "tutti" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-white"
-                  }`}
+                  variant="outline"
+                  size="sm"
+                  className="h-8 flex-1 bg-white text-xs"
+                  onClick={() => setSelectedMediciIds([])}
+                  disabled={selectedMediciIds.length === 0}
                 >
-                  <Users className="h-4 w-4 shrink-0" />
-                  Tutti i medici
-                </button>
-                {mediciArea.map((medico) => (
-                  <button
-                    key={medico.id}
-                    type="button"
-                    onClick={() => setMedicoId(medico.id)}
-                    className={`flex min-h-10 w-full items-center gap-2 rounded-md px-2 text-left text-sm ${
-                      medicoId === medico.id ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-white"
-                    }`}
-                  >
-                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${medico.colore}`} />
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">{medico.nome}</span>
-                      <span className="block truncate text-xs opacity-75">{medico.specialita}</span>
-                    </span>
-                  </button>
-                ))}
+                  Tutti
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 flex-1 bg-white text-xs"
+                  onClick={() => setSelectedMediciIds(mediciArea.map((medico) => medico.id))}
+                  disabled={mediciArea.length === 0 || selectedMediciIds.length === mediciArea.length}
+                >
+                  Seleziona tutti
+                </Button>
+              </div>
+              <div className="max-h-[250px] space-y-1 overflow-y-auto pr-1">
+                {mediciListaFiltrati.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border bg-white px-3 py-4 text-center text-xs text-muted-foreground">
+                    Nessun medico trovato.
+                  </div>
+                ) : (
+                  mediciListaFiltrati.map((medico) => {
+                    const checkboxId = `agenda-medico-${slugFile(medico.id)}`;
+                    const checked = selectedMediciSet.has(medico.id);
+                    const lavoraOggi = mediciConDisponibilita.has(medico.id);
+
+                    return (
+                      <label
+                        key={medico.id}
+                        htmlFor={checkboxId}
+                        className={`flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-left text-sm transition-colors ${
+                          checked
+                            ? "border-primary/40 bg-primary/10 text-foreground"
+                            : "border-transparent text-foreground hover:border-border hover:bg-white"
+                        }`}
+                      >
+                        <Checkbox
+                          id={checkboxId}
+                          checked={checked}
+                          onCheckedChange={() => toggleMedicoAgenda(medico.id)}
+                          className="shrink-0"
+                        />
+                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${medico.colore}`} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{medico.nome}</span>
+                          <span className="block truncate text-xs text-muted-foreground">{medico.specialita}</span>
+                        </span>
+                        {lavoraOggi && (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                            oggi
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })
+                )}
               </div>
             </div>
           </div>
@@ -2212,7 +2307,7 @@ export function AdminBookingCalendar({
         <section className="flex min-w-0 flex-col">
           <div className="flex flex-col gap-3 border-b border-border bg-white px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setCurrentDate(DEMO_TODAY)}>
+              <Button type="button" variant="outline" size="sm" onClick={() => setCurrentDate(todayAgendaDate())}>
                 Oggi
               </Button>
               <Button type="button" variant="ghost" size="icon" onClick={goPrevious} aria-label="Giorno precedente">
@@ -3005,7 +3100,8 @@ function DayCalendar({
 
   const gridTemplateColumns = `76px repeat(${Math.max(doctors.length, 1)}, minmax(190px, 1fr))`;
   const totalHeight = agendaSlots.length * SLOT_HEIGHT;
-  const currentLineTop = ((minutiDaOra(CURRENT_TIME) - ORA_INIZIO * 60) / SLOT_MINUTES) * SLOT_HEIGHT;
+  const todayDate = todayAgendaDate();
+  const currentLineTop = ((minutiDaOra(currentTimeLabel()) - ORA_INIZIO * 60) / SLOT_MINUTES) * SLOT_HEIGHT;
 
   return (
     <div className="h-full overflow-auto bg-white">
@@ -3130,7 +3226,7 @@ function DayCalendar({
                     />
                   );
                 })}
-                {isSameDay(date, DEMO_TODAY) && currentLineTop >= 0 && currentLineTop <= totalHeight && (
+                {isSameDay(date, todayDate) && currentLineTop >= 0 && currentLineTop <= totalHeight && (
                   <div
                     className="pointer-events-none absolute left-0 right-0 z-10 border-t-2 border-red-600"
                     style={{ top: currentLineTop }}
@@ -3169,6 +3265,7 @@ function WeekCalendar({
   onDayClick: (date: Date) => void;
 }) {
   const doctorsMap = new Map(doctors.map((doctor) => [doctor.id, doctor]));
+  const todayDate = todayAgendaDate();
 
   return (
     <div className="overflow-x-auto">
@@ -3181,7 +3278,7 @@ function WeekCalendar({
               type="button"
               onClick={() => onDayClick(date)}
               className={`border-r border-border px-3 py-3 text-center last:border-r-0 ${
-                isSameDay(date, DEMO_TODAY) ? "bg-primary/10 text-primary" : ""
+                isSameDay(date, todayDate) ? "bg-primary/10 text-primary" : ""
               } hover:bg-muted/60`}
             >
               <p className="text-xs font-medium uppercase">{format(date, "EEE", { locale: it })}</p>
@@ -3240,6 +3337,7 @@ function MonthCalendar({
   onDayClick: (date: Date) => void;
 }) {
   const doctorsMap = new Map(doctors.map((doctor) => [doctor.id, doctor]));
+  const todayDate = todayAgendaDate();
 
   return (
     <div className="grid grid-cols-7 border-t border-border">
@@ -3263,7 +3361,7 @@ function MonthCalendar({
             <div className="mb-2 flex items-center justify-between">
               <span
                 className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold ${
-                  isSameDay(date, DEMO_TODAY) ? "bg-primary text-primary-foreground" : ""
+                  isSameDay(date, todayDate) ? "bg-primary text-primary-foreground" : ""
                 }`}
               >
                 {format(date, "d")}
