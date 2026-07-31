@@ -468,7 +468,12 @@ function AdminDashboard({
               </div>
             )}
 
-            {activeTab === "accettazione" && <AccettazionePaziente role={role} />}
+            {activeTab === "accettazione" && (
+              <AccettazionePaziente
+                role={role}
+                area={activeArea === "ambulatorio" ? "ambulatorio" : "laboratorio"}
+              />
+            )}
 
             {activeTab === "anagrafiche" && <AdminAnagrafiche />}
 

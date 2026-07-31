@@ -39,6 +39,7 @@ import {
   MapPin,
   FileDown,
   Pencil,
+  Stethoscope,
 } from "lucide-react";
 import { format as formatDate, addDays, subDays } from "date-fns";
 import { NuovaPrenotazioneDialog } from "@/components/NuovaPrenotazioneDialog";
@@ -47,10 +48,33 @@ import { RefertazioneDialog } from "@/components/RefertazioneDialog";
 import { printReferto, PrintPatient, PrintExamWithResult } from "@/lib/printDocs";
 
 type BookingStatus = "confirmed" | "pending" | "accepted" | "completed" | "cancelled";
+type AreaAccettazione = "laboratorio" | "ambulatorio";
+type AgendaAppointmentStatus = "confermata" | "accettata" | "completata" | "annullata";
+
+type AgendaAppointment = {
+  id: string;
+  area: AreaAccettazione;
+  sede: "modena" | "sassuolo";
+  medicoId: string;
+  pazienteId?: number | string;
+  paziente: string;
+  pazienteEmail?: string;
+  pazienteTelefono?: string;
+  prestazione: string;
+  labExamIds?: number[];
+  labBookingId?: number | null;
+  note?: string;
+  data: string;
+  ora: string;
+  durata: number;
+  stato: AgendaAppointmentStatus;
+  overbooking?: boolean;
+};
 
 type Visit = {
   key: string;
-  id: number;
+  id: number | string;
+  kind: "booking" | "agenda";
   date: string;
   time: string;
   firstName: string;
@@ -66,6 +90,7 @@ type Visit = {
   refertiCount: number;
   expectedRefertiCount: number;
   sourceArea?: "laboratorio" | "ambulatorio";
+  agendaAppointment?: AgendaAppointment;
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -104,7 +129,48 @@ const FILTERS: { id: FilterId; label: string }[] = [
   { id: "cancelled", label: "Annullati" },
 ];
 
-export function AccettazionePaziente({ role = "segreteria" }: { role?: string }) {
+const mapAgendaStatusToBookingStatus = (status: AgendaAppointmentStatus): BookingStatus => {
+  if (status === "accettata") return "accepted";
+  if (status === "completata") return "completed";
+  if (status === "annullata") return "cancelled";
+  return "confirmed";
+};
+
+const mapBookingStatusToAgendaStatus = (status: BookingStatus): AgendaAppointmentStatus => {
+  if (status === "accepted") return "accettata";
+  if (status === "completed") return "completata";
+  if (status === "cancelled") return "annullata";
+  return "confermata";
+};
+
+const isAgendaAppointment = (value: unknown): value is AgendaAppointment => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Partial<AgendaAppointment>;
+  return (
+    typeof item.id === "string" &&
+    (item.area === "laboratorio" || item.area === "ambulatorio") &&
+    typeof item.paziente === "string" &&
+    typeof item.prestazione === "string" &&
+    typeof item.data === "string" &&
+    typeof item.ora === "string" &&
+    typeof item.durata === "number" &&
+    (item.stato === "confermata" || item.stato === "accettata" || item.stato === "completata" || item.stato === "annullata")
+  );
+};
+
+const splitPatientName = (fullName: string) => {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return { firstName: parts[0] ?? "Paziente", lastName: "" };
+  return { firstName: parts.slice(0, -1).join(" "), lastName: parts[parts.length - 1] };
+};
+
+export function AccettazionePaziente({
+  role = "segreteria",
+  area = "laboratorio",
+}: {
+  role?: string;
+  area?: AreaAccettazione;
+}) {
   const queryClient = useQueryClient();
   const { data: allBookings, isLoading, error, refetch } = useListBookings();
   const statusMutation = useUpdateBookingStatus();
@@ -123,6 +189,32 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
   const [billingVisit, setBillingVisit] = React.useState<Visit | null>(null);
   const [todoVisit, setTodoVisit] = React.useState<Visit | null>(null);
   const [refertaVisit, setRefertaVisit] = React.useState<Visit | null>(null);
+  const [agendaAppointments, setAgendaAppointments] = React.useState<AgendaAppointment[]>([]);
+  const [agendaLoading, setAgendaLoading] = React.useState(false);
+  const [agendaError, setAgendaError] = React.useState(false);
+
+  const isAmbulatorio = area === "ambulatorio";
+
+  const loadAgendaAppointments = React.useCallback(async () => {
+    setAgendaLoading(true);
+    setAgendaError(false);
+    try {
+      const response = await fetch("/api/agenda-appointments");
+      if (!response.ok) throw new Error("Agenda non disponibile");
+      const data: unknown = await response.json();
+      setAgendaAppointments(Array.isArray(data) ? data.filter(isAgendaAppointment) : []);
+    } catch {
+      setAgendaAppointments([]);
+      setAgendaError(true);
+    } finally {
+      setAgendaLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!isAmbulatorio) return;
+    void loadAgendaAppointments();
+  }, [isAmbulatorio, loadAgendaAppointments]);
 
   const handlePrintReferto = async (visit: Visit) => {
     try {
@@ -213,7 +305,41 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
     [bookings, selectedDate],
   );
 
+  const dayAgendaAppointments = React.useMemo(
+    () =>
+      agendaAppointments
+        .filter((appointment) => appointment.area === "ambulatorio" && appointment.data === selectedDate)
+        .sort((a, b) => a.ora.localeCompare(b.ora)),
+    [agendaAppointments, selectedDate],
+  );
+
   const visits = React.useMemo((): Visit[] => {
+    if (isAmbulatorio) {
+      return dayAgendaAppointments.map((appointment) => {
+        const name = splitPatientName(appointment.paziente);
+        return {
+          key: appointment.id,
+          id: appointment.id,
+          kind: "agenda",
+          date: appointment.data,
+          time: appointment.ora,
+          firstName: name.firstName,
+          lastName: name.lastName,
+          dateOfBirth: "1900-01-01",
+          email: appointment.pazienteEmail ?? "",
+          phone: appointment.pazienteTelefono ?? "",
+          notes: appointment.note ?? null,
+          examIds: appointment.labExamIds ?? [],
+          examNames: [appointment.prestazione],
+          status: mapAgendaStatusToBookingStatus(appointment.stato),
+          refertiCount: 0,
+          expectedRefertiCount: 0,
+          sourceArea: "ambulatorio",
+          agendaAppointment: appointment,
+        };
+      });
+    }
+
     return [...(dayBookings as Array<{
       id: number; date: string; time: string; firstName: string; lastName: string;
       dateOfBirth: string; codiceFiscale?: string | null; email: string; phone: string; notes?: string | null;
@@ -223,6 +349,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
       .map((b) => ({
         key: String(b.id),
         id: b.id,
+        kind: "booking",
         date: b.date,
         time: b.time,
         firstName: b.firstName,
@@ -239,7 +366,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
         expectedRefertiCount: (b as any).expectedRefertiCount ?? b.examIds.length,
         sourceArea: b.sourceArea ?? (b.notes?.startsWith("Agenda ambulatorio:") ? "ambulatorio" : "laboratorio"),
       }));
-  }, [dayBookings]);
+  }, [dayAgendaAppointments, dayBookings, isAmbulatorio]);
 
   const filtered = React.useMemo(() => {
     let result = visits;
@@ -270,8 +397,25 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
   const updateVisitStatus = async (visit: Visit, newStatus: BookingStatus) => {
     setLoadingVisitKey(visit.key);
     try {
-      await statusMutation.mutateAsync({ id: visit.id, data: { status: newStatus } });
-      await refetch();
+      if (visit.kind === "agenda" && visit.agendaAppointment) {
+        const updatedAppointment = {
+          ...visit.agendaAppointment,
+          stato: mapBookingStatusToAgendaStatus(newStatus),
+        };
+        const response = await fetch("/api/agenda-appointments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updatedAppointment),
+        });
+        if (!response.ok) throw new Error("Aggiornamento accettazione ambulatorio non riuscito");
+        setAgendaAppointments((current) => [
+          ...current.filter((appointment) => appointment.id !== updatedAppointment.id),
+          updatedAppointment,
+        ]);
+      } else {
+        await statusMutation.mutateAsync({ id: Number(visit.id), data: { status: newStatus } });
+        await refetch();
+      }
     } finally {
       setLoadingVisitKey(null);
     }
@@ -279,14 +423,20 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
 
   const prevDay = () => setSelectedDate(formatDate(subDays(parseISO(selectedDate), 1), "yyyy-MM-dd"));
   const nextDay = () => setSelectedDate(formatDate(addDays(parseISO(selectedDate), 1), "yyyy-MM-dd"));
+  const currentLoading = isAmbulatorio ? agendaLoading : isLoading;
+  const currentError = isAmbulatorio ? agendaError : Boolean(error || invalidBookingsResponse);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Accettazione Pazienti</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">
+            {isAmbulatorio ? "Accettazione Ambulatorio" : "Accettazione Pazienti"}
+          </h1>
           <p className="text-muted-foreground text-sm">
-            {role === "laboratorio"
+            {isAmbulatorio
+              ? "Visite e prestazioni ambulatoriali da eseguire."
+              : role === "laboratorio"
               ? "Pazienti accettati dalla segreteria o dall'ambulatorio — pronti per gli esami."
               : "Gestisci l'arrivo e l'accettazione dei pazienti."}
           </p>
@@ -333,7 +483,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
             <div key={s.label} className={`rounded-lg border px-4 py-3 ${s.bg}`}>
               <p className="text-xs text-muted-foreground mb-0.5">{s.label}</p>
               <p className={`text-2xl font-bold ${s.color}`}>
-                {isLoading ? <Skeleton className="h-7 w-8" /> : s.value}
+                {currentLoading ? <Skeleton className="h-7 w-8" /> : s.value}
               </p>
             </div>
           ))}
@@ -345,7 +495,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
-            placeholder="Cerca paziente, telefono o esame..."
+            placeholder={isAmbulatorio ? "Cerca paziente, telefono o prestazione..." : "Cerca paziente, telefono o esame..."}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -374,12 +524,14 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
       </div>
 
       {/* Content */}
-      {error || invalidBookingsResponse ? (
+      {currentError ? (
         <div className="rounded-md bg-destructive/10 border border-destructive/30 px-4 py-3 text-sm text-destructive flex items-center gap-2">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
-          Impossibile caricare le prenotazioni. Verifica che le API Vercel rispondano correttamente.
+          {isAmbulatorio
+            ? "Impossibile caricare le accettazioni ambulatorio. Verifica che le API Vercel rispondano correttamente."
+            : "Impossibile caricare le prenotazioni. Verifica che le API Vercel rispondano correttamente."}
         </div>
-      ) : isLoading ? (
+      ) : currentLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-36 w-full rounded-xl" />)}
         </div>
@@ -389,7 +541,9 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
           <p className="font-medium">Nessun paziente trovato</p>
           <p className="text-sm">
             {visits.length === 0
-              ? "Non ci sono prenotazioni per questa giornata."
+              ? isAmbulatorio
+                ? "Non ci sono visite ambulatoriali per questa giornata."
+                : "Non ci sono prenotazioni per questa giornata."
               : "Nessun risultato per la ricerca o il filtro selezionato."}
           </p>
         </div>
@@ -404,12 +558,14 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
               onUpdateStatus={updateVisitStatus}
               onEditBilling={() => setBillingVisit(visit)}
               showBilling={role === "segreteria"}
-              onOpenTodo={() =>
-                role === "laboratorio" && visit.status === "accepted" ? setRefertaVisit(visit) : setTodoVisit(visit)
+              onOpenTodo={
+                isAmbulatorio
+                  ? undefined
+                  : () => role === "laboratorio" && visit.status === "accepted" ? setRefertaVisit(visit) : setTodoVisit(visit)
               }
-              onPrintReferto={visit.status === "completed" ? () => handlePrintReferto(visit) : undefined}
-              onEditReferto={role === "laboratorio" && visit.status === "completed" ? () => setRefertaVisit(visit) : undefined}
-              canComplete={visit.refertiCount >= visit.expectedRefertiCount && visit.examIds.length > 0}
+              onPrintReferto={!isAmbulatorio && visit.status === "completed" ? () => handlePrintReferto(visit) : undefined}
+              onEditReferto={!isAmbulatorio && role === "laboratorio" && visit.status === "completed" ? () => setRefertaVisit(visit) : undefined}
+              canComplete={isAmbulatorio ? true : visit.refertiCount >= visit.expectedRefertiCount && visit.examIds.length > 0}
             />
           ))}
         </div>
@@ -421,6 +577,7 @@ export function AccettazionePaziente({ role = "segreteria" }: { role?: string })
         onClose={() => {
           setShowNuovaPrenotazione(false);
           refetch();
+          if (isAmbulatorio) void loadAgendaAppointments();
         }}
       />
 
@@ -581,6 +738,7 @@ function VisitCard({
   onEditReferto?: () => void;
 }) {
   const totalPrice = 0; // could sum from exam data if available
+  const isAmbulatorioVisit = visit.kind === "agenda";
 
   const statusColors: Record<string, string> = {
     confirmed: "border-l-amber-400",
@@ -724,7 +882,7 @@ function VisitCard({
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs text-green-600 font-medium flex items-center gap-1">
                   <CheckCircle2 className="h-4 w-4" />
-                  Esami eseguiti
+                  {isAmbulatorioVisit ? "Prestazione eseguita" : "Esami eseguiti"}
                 </span>
                 {role === "laboratorio" && onEditReferto && (
                   <Button
@@ -779,7 +937,7 @@ function VisitCard({
         {/* Exams list */}
         <div className="mt-4 border-t border-border/60 pt-3">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-            Esami prenotati ({visit.examNames.length})
+            {isAmbulatorioVisit ? "Prestazioni / visite" : "Esami prenotati"} ({visit.examNames.length})
           </p>
           <div className="flex flex-wrap gap-2">
             {visit.examNames.map((name, i) => (
@@ -787,7 +945,11 @@ function VisitCard({
                 key={i}
                 className="inline-flex items-center gap-1.5 text-xs bg-muted rounded-md px-2.5 py-1.5 border border-border"
               >
-                <FlaskConical className="h-3 w-3 text-primary flex-shrink-0" />
+                {isAmbulatorioVisit ? (
+                  <Stethoscope className="h-3 w-3 text-primary flex-shrink-0" />
+                ) : (
+                  <FlaskConical className="h-3 w-3 text-primary flex-shrink-0" />
+                )}
                 <span className="font-medium">{name}</span>
               </span>
             ))}
