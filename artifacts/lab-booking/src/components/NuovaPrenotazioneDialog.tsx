@@ -3,6 +3,7 @@ import {
   useListPatients,
   useCreatePatient,
   useCreateBooking,
+  useUpdateBookingStatus,
   useListExams,
   useListSlots,
   getListPatientsQueryKey,
@@ -143,6 +144,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
 
   const createPatient = useCreatePatient();
   const createBooking = useCreateBooking();
+  const updateBookingStatus = useUpdateBookingStatus();
 
   React.useEffect(() => {
     if (!open) return;
@@ -362,14 +364,10 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
         });
         labBookingId = labBooking.id;
 
-        const acceptResponse = await fetch(`/api/bookings/${labBooking.id}/status`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "accepted" }),
+        await updateBookingStatus.mutateAsync({
+          id: labBooking.id,
+          data: { status: "accepted" },
         });
-        if (!acceptResponse.ok) {
-          throw new Error("Accettazione laboratorio creata ma non marcata come accettata.");
-        }
       }
 
       if (selectedPrestazione && selectedMedico) {
