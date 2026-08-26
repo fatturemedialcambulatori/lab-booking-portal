@@ -354,138 +354,175 @@ function AdminDashboard({
   const settingsSaveButtonClass = settingsSaveEnabled
     ? "gap-2 border-slate-950 bg-slate-950 text-white hover:bg-slate-900 hover:text-white"
     : "gap-2 cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 opacity-100 hover:bg-slate-100 hover:text-slate-400 disabled:opacity-100";
-  const railMainItems = visibleMenuGroups.flatMap((group) =>
-    group.items.map((item) => ({
-      key: `${group.id}-${item.id}`,
-      label: `${group.label} · ${item.label}`,
-      Icon: item.Icon,
-      active: isAreaScopedTab && activeArea === group.id && activeTab === item.id,
-      onClick: () => setActiveTarget(group.id, item.id),
-    })),
-  );
-  const railSecondaryItems = [
-    can("anagrafiche")
-      ? {
-          key: "anagrafiche",
-          label: "Anagrafiche",
-          Icon: Users,
-          active: activeTab === "anagrafiche",
-          onClick: () => setActiveTarget(activeArea, "anagrafiche"),
-        }
-      : null,
-    can("infortunistica")
-      ? {
-          key: "infortunistica",
-          label: "Infortunistica stradale",
-          Icon: Car,
-          active: activeTab === "infortunistica",
-          onClick: () => setActiveTarget(activeArea, "infortunistica"),
-        }
-      : null,
-    can("impostazioni")
-      ? {
-          key: "impostazioni",
-          label: "Impostazioni",
-          Icon: Settings,
-          active: activeTab === "impostazioni",
-          onClick: () => {
-            setSettingsTarget({ tab: "prestazioni", medicoId: null, key: Date.now() });
-            setActiveTarget(activeArea, "impostazioni");
-          },
-        }
-      : null,
-    can("utenti")
-      ? {
-          key: "utenti",
-          label: "Utenti",
-          Icon: KeyRound,
-          active: activeTab === "utenti",
-          onClick: () => setActiveTarget(activeArea, "utenti"),
-        }
-      : null,
-  ].filter((item): item is {
-    key: string;
-    label: string;
-    Icon: LucideIcon;
-    active: boolean;
-    onClick: () => void;
-  } => Boolean(item));
 
   return (
     <div className="min-h-screen bg-background text-foreground md:flex">
       <aside
-        className={`${isCassaTab ? "hidden md:flex" : "flex"} fixed inset-x-0 bottom-0 z-40 h-16 border-t border-border bg-white md:sticky md:inset-x-auto md:bottom-auto md:top-0 md:h-screen md:w-20 md:shrink-0 md:flex-col md:border-r md:border-t-0`}
+        className={`${isCassaTab ? "hidden md:flex" : "flex"} z-40 border-b border-border bg-white md:sticky md:top-0 md:h-screen md:w-72 md:shrink-0 md:flex-col md:border-b-0 md:border-r`}
       >
-        <div className="hidden h-16 items-center justify-center border-b border-border md:flex">
-          <button
-            type="button"
-            onClick={() => firstAllowedTarget && setActiveTarget(firstAllowedTarget.area, firstAllowedTarget.tab)}
-            className="flex h-11 w-11 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/10"
-            title="M Medical"
-            aria-label="M Medical"
-          >
-            <span className="text-3xl font-black leading-none">+</span>
-          </button>
-        </div>
+        <div className="flex w-full flex-col">
+          <div className="border-b border-border px-5 py-4">
+            <button
+              type="button"
+              onClick={() => firstAllowedTarget && setActiveTarget(firstAllowedTarget.area, firstAllowedTarget.tab)}
+              className="flex w-full items-center gap-3 rounded-md text-left"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary text-2xl font-black leading-none text-white">
+                +
+              </span>
+              <span className="min-w-0">
+                <span className="block text-lg font-semibold leading-tight text-primary">M Medical</span>
+                <span className="block truncate text-xs text-muted-foreground">Gestionale operativo</span>
+              </span>
+            </button>
+          </div>
 
-        <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-2 md:flex-col md:items-center md:overflow-y-auto md:overflow-x-hidden md:py-4" aria-label="Menu principale">
-          {[...railMainItems, ...railSecondaryItems].map(({ key, label, Icon, active, onClick }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={onClick}
-              aria-current={active ? "page" : undefined}
-              title={label}
-              aria-label={label}
-              className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-md transition-colors ${
-                active
-                  ? "bg-primary/10 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.14)]"
-                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-              }`}
-            >
-              {active && <span className="absolute left-0 hidden h-7 w-0.5 rounded-r bg-primary md:block" />}
-              <Icon className="h-5 w-5" />
-            </button>
-          ))}
-        </nav>
+          <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4" aria-label="Menu principale">
+            {visibleMenuGroups.map((group) => {
+              const GroupIcon = group.Icon;
+              const isCurrentGroup = isAreaScopedTab && activeArea === group.id;
 
-        <div className="hidden border-t border-border px-2 py-3 md:block">
-          <div className="space-y-1">
-            <button
-              type="button"
-              onClick={() => navigate("/")}
-              title="Portale pazienti"
-              aria-label="Portale pazienti"
-              className="flex h-11 w-full items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              title="Notifiche"
-              aria-label="Notifiche"
-              className="relative flex h-11 w-full items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-            >
-              <Bell className="h-5 w-5" />
-              <span className="absolute right-2 top-1.5 rounded-full bg-destructive px-1 text-[10px] font-bold leading-4 text-white">9+</span>
-            </button>
-            <button
-              type="button"
-              title="Aiuto"
-              aria-label="Aiuto"
-              className="flex h-11 w-full items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-            >
-              <CircleHelp className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              onClick={onLogout}
-              title={`Esci · ${roleLabel}`}
-              aria-label="Esci"
-              className="flex h-11 w-full items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-red-50 hover:text-destructive"
-            >
-              <LogOut className="h-5 w-5" />
-            </button>
+              return (
+                <section key={group.id} className="space-y-2">
+                  <div
+                    className={`flex items-center gap-3 rounded-md px-3 py-2 ${
+                      isCurrentGroup ? "bg-primary/10 text-primary" : "text-foreground"
+                    }`}
+                  >
+                    <div
+                      className={`flex h-8 w-8 items-center justify-center rounded-md border ${
+                        isCurrentGroup ? "border-primary/20 bg-primary/10" : "border-border bg-slate-50"
+                      }`}
+                    >
+                      <GroupIcon className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold leading-tight">{group.label}</p>
+                      <p className="text-xs leading-tight text-muted-foreground">{group.subtitle}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 pl-2">
+                    {group.items.map((item) => {
+                      const ItemIcon = item.Icon;
+                      const isActive = isAreaScopedTab && activeArea === group.id && activeTab === item.id;
+
+                      return (
+                        <button
+                          key={`${group.id}-${item.id}`}
+                          type="button"
+                          onClick={() => setActiveTarget(group.id, item.id)}
+                          aria-current={isActive ? "page" : undefined}
+                          className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
+                            isActive
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "text-muted-foreground hover:bg-slate-100 hover:text-foreground"
+                          }`}
+                        >
+                          <ItemIcon className="h-4 w-4 shrink-0" />
+                          <span className="truncate">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+
+            {can("infortunistica") && (
+              <section className="space-y-2 border-t border-border pt-4">
+                <button
+                  type="button"
+                  onClick={() => setActiveTarget(activeArea, "infortunistica")}
+                  aria-current={activeTab === "infortunistica" ? "page" : undefined}
+                  className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
+                    activeTab === "infortunistica"
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-slate-100 hover:text-foreground"
+                  }`}
+                >
+                  <Car className="h-4 w-4 shrink-0" />
+                  <span>Infortunistica stradale</span>
+                </button>
+              </section>
+            )}
+          </nav>
+
+          <div className="border-t border-border px-5 py-4">
+            {can("anagrafiche") && (
+              <button
+                type="button"
+                onClick={() => setActiveTarget(activeArea, "anagrafiche")}
+                aria-current={activeTab === "anagrafiche" ? "page" : undefined}
+                className={`mb-2 flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
+                  activeTab === "anagrafiche"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-slate-100 hover:text-foreground"
+                }`}
+              >
+                <Users className="h-4 w-4 shrink-0" />
+                <span>Anagrafiche</span>
+              </button>
+            )}
+
+            {(can("impostazioni") || can("utenti")) && (
+              <div className="mb-4 space-y-2">
+                {can("impostazioni") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettingsTarget({ tab: "prestazioni", medicoId: null, key: Date.now() });
+                      setActiveTarget(activeArea, "impostazioni");
+                    }}
+                    aria-current={activeTab === "impostazioni" ? "page" : undefined}
+                    className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
+                      activeTab === "impostazioni"
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:bg-slate-100 hover:text-foreground"
+                    }`}
+                  >
+                    <Settings className="h-4 w-4 shrink-0" />
+                    <span>Impostazioni</span>
+                  </button>
+                )}
+                {can("utenti") && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTarget(activeArea, "utenti")}
+                    aria-current={activeTab === "utenti" ? "page" : undefined}
+                    className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
+                      activeTab === "utenti"
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:bg-slate-100 hover:text-foreground"
+                    }`}
+                  >
+                    <KeyRound className="h-4 w-4 shrink-0" />
+                    <span>Utenti</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-2 border-t border-border pt-4">
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Operatore</p>
+                <p className="truncate text-sm font-medium text-foreground">{roleLabel}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button variant="ghost" size="icon" onClick={() => navigate("/")} title="Portale pazienti">
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" title="Notifiche">
+                  <Bell className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" title="Aiuto">
+                  <CircleHelp className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={onLogout} className="hover:bg-red-50 hover:text-destructive" title="Esci">
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       </aside>
