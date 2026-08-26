@@ -213,6 +213,9 @@ type WaitlistItem = {
   id: string;
   area: AreaId;
   sede: SedeId;
+  cercaDal?: string;
+  giorniPreferiti?: string[];
+  periodoOrario?: PeriodoOrarioDisponibile;
   medicoId?: string;
   prestazioneId?: string;
   prestazioneNome?: string;
@@ -229,6 +232,9 @@ type WaitlistItem = {
 type WaitlistDraft = {
   area: AreaId;
   sede: SedeId;
+  cercaDal: string;
+  giorniPreferiti: string[];
+  periodoOrario: PeriodoOrarioDisponibile;
   medicoId: string;
   prestazioneId: string;
   prestazioneNome: string;
@@ -918,6 +924,9 @@ const nomePazienteAgenda = (paziente: PazienteAgenda) =>
 const creaWaitlistDraftVuoto = (area: AreaId): WaitlistDraft => ({
   area,
   sede: "tutte",
+  cercaDal: dateKey(todayAgendaDate()),
+  giorniPreferiti: GIORNI_AGENDA,
+  periodoOrario: "tutto",
   medicoId: "tutti",
   prestazioneId: "",
   prestazioneNome: "",
@@ -1873,11 +1882,17 @@ export function AdminBookingCalendar({
       ? null
       : new Set([listaAttesaDraft.medicoId]);
     const doctors = mediciCompatibiliListaAttesa.filter((medico) => !doctorIds || doctorIds.has(medico.id));
-    const startDate = currentDate < todayAgendaDate() ? todayAgendaDate() : currentDate;
+    const requestedStartDate = /^\d{4}-\d{2}-\d{2}$/.test(listaAttesaDraft.cercaDal)
+      ? new Date(`${listaAttesaDraft.cercaDal}T12:00:00`)
+      : currentDate;
+    const today = todayAgendaDate();
+    const startDate = requestedStartDate < today ? today : requestedStartDate;
     const slots: WaitlistSlot[] = [];
 
     for (let dayOffset = 0; dayOffset < 30 && slots.length < 18; dayOffset += 1) {
       const date = addDays(startDate, dayOffset);
+      const giorno = GIORNO_DA_DATE[date.getDay()];
+      if (!listaAttesaDraft.giorniPreferiti.includes(giorno)) continue;
       doctors.forEach((doctor) => {
         if (slots.length >= 18) return;
         const prestazione = prestazioniDisponibili.find((item) => item.id === listaAttesaDraft.prestazioneId);
@@ -1890,7 +1905,7 @@ export function AdminBookingCalendar({
           date,
           listaAttesaDraft.sede,
           prenotazioniAgenda,
-          periodoOrario,
+          listaAttesaDraft.periodoOrario,
         ).filter((slot) => !slot.occupato);
 
         doctorSlots.slice(0, 3).forEach((slot) => {
@@ -1910,11 +1925,13 @@ export function AdminBookingCalendar({
     return slots;
   }, [
     currentDate,
+    listaAttesaDraft.cercaDal,
+    listaAttesaDraft.giorniPreferiti,
     listaAttesaDraft.medicoId,
+    listaAttesaDraft.periodoOrario,
     listaAttesaDraft.prestazioneId,
     listaAttesaDraft.sede,
     mediciCompatibiliListaAttesa,
-    periodoOrario,
     prenotazioniAgenda,
     prestazioniDisponibili,
     settingsAgenda,
@@ -2088,6 +2105,9 @@ export function AdminBookingCalendar({
         id: `wait-${Date.now()}`,
         area: listaAttesaDraft.area,
         sede: listaAttesaDraft.sede,
+        cercaDal: listaAttesaDraft.cercaDal,
+        giorniPreferiti: listaAttesaDraft.giorniPreferiti,
+        periodoOrario: listaAttesaDraft.periodoOrario,
         medicoId: listaAttesaDraft.medicoId === "tutti" ? undefined : listaAttesaDraft.medicoId,
         prestazioneId: listaAttesaDraft.prestazioneId || undefined,
         prestazioneNome: prestazioneNome || examNames.join(", "),
@@ -2110,7 +2130,7 @@ export function AdminBookingCalendar({
 
       setListaAttesa((current) => [item, ...current.filter((existing) => existing.id !== item.id)]);
       setListaAttesaDraft(creaWaitlistDraftVuoto(area));
-      toast({ title: "Notifica", description: "Richiesta inserita in lista d'attesa." });
+      toast({ title: "Notifica", description: "Paziente messo in attesa per essere richiamato." });
     } catch (error) {
       toast({
         title: "Attenzione",
@@ -2130,6 +2150,10 @@ export function AdminBookingCalendar({
     setListaAttesaDraft({
       ...creaWaitlistDraftVuoto(item.area),
       sede: item.sede,
+      cercaDal: item.cercaDal && /^\d{4}-\d{2}-\d{2}$/.test(item.cercaDal) ? item.cercaDal : dateKey(todayAgendaDate()),
+      giorniPreferiti: item.giorniPreferiti?.filter((giorno) => GIORNI_AGENDA.includes(giorno)) ?? GIORNI_AGENDA,
+      periodoOrario:
+        item.periodoOrario === "mattina" || item.periodoOrario === "pomeriggio" ? item.periodoOrario : "tutto",
       medicoId: item.medicoId ?? "tutti",
       prestazioneId: item.prestazioneId ?? "",
       prestazioneNome: item.prestazioneNome ?? "",
@@ -2163,6 +2187,17 @@ export function AdminBookingCalendar({
       });
     }
   };
+
+  const apriRicercaNuovoAppuntamento = React.useCallback(() => {
+    const today = todayAgendaDate();
+    const dataIniziale = currentDate < today ? today : currentDate;
+    setListaAttesaDraft({
+      ...creaWaitlistDraftVuoto(area),
+      sede,
+      cercaDal: dateKey(dataIniziale),
+    });
+    setListaAttesaOpen(true);
+  }, [area, currentDate, sede]);
 
   const salvaNuovoAppuntamento = async () => {
     if (!appuntamentoDraft || !medicoAppuntamento) return;
@@ -2698,16 +2733,16 @@ export function AdminBookingCalendar({
             <div className="space-y-2 border-t border-border pt-4">
               <button
                 type="button"
-                onClick={() => setListaAttesaOpen(true)}
+                onClick={apriRicercaNuovoAppuntamento}
                 className="flex h-9 w-full items-center justify-between gap-3 rounded-md px-2 text-sm font-medium text-primary hover:bg-white"
               >
                 <span className="flex items-center gap-3">
-                  <ClipboardList className="h-4 w-4" />
-                  Lista d'attesa
+                  <Plus className="h-4 w-4" />
+                  Nuovo appuntamento
                 </span>
                 {listaAttesaFiltrata.length > 0 && (
                   <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                    {listaAttesaFiltrata.length}
+                    {listaAttesaFiltrata.length} attesa
                   </Badge>
                 )}
               </button>
@@ -2974,6 +3009,10 @@ export function AdminBookingCalendar({
               <Button type="button" variant="outline" size="icon" onClick={() => apriListaLavoro(currentDate)} aria-label="Stampa lista lavoro">
                 <Printer className="h-4 w-4" />
               </Button>
+              <Button type="button" onClick={apriRicercaNuovoAppuntamento} className="gap-2">
+                <Plus className="h-4 w-4" />
+                Nuovo appuntamento
+              </Button>
               <Select value={view} onValueChange={(value: CalendarView) => setView(value)}>
                 <SelectTrigger className="w-[120px]">
                   <SelectValue />
@@ -3024,20 +3063,24 @@ export function AdminBookingCalendar({
       <Dialog open={listaAttesaOpen} onOpenChange={setListaAttesaOpen}>
         <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Lista d'attesa</DialogTitle>
+            <DialogTitle>Nuovo appuntamento</DialogTitle>
             <DialogDescription>
-              Registra i pazienti senza appuntamento e controlla subito le disponibilita dei medici.
+              Cerca subito lo slot giusto; se non trovi un orario adatto, salva il paziente tra le richieste in attesa.
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
             <section className="space-y-3">
+              <div>
+                <h3 className="text-base font-semibold text-foreground">Richieste in attesa</h3>
+                <p className="text-sm text-muted-foreground">Pazienti da richiamare appena trovi disponibilita.</p>
+              </div>
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={listaAttesaSearch}
                   onChange={(event) => setListaAttesaSearch(event.target.value)}
-                  placeholder="Cerca in lista d'attesa..."
+                  placeholder="Cerca tra le richieste in attesa..."
                   className="pl-9"
                 />
               </div>
@@ -3053,6 +3096,10 @@ export function AdminBookingCalendar({
                     const examNames = labExams
                       .filter((exam) => item.labExamIds.includes(exam.id))
                       .map((exam) => exam.descrizione);
+                    const cercaDalLabel =
+                      item.cercaDal && /^\d{4}-\d{2}-\d{2}$/.test(item.cercaDal)
+                        ? format(new Date(`${item.cercaDal}T12:00:00`), "dd/MM/yyyy", { locale: it })
+                        : "prima possibile";
                     return (
                       <article key={item.id} className="rounded-md border border-border bg-white p-3 shadow-sm">
                         <div className="flex items-start justify-between gap-3">
@@ -3077,6 +3124,13 @@ export function AdminBookingCalendar({
                           {item.prestazioneNome || examNames.join(", ") || "Richiesta"}
                         </p>
                         {medico && <p className="mt-1 text-xs text-muted-foreground">Medico preferito: {medico.nome}</p>}
+                        {(item.cercaDal || item.giorniPreferiti?.length || item.periodoOrario) && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Disponibilita: dal {cercaDalLabel}
+                            {item.giorniPreferiti?.length ? ` · ${item.giorniPreferiti.join(", ")}` : ""}
+                            {item.periodoOrario && item.periodoOrario !== "tutto" ? ` · ${item.periodoOrario}` : ""}
+                          </p>
+                        )}
                         {item.note && <p className="mt-2 text-xs text-muted-foreground">Note: {item.note}</p>}
                         <div className="mt-3">
                           <Button
@@ -3098,9 +3152,9 @@ export function AdminBookingCalendar({
 
             <section className="space-y-4 rounded-md border border-border bg-muted/20 p-4">
               <div>
-                <h3 className="text-base font-semibold text-foreground">Nuova richiesta</h3>
+                <h3 className="text-base font-semibold text-foreground">Cerca appuntamento</h3>
                 <p className="text-sm text-muted-foreground">
-                  Inserisci paziente e richiesta; se non trovi uno slot, salvala in lista d'attesa.
+                  Parti sempre dalla prenotazione: paziente, richiesta, disponibilita e slot.
                 </p>
               </div>
 
@@ -3161,6 +3215,79 @@ export function AdminBookingCalendar({
                     </SelectContent>
                   </Select>
                 </Field>
+              </div>
+
+              <div className="space-y-3 rounded-md border border-border bg-white p-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Disponibilita paziente</p>
+                  <p className="text-xs text-muted-foreground">Usale per cercare solo gli slot realmente proponibili.</p>
+                </div>
+                <div className="grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)_260px]">
+                  <Field label="Cerca dal">
+                    <Input
+                      type="date"
+                      value={listaAttesaDraft.cercaDal}
+                      onChange={(event) =>
+                        setListaAttesaDraft((current) => ({ ...current, cercaDal: event.target.value }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Giorni possibili">
+                    <div className="grid grid-cols-7 gap-1">
+                      {GIORNI_PREFERITI.map((giorno) => {
+                        const attivo = listaAttesaDraft.giorniPreferiti.includes(giorno.id);
+                        return (
+                          <button
+                            key={giorno.id}
+                            type="button"
+                            onClick={() =>
+                              setListaAttesaDraft((current) => ({
+                                ...current,
+                                giorniPreferiti: attivo
+                                  ? current.giorniPreferiti.filter((item) => item !== giorno.id)
+                                  : [...current.giorniPreferiti, giorno.id],
+                              }))
+                            }
+                            className={`h-9 rounded-md border text-sm font-semibold transition-colors ${
+                              attivo
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border bg-white text-muted-foreground hover:bg-muted"
+                            }`}
+                          >
+                            {giorno.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Field>
+                  <Field label="Fascia oraria">
+                    <div className="grid grid-cols-3 overflow-hidden rounded-md border border-border bg-white">
+                      {[
+                        ["tutto", "Tutti"],
+                        ["mattina", "Mattina"],
+                        ["pomeriggio", "Pomeriggio"],
+                      ].map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() =>
+                            setListaAttesaDraft((current) => ({
+                              ...current,
+                              periodoOrario: value as PeriodoOrarioDisponibile,
+                            }))
+                          }
+                          className={`h-10 border-r border-border px-2 text-sm last:border-r-0 ${
+                            listaAttesaDraft.periodoOrario === value
+                              ? "bg-primary text-primary-foreground"
+                              : "text-foreground hover:bg-muted"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                </div>
               </div>
 
               <div className="space-y-3 rounded-md border border-border bg-white p-3">
@@ -3356,11 +3483,11 @@ export function AdminBookingCalendar({
                 </div>
               )}
 
-              <Field label="Note richiesta">
+              <Field label="Note e preferenze">
                 <Textarea
                   value={listaAttesaDraft.richiestaNote}
                   onChange={(event) => setListaAttesaDraft((current) => ({ ...current, richiestaNote: event.target.value }))}
-                  placeholder="Es. chiamare se si libera un posto il venerdi pomeriggio..."
+                  placeholder="Es. puo venire solo dopo le 17, preferisce Modena, richiamare se si libera prima..."
                   className="min-h-20"
                 />
               </Field>
@@ -3368,14 +3495,14 @@ export function AdminBookingCalendar({
               <div className="rounded-md border border-border bg-white p-3">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-foreground">Prime disponibilita</p>
-                    <p className="text-xs text-muted-foreground">Calcolate sui prossimi 30 giorni con i filtri attuali.</p>
+                    <p className="text-sm font-semibold text-foreground">Slot disponibili</p>
+                    <p className="text-xs text-muted-foreground">Calcolati sui prossimi 30 giorni con richiesta e disponibilita paziente.</p>
                   </div>
                   <Badge variant="outline">{slotListaAttesa.length} slot</Badge>
                 </div>
                 {slotListaAttesa.length === 0 ? (
                   <p className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-                    Nessuno slot disponibile. Salva la richiesta in lista d'attesa e ricontatta il paziente quando riapri disponibilita.
+                    Nessuno slot disponibile con questi vincoli. Metti il paziente in attesa e richiamalo appena si libera spazio.
                   </p>
                 ) : (
                   <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -3416,7 +3543,7 @@ export function AdminBookingCalendar({
               className="gap-2"
             >
               <ClipboardList className="h-4 w-4" />
-              {salvataggioListaAttesa ? "Salvo..." : "Metti in lista d'attesa"}
+              {salvataggioListaAttesa ? "Salvo..." : "Nessuno slot adatto: metti in attesa"}
             </Button>
           </DialogFooter>
         </DialogContent>
