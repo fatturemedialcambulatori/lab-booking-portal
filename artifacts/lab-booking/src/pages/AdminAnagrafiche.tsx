@@ -15,6 +15,14 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -573,120 +581,127 @@ export function AdminAnagrafiche() {
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="space-y-2">
-            {visiblePatients.map((p) => {
-              const linkedConventions = (p.linkedConventionIds ?? [])
-                .map((id) => conventionOptions.find((convenzione) => convenzione.id === id))
-                .filter(Boolean) as Patient[];
+          <div className="overflow-hidden rounded-lg border border-border bg-white shadow-sm">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cognome e nome</TableHead>
+                  <TableHead>Indirizzo mail</TableHead>
+                  <TableHead>Telefono</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Convenzione</TableHead>
+                  <TableHead className="w-[170px] text-right">Azioni</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visiblePatients.map((p) => {
+                  const linkedConventions = (p.linkedConventionIds ?? [])
+                    .map((id) => conventionOptions.find((convenzione) => convenzione.id === id))
+                    .filter(Boolean) as Patient[];
+                  const isOrganization = Boolean(p.recordType && p.recordType !== "privato");
 
-              return (
-                <div
-                  key={p.id}
-                  className="rounded-xl border bg-card shadow-sm px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4"
-                >
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className="h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center font-bold text-sm text-primary flex-shrink-0">
-                    {patientInitials(p)}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold text-foreground">{patientDisplayName(p)}</p>
-                      <Badge variant={p.recordType && p.recordType !== "privato" ? "secondary" : "outline"} className="text-xs">
-                        {recordTypeLabel(p.recordType)}
-                      </Badge>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-xs text-muted-foreground">
-                      {(!p.recordType || p.recordType === "privato") ? (
-                        <span className="flex items-center gap-1">
-                          <CalendarDays className="h-3 w-3" />
-                          Nato il {p.dateOfBirth}
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1">
-                          <Building2 className="h-3 w-3" />
-                          {p.vatNumber ? `P.IVA/C.F. ${p.vatNumber}` : "P.IVA/C.F. non presente"}
-                        </span>
-                      )}
-                      <span className="flex items-center gap-1">
-                        <Phone className="h-3 w-3" />
-                        {p.phone || "Telefono non presente"}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Mail className="h-3 w-3" />
-                        {p.email || "Email non presente"}
-                      </span>
-                    </div>
-                    {p.recordType && p.recordType !== "privato" && (
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                        <span className="text-muted-foreground">
-                          Referente: {p.contactPerson || `${p.firstName} ${p.lastName}`.trim() || "non indicato"}
-                        </span>
-                        <Badge
-                          variant={p.conventionActive ? "secondary" : "outline"}
-                          className={isConventionExpiring(p) ? "border-amber-300 bg-amber-50 text-amber-900" : ""}
-                        >
-                          {conventionLabel(p)}
-                        </Badge>
-                        <Badge variant="outline">
-                          {(p.conventionServices ?? []).length} prestazioni
-                        </Badge>
-                      </div>
-                    )}
-                    {(!p.recordType || p.recordType === "privato") && linkedConventions.length > 0 && (
-                      <div className="mt-1 flex flex-wrap gap-1.5">
-                        {linkedConventions.map((convenzione) => (
-                          <Badge key={convenzione.id} variant="secondary" className="gap-1 text-xs">
-                            <Link2 className="h-3 w-3" />
-                            {patientDisplayName(convenzione)}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                    {p.notes && (
-                      <p className="text-xs text-muted-foreground italic mt-0.5">"{p.notes}"</p>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <Badge variant="outline" className="text-xs">#{p.id}</Badge>
-                  {p.recordType && p.recordType !== "privato" && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1.5"
-                      onClick={() => setSchedaPatient(p)}
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                      Scheda
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5"
-                    onClick={() => {
-                      setEditPatient({
-                        id: p.id,
-                        form: patientToForm(p),
-                      });
-                      setFormError(null);
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                    Modifica
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/5"
-                    onClick={() => setDeleteConfirmId(p.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-              );
-            })}
+                  return (
+                    <TableRow key={p.id}>
+                      <TableCell className="min-w-[280px]">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                            {patientInitials(p)}
+                          </div>
+                          <div className="min-w-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isOrganization) {
+                                  setSchedaPatient(p);
+                                  return;
+                                }
+                                setEditPatient({ id: p.id, form: patientToForm(p) });
+                                setFormError(null);
+                              }}
+                              className="block truncate text-left font-semibold text-foreground hover:text-primary"
+                            >
+                              {patientDisplayName(p)}
+                            </button>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {isOrganization
+                                ? p.vatNumber ? `P.IVA/C.F. ${p.vatNumber}` : "P.IVA/C.F. non presente"
+                                : `Nato il ${p.dateOfBirth}`}
+                            </p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="min-w-[240px]">
+                        {p.email ? (
+                          <span className="text-foreground">{p.email}</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-primary">
+                            <Mail className="h-3.5 w-3.5" />
+                            Aggiungi email
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="min-w-[160px]">{p.phone || "-"}</TableCell>
+                      <TableCell>
+                        <Badge variant={isOrganization ? "secondary" : "outline"}>{recordTypeLabel(p.recordType)}</Badge>
+                      </TableCell>
+                      <TableCell className="min-w-[230px]">
+                        {isOrganization ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            <Badge
+                              variant={p.conventionActive ? "secondary" : "outline"}
+                              className={isConventionExpiring(p) ? "border-amber-300 bg-amber-50 text-amber-900" : ""}
+                            >
+                              {conventionLabel(p)}
+                            </Badge>
+                            <Badge variant="outline">{(p.conventionServices ?? []).length} prestazioni</Badge>
+                          </div>
+                        ) : linkedConventions.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {linkedConventions.slice(0, 2).map((convenzione) => (
+                              <Badge key={convenzione.id} variant="secondary" className="gap-1">
+                                <Link2 className="h-3 w-3" />
+                                {patientDisplayName(convenzione)}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex justify-end gap-1.5">
+                          {isOrganization && (
+                            <Button size="icon" variant="ghost" onClick={() => setSchedaPatient(p)} title="Scheda">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          )}
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => {
+                              setEditPatient({ id: p.id, form: patientToForm(p) });
+                              setFormError(null);
+                            }}
+                            title="Modifica"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => setDeleteConfirmId(p.id)}
+                            title="Elimina"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           </div>
 
           <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">

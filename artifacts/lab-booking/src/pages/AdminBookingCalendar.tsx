@@ -2659,9 +2659,9 @@ export function AdminBookingCalendar({
       : `${areaLabel} · ${sedeLabel} · ${prenotazioniFiltrate.length} appuntamenti`;
 
   return (
-    <div className="overflow-hidden rounded-md border border-border bg-white shadow-sm">
-      <div className="grid min-h-[760px] lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="border-b border-border bg-[#f7faf8] lg:border-b-0 lg:border-r">
+    <div className="h-[calc(100vh-4rem)] overflow-hidden bg-white md:h-screen">
+      <div className="grid h-full lg:grid-cols-[310px_minmax(0,1fr)]">
+        <aside className="min-h-0 overflow-y-auto border-b border-border bg-[#f6f8f7] lg:border-b-0 lg:border-r">
           <div className="space-y-5 p-4">
             <div className="flex items-center justify-between">
               <Button

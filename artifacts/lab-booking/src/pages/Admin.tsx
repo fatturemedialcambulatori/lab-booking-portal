@@ -3,8 +3,10 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
+  Bell,
   CalendarDays,
   Car,
+  CircleHelp,
   FlaskConical,
   LogOut,
   Settings,
@@ -352,192 +354,161 @@ function AdminDashboard({
   const settingsSaveButtonClass = settingsSaveEnabled
     ? "gap-2 border-slate-950 bg-slate-950 text-white hover:bg-slate-900 hover:text-white"
     : "gap-2 cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 opacity-100 hover:bg-slate-100 hover:text-slate-400 disabled:opacity-100";
+  const railMainItems = visibleMenuGroups.flatMap((group) =>
+    group.items.map((item) => ({
+      key: `${group.id}-${item.id}`,
+      label: `${group.label} · ${item.label}`,
+      Icon: item.Icon,
+      active: isAreaScopedTab && activeArea === group.id && activeTab === item.id,
+      onClick: () => setActiveTarget(group.id, item.id),
+    })),
+  );
+  const railSecondaryItems = [
+    can("anagrafiche")
+      ? {
+          key: "anagrafiche",
+          label: "Anagrafiche",
+          Icon: Users,
+          active: activeTab === "anagrafiche",
+          onClick: () => setActiveTarget(activeArea, "anagrafiche"),
+        }
+      : null,
+    can("infortunistica")
+      ? {
+          key: "infortunistica",
+          label: "Infortunistica stradale",
+          Icon: Car,
+          active: activeTab === "infortunistica",
+          onClick: () => setActiveTarget(activeArea, "infortunistica"),
+        }
+      : null,
+    can("impostazioni")
+      ? {
+          key: "impostazioni",
+          label: "Impostazioni",
+          Icon: Settings,
+          active: activeTab === "impostazioni",
+          onClick: () => {
+            setSettingsTarget({ tab: "prestazioni", medicoId: null, key: Date.now() });
+            setActiveTarget(activeArea, "impostazioni");
+          },
+        }
+      : null,
+    can("utenti")
+      ? {
+          key: "utenti",
+          label: "Utenti",
+          Icon: KeyRound,
+          active: activeTab === "utenti",
+          onClick: () => setActiveTarget(activeArea, "utenti"),
+        }
+      : null,
+  ].filter((item): item is {
+    key: string;
+    label: string;
+    Icon: LucideIcon;
+    active: boolean;
+    onClick: () => void;
+  } => Boolean(item));
 
   return (
-    <div className="min-h-screen bg-background text-foreground lg:flex">
-      <aside className={`${isCassaTab ? "hidden lg:block" : ""} bg-white border-b border-border lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:shrink-0 lg:border-b-0 lg:border-r`}>
-        <div className="flex h-full flex-col">
-          <div className="border-b border-border px-5 py-5">
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-md bg-primary flex items-center justify-center">
-                <span className="text-white font-bold text-xl leading-none">+</span>
-              </div>
-              <div className="min-w-0">
-                <span className="block text-lg font-semibold leading-none text-primary">M Medical</span>
-                <span className="mt-1 block text-xs text-muted-foreground">Gestionale operativo</span>
-              </div>
-            </div>
-          </div>
+    <div className="min-h-screen bg-background text-foreground md:flex">
+      <aside
+        className={`${isCassaTab ? "hidden md:flex" : "flex"} fixed inset-x-0 bottom-0 z-40 h-16 border-t border-border bg-white md:sticky md:inset-x-auto md:bottom-auto md:top-0 md:h-screen md:w-20 md:shrink-0 md:flex-col md:border-r md:border-t-0`}
+      >
+        <div className="hidden h-16 items-center justify-center border-b border-border md:flex">
+          <button
+            type="button"
+            onClick={() => firstAllowedTarget && setActiveTarget(firstAllowedTarget.area, firstAllowedTarget.tab)}
+            className="flex h-11 w-11 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/10"
+            title="M Medical"
+            aria-label="M Medical"
+          >
+            <span className="text-3xl font-black leading-none">+</span>
+          </button>
+        </div>
 
-          <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4" aria-label="Menu principale">
-            {visibleMenuGroups.map((group) => {
-              const GroupIcon = group.Icon;
-              const isCurrentGroup = isAreaScopedTab && activeArea === group.id;
+        <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-2 md:flex-col md:items-center md:overflow-y-auto md:overflow-x-hidden md:py-4" aria-label="Menu principale">
+          {[...railMainItems, ...railSecondaryItems].map(({ key, label, Icon, active, onClick }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={onClick}
+              aria-current={active ? "page" : undefined}
+              title={label}
+              aria-label={label}
+              className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-md transition-colors ${
+                active
+                  ? "bg-primary/10 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.14)]"
+                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+              }`}
+            >
+              {active && <span className="absolute left-0 hidden h-7 w-0.5 rounded-r bg-primary md:block" />}
+              <Icon className="h-5 w-5" />
+            </button>
+          ))}
+        </nav>
 
-              return (
-                <section key={group.id} className="space-y-2">
-                  <div
-                    className={`flex items-center gap-3 rounded-md px-3 py-2 ${
-                      isCurrentGroup ? "bg-primary/10 text-primary" : "text-foreground"
-                    }`}
-                  >
-                    <div
-                      className={`flex h-8 w-8 items-center justify-center rounded-md border ${
-                        isCurrentGroup ? "border-primary/25 bg-primary/10" : "border-border bg-muted/40"
-                      }`}
-                    >
-                      <GroupIcon className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold leading-tight">{group.label}</p>
-                      <p className="text-xs leading-tight text-muted-foreground">{group.subtitle}</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1 pl-2">
-                    {group.items.map((item) => {
-                      const ItemIcon = item.Icon;
-                      const isActive = isAreaScopedTab && activeArea === group.id && activeTab === item.id;
-
-                      return (
-                        <button
-                          key={`${group.id}-${item.id}`}
-                          type="button"
-                          onClick={() => setActiveTarget(group.id, item.id)}
-                          aria-current={isActive ? "page" : undefined}
-                          className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
-                            isActive
-                              ? "bg-primary text-primary-foreground shadow-sm"
-                              : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                          }`}
-                        >
-                          <ItemIcon className="h-4 w-4 shrink-0" />
-                          <span className="truncate">{item.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-              );
-            })}
-            {can("infortunistica") && (
-              <section className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setActiveTarget(activeArea, "infortunistica")}
-                  aria-current={activeTab === "infortunistica" ? "page" : undefined}
-                  className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
-                    activeTab === "infortunistica"
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <Car className="h-4 w-4 shrink-0" />
-                  <span>Infortunistica stradale</span>
-                </button>
-              </section>
-            )}
-          </nav>
-
-          <div className="border-t border-border px-5 py-4">
-            {can("anagrafiche") && (
-              <button
-                type="button"
-                onClick={() => setActiveTarget(activeArea, "anagrafiche")}
-                aria-current={activeTab === "anagrafiche" ? "page" : undefined}
-                className={`mb-2 flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
-                  activeTab === "anagrafiche"
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <Users className="h-4 w-4 shrink-0" />
-                <span>Anagrafiche</span>
-              </button>
-            )}
-            {(can("impostazioni") || can("utenti")) && (
-              <div className="mb-4 space-y-2">
-                {can("impostazioni") && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSettingsTarget({ tab: "prestazioni", medicoId: null, key: Date.now() });
-                    setActiveTarget(activeArea, "impostazioni");
-                  }}
-                  aria-current={activeTab === "impostazioni" ? "page" : undefined}
-                  className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
-                    activeTab === "impostazioni"
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <Settings className="h-4 w-4 shrink-0" />
-                  <span>Impostazioni</span>
-                </button>
-                )}
-                {can("utenti") && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTarget(activeArea, "utenti")}
-                  aria-current={activeTab === "utenti" ? "page" : undefined}
-                  className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
-                    activeTab === "utenti"
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <KeyRound className="h-4 w-4 shrink-0" />
-                  <span>Utenti</span>
-                </button>
-                )}
-              </div>
-            )}
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Operatore</p>
-            <p className="mt-1 text-sm font-medium text-foreground">{roleLabel}</p>
+        <div className="hidden border-t border-border px-2 py-3 md:block">
+          <div className="space-y-1">
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              title="Portale pazienti"
+              aria-label="Portale pazienti"
+              className="flex h-11 w-full items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              title="Notifiche"
+              aria-label="Notifiche"
+              className="relative flex h-11 w-full items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+            >
+              <Bell className="h-5 w-5" />
+              <span className="absolute right-2 top-1.5 rounded-full bg-destructive px-1 text-[10px] font-bold leading-4 text-white">9+</span>
+            </button>
+            <button
+              type="button"
+              title="Aiuto"
+              aria-label="Aiuto"
+              className="flex h-11 w-full items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+            >
+              <CircleHelp className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={onLogout}
+              title={`Esci · ${roleLabel}`}
+              aria-label="Esci"
+              className="flex h-11 w-full items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-red-50 hover:text-destructive"
+            >
+              <LogOut className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 border-b border-border bg-white/95 shadow-sm backdrop-blur">
-          <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3 px-4 py-4 sm:px-6">
-            <div className="min-w-0">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Gestionale M Medical</p>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-semibold leading-tight text-foreground">{activeSectionLabel}</h1>
-                <span className="text-muted-foreground">/</span>
-                <span className="text-sm font-medium text-primary">{activeItem.label}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {showSettingsSave && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => settingsSaveControl?.onSave()}
-                  disabled={!settingsSaveEnabled || settingsSaving}
-                  className={settingsSaveButtonClass}
-                >
-                  <Save className={`h-3.5 w-3.5 ${settingsSaving ? "animate-pulse" : ""}`} />
-                  {settingsSaving ? "Salvo..." : "Salva"}
-                </Button>
-              )}
-              <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="gap-2 hidden sm:flex">
-                <ArrowLeft className="h-3.5 w-3.5" />
-                Portale pazienti
-              </Button>
-              <Button variant="ghost" size="sm" onClick={onLogout} className="gap-2 text-muted-foreground hover:text-destructive">
-                <LogOut className="h-3.5 w-3.5" />
-                Esci
-              </Button>
-            </div>
+        {showSettingsSave && (
+          <div className="sticky top-0 z-30 flex justify-end border-b border-border bg-background/90 px-4 py-3 backdrop-blur md:px-8">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => settingsSaveControl?.onSave()}
+              disabled={!settingsSaveEnabled || settingsSaving}
+              className={settingsSaveButtonClass}
+            >
+              <Save className={`h-3.5 w-3.5 ${settingsSaving ? "animate-pulse" : ""}`} />
+              {settingsSaving ? "Salvo..." : "Salva"}
+            </Button>
           </div>
-        </header>
+        )}
 
-        <main className={`flex-1 ${isCassaTab ? "px-3 py-4 sm:px-6 sm:py-8" : "px-4 py-8 sm:px-6"}`}>
-          <div className="mx-auto max-w-[1600px]">
+        <main className={`flex-1 pb-20 md:pb-0 ${activeTab === "prenotazioni" ? "p-0" : isCassaTab ? "px-3 py-4 sm:px-6 sm:py-8" : "px-5 py-7 sm:px-8"}`}>
+          <div className={activeTab === "prenotazioni" ? "h-full" : "mx-auto max-w-[1560px]"}>
             {!firstAllowedTarget && (
               <div className="rounded-md border border-border bg-white p-6 text-sm text-muted-foreground">
                 Nessuna sezione abilitata per questo ruolo.

@@ -2627,20 +2627,158 @@ export function AdminSettings({
       : settingsSaveState === "saved"
         ? "w-fit border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
         : "w-fit border-amber-200 bg-amber-100 text-amber-700 hover:bg-amber-100";
+  const settingsQuickLinks = [
+    {
+      tab: "prestazioni" as SettingsTabId,
+      icon: <Stethoscope className="h-5 w-5" />,
+      title: "Prestazioni",
+      description: "Catalogo unico delle prestazioni erogate",
+      count: `${prestazioni.length} voci`,
+    },
+    {
+      tab: "medici" as SettingsTabId,
+      icon: <CalendarDays className="h-5 w-5" />,
+      title: "Medici e agende",
+      description: "Disponibilita, ferie, eccezioni e listini medico",
+      count: `${medici.length} medici`,
+    },
+    {
+      tab: "specialita" as SettingsTabId,
+      icon: <Tags className="h-5 w-5" />,
+      title: "Specialita",
+      description: "Gruppi clinici e prestazioni associate",
+      count: `${specialitaDisponibili.length} gruppi`,
+    },
+    {
+      tab: "convenzioni" as SettingsTabId,
+      icon: <FileText className="h-5 w-5" />,
+      title: "Convenzioni",
+      description: "Modelli base per aziende e societa sportive",
+      count: `${conventionTemplates.length} modelli`,
+    },
+  ];
+  const settingsFeatureCards = [
+    {
+      tab: "compensi" as SettingsTabId,
+      icon: <Euro className="h-6 w-6" />,
+      title: "Compensi medici",
+      description: "Calcola quote, netto studio e percentuali sui fatturati.",
+      action: "Apri compensi",
+    },
+    {
+      tab: "medici" as SettingsTabId,
+      icon: <Plane className="h-6 w-6" />,
+      title: "Piano ferie",
+      description: "Blocca giorni o periodi, anche diversi per sede.",
+      action: "Gestisci agende",
+    },
+    {
+      tab: "convenzioni" as SettingsTabId,
+      icon: <Percent className="h-6 w-6" />,
+      title: "Listini convenzionati",
+      description: "Prezzo finale o sconto percentuale per ogni prestazione.",
+      action: "Configura",
+    },
+  ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Impostazioni</h1>
+          <h1 className="mb-1 text-3xl font-semibold tracking-tight text-foreground">Impostazioni</h1>
           <p className="text-sm text-muted-foreground">
-            Configura prestazioni, specialita, medici, agende e listini del gestionale.
+            Configura il gestionale adattandolo alle esigenze del tuo centro.
           </p>
         </div>
         <Badge className={settingsBadgeClass}>
           {settingsBadgeLabel[settingsSaveState]}
         </Badge>
       </div>
+
+      <div className="flex flex-col gap-3 rounded-md border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-950 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">i</span>
+          <span className="font-medium">Prima imposta prestazioni, medici e disponibilita: l'agenda usa questi dati per generare gli slot.</span>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={() => setSettingsTab("medici")}>
+          Completa configurazione agende
+        </Button>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.85fr)]">
+        <section className="rounded-lg border border-border bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-foreground">Impostazioni generali</h2>
+          <div className="mt-5 grid gap-2">
+            {settingsQuickLinks.map((item) => (
+              <button
+                key={item.tab}
+                type="button"
+                onClick={() => setSettingsTab(item.tab)}
+                className={`flex items-center gap-4 rounded-md px-3 py-3 text-left transition-colors ${
+                  settingsTab === item.tab ? "bg-primary/10" : "hover:bg-slate-50"
+                }`}
+              >
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border bg-slate-50 text-slate-600">
+                  {item.icon}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-foreground">{item.title}</span>
+                  <span className="block text-sm text-muted-foreground">{item.description}</span>
+                </span>
+                <Badge variant="secondary">{item.count}</Badge>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-foreground">Operativita e comunicazioni</h2>
+          <div className="mt-5 grid gap-2">
+            {[
+              ["Domande per i pazienti", "Informazioni importanti durante prenotazione"],
+              ["Indicazioni per i pazienti", "Note da mostrare prima della prestazione"],
+              ["Messaggi", "Template e comunicazioni operative"],
+            ].map(([title, description]) => (
+              <div key={title} className="flex items-center gap-4 rounded-md px-3 py-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border bg-slate-50 text-slate-600">
+                  <FileText className="h-5 w-5" />
+                </span>
+                <span>
+                  <span className="block text-sm font-semibold text-foreground">{title}</span>
+                  <span className="block text-sm text-muted-foreground">{description}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <section>
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-foreground">Funzionalita operative</h2>
+          <p className="text-sm text-muted-foreground">Scorciatoie alle aree che governano listini, ferie e compensi.</p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {settingsFeatureCards.map((item) => (
+            <button
+              key={item.title}
+              type="button"
+              onClick={() => setSettingsTab(item.tab)}
+              className="min-h-44 rounded-lg border border-border bg-white p-5 text-left shadow-sm transition-colors hover:border-primary/35 hover:bg-primary/5"
+            >
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+                {item.icon}
+              </span>
+              <span className="mt-4 flex items-center gap-2">
+                <span className="text-base font-semibold text-foreground">{item.title}</span>
+                <Badge variant="secondary">Attivo</Badge>
+              </span>
+              <span className="mt-3 block text-sm leading-6 text-muted-foreground">{item.description}</span>
+              <span className="mt-4 block text-sm font-semibold text-primary">{item.action}</span>
+            </button>
+          ))}
+        </div>
+      </section>
 
       <input
         ref={importInputRef}
@@ -2655,7 +2793,7 @@ export function AdminSettings({
         onValueChange={(value) => setSettingsTab(value as SettingsTabId)}
         className="space-y-4"
       >
-        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-md">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-lg border border-border bg-white p-1 shadow-sm">
           <TabsTrigger value="specialita" className="gap-2">
             <Tags className="h-4 w-4" />
             Specialita
@@ -4802,10 +4940,10 @@ function SettingsPanel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-5 rounded-md border border-border bg-card p-5">
+    <section className="space-y-5 rounded-lg border border-border bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-primary/15 bg-primary/10 text-primary">
             {icon}
           </div>
           <div>
