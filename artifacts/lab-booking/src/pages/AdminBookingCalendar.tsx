@@ -168,6 +168,7 @@ type PrenotazioneAgenda = {
   durata: number;
   stato: StatoPrenotazione;
   overbooking?: boolean;
+  waitlistItemId?: string;
 };
 
 type PazienteAgenda = {
@@ -205,6 +206,7 @@ type NuovoAppuntamentoDraft = {
   notaPrenotazione: string;
   overbooking: boolean;
   overbookingReason: string;
+  waitlistItemId?: string;
 };
 
 type WaitlistItem = {
@@ -242,6 +244,7 @@ type WaitlistDraft = {
   phone: string;
   notes: string;
   richiestaNote: string;
+  sourceWaitlistId?: string;
 };
 
 type WaitlistSlot = {
@@ -1983,6 +1986,7 @@ export function AdminBookingCalendar({
         notaPrenotazione: isSavedItem ? source.note ?? "" : source.richiestaNote,
         overbooking: false,
         overbookingReason: "",
+        waitlistItemId: isSavedItem ? source.id : source.sourceWaitlistId,
       };
 
       setAppuntamentoDraft(calcolaDraftAppuntamento(draft));
@@ -2138,6 +2142,7 @@ export function AdminBookingCalendar({
       email: item.pazienteEmail ?? "",
       phone: item.pazienteTelefono ?? "",
       richiestaNote: item.note ?? "",
+      sourceWaitlistId: item.id,
     });
   };
 
@@ -2304,6 +2309,7 @@ export function AdminBookingCalendar({
         durata: Math.max(5, Number(appuntamento.durata) || DEFAULT_DURATA_SLOT),
         stato: "confermata",
         overbooking: appuntamento.overbooking,
+        waitlistItemId: appuntamento.waitlistItemId,
       };
 
       const response = await fetch("/api/agenda-appointments", {
@@ -2314,6 +2320,27 @@ export function AdminBookingCalendar({
       if (!response.ok) throw new Error("Salvataggio appuntamento non riuscito");
 
       setPrenotazioniSalvate((correnti) => unisciPrenotazioniAgenda(correnti, [nuovaPrenotazione]));
+
+      if (appuntamento.waitlistItemId) {
+        const itemListaAttesa = listaAttesa.find((item) => item.id === appuntamento.waitlistItemId);
+        if (itemListaAttesa) {
+          const richiestaPrenotata: WaitlistItem = {
+            ...itemListaAttesa,
+            stato: "prenotata",
+          };
+          const waitlistResponse = await fetch("/api/agenda-waitlist", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(richiestaPrenotata),
+          });
+          if (waitlistResponse.ok) {
+            setListaAttesa((correnti) =>
+              correnti.map((item) => (item.id === richiestaPrenotata.id ? richiestaPrenotata : item)),
+            );
+          }
+        }
+      }
+
       setAppuntamentoDraft(null);
       toast({
         title: "Notifica",
