@@ -29,6 +29,7 @@ import {
   Printer,
   Search,
   Settings,
+  Trash2,
   UserPlus,
   UserRound,
 } from "lucide-react";
@@ -182,6 +183,7 @@ type PazienteAgenda = {
 };
 
 type NuovoAppuntamentoDraft = {
+  area: AreaId;
   medicoId: string;
   data: string;
   ora: string;
@@ -203,6 +205,51 @@ type NuovoAppuntamentoDraft = {
   notaPrenotazione: string;
   overbooking: boolean;
   overbookingReason: string;
+};
+
+type WaitlistItem = {
+  id: string;
+  area: AreaId;
+  sede: SedeId;
+  medicoId?: string;
+  prestazioneId?: string;
+  prestazioneNome?: string;
+  labExamIds: number[];
+  pazienteId?: number | string;
+  pazienteNome: string;
+  pazienteEmail?: string;
+  pazienteTelefono?: string;
+  note?: string;
+  stato: "attiva" | "prenotata" | "annullata";
+  createdAt: string;
+};
+
+type WaitlistDraft = {
+  area: AreaId;
+  sede: SedeId;
+  medicoId: string;
+  prestazioneId: string;
+  prestazioneNome: string;
+  labExamIds: number[];
+  labExamSearch: string;
+  pazienteId: string;
+  pazienteSearch: string;
+  creaNuovoPaziente: boolean;
+  firstName: string;
+  lastName: string;
+  dateOfBirth: string;
+  email: string;
+  phone: string;
+  notes: string;
+  richiestaNote: string;
+};
+
+type WaitlistSlot = {
+  doctor: MedicoAgenda;
+  date: Date;
+  time: string;
+  sede: SedeOperativa;
+  durata: number;
 };
 
 const ORA_INIZIO = 7;
@@ -807,6 +854,23 @@ const isPrenotazioneAgenda = (value: unknown): value is PrenotazioneAgenda => {
 const normalizzaPrenotazioniAgenda = (value: unknown): PrenotazioneAgenda[] =>
   Array.isArray(value) ? value.filter(isPrenotazioneAgenda) : [];
 
+const isWaitlistItem = (value: unknown): value is WaitlistItem => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Partial<WaitlistItem>;
+  return (
+    typeof item.id === "string" &&
+    (item.area === "laboratorio" || item.area === "ambulatorio") &&
+    (item.sede === "tutte" || item.sede === "modena" || item.sede === "sassuolo") &&
+    typeof item.pazienteNome === "string" &&
+    Array.isArray(item.labExamIds) &&
+    (item.stato === "attiva" || item.stato === "prenotata" || item.stato === "annullata") &&
+    typeof item.createdAt === "string"
+  );
+};
+
+const normalizzaListaAttesa = (value: unknown): WaitlistItem[] =>
+  Array.isArray(value) ? value.filter(isWaitlistItem) : [];
+
 const unisciPrenotazioniAgenda = (...fonti: PrenotazioneAgenda[][]) => {
   const map = new Map<string, PrenotazioneAgenda>();
   fonti.flat().forEach((prenotazione) => {
@@ -847,6 +911,26 @@ const normalizzaPazientiAgenda = (value: unknown): PazienteAgenda[] =>
 
 const nomePazienteAgenda = (paziente: PazienteAgenda) =>
   `${paziente.firstName} ${paziente.lastName}`.trim();
+
+const creaWaitlistDraftVuoto = (area: AreaId): WaitlistDraft => ({
+  area,
+  sede: "tutte",
+  medicoId: "tutti",
+  prestazioneId: "",
+  prestazioneNome: "",
+  labExamIds: [],
+  labExamSearch: "",
+  pazienteId: "",
+  pazienteSearch: "",
+  creaNuovoPaziente: false,
+  firstName: "",
+  lastName: "",
+  dateOfBirth: "",
+  email: "",
+  phone: "",
+  notes: "",
+  richiestaNote: "",
+});
 
 const isAdminSettingsData = (value: unknown): value is AdminSettingsData => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -1217,6 +1301,13 @@ export function AdminBookingCalendar({
   const [pazientiAgenda, setPazientiAgenda] = React.useState<PazienteAgenda[]>([]);
   const [pazientiLoading, setPazientiLoading] = React.useState(false);
   const [salvataggioAppuntamento, setSalvataggioAppuntamento] = React.useState(false);
+  const [listaAttesa, setListaAttesa] = React.useState<WaitlistItem[]>([]);
+  const [listaAttesaOpen, setListaAttesaOpen] = React.useState(false);
+  const [listaAttesaDraft, setListaAttesaDraft] = React.useState<WaitlistDraft>(() =>
+    creaWaitlistDraftVuoto(area),
+  );
+  const [listaAttesaSearch, setListaAttesaSearch] = React.useState("");
+  const [salvataggioListaAttesa, setSalvataggioListaAttesa] = React.useState(false);
 
   React.useEffect(() => {
     let active = true;
@@ -1314,6 +1405,36 @@ export function AdminBookingCalendar({
   }, []);
 
   React.useEffect(() => {
+    let active = true;
+
+    const caricaListaAttesa = async () => {
+      try {
+        const response = await fetch("/api/agenda-waitlist");
+        if (!response.ok) throw new Error("Lista d'attesa non disponibile");
+        const data: unknown = await response.json();
+        if (!active) return;
+        setListaAttesa(normalizzaListaAttesa(data));
+      } catch {
+        if (!active) return;
+        setListaAttesa([]);
+      }
+    };
+
+    void caricaListaAttesa();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    setListaAttesaDraft((current) => ({
+      ...creaWaitlistDraftVuoto(area),
+      sede: current.sede,
+    }));
+  }, [area]);
+
+  React.useEffect(() => {
     salvaPrenotazioniAgendaLocali(prenotazioniSalvate);
   }, [prenotazioniSalvate]);
 
@@ -1348,6 +1469,7 @@ export function AdminBookingCalendar({
   const pazienteSearchDraft = appuntamentoDraft?.pazienteSearch ?? "";
   const appuntamentoDialogAperto = Boolean(appuntamentoDraft);
   const creaNuovoPazienteDraft = appuntamentoDraft?.creaNuovoPaziente ?? false;
+  const pazienteSearchListaAttesa = listaAttesaDraft.pazienteSearch;
 
   React.useEffect(() => {
     if (!appuntamentoDialogAperto || creaNuovoPazienteDraft) return;
@@ -1359,6 +1481,22 @@ export function AdminBookingCalendar({
 
     return () => window.clearTimeout(timer);
   }, [appuntamentoDialogAperto, caricaPazientiAgenda, creaNuovoPazienteDraft, pazienteSearchDraft]);
+
+  React.useEffect(() => {
+    if (!listaAttesaOpen || listaAttesaDraft.creaNuovoPaziente) return;
+    if (pazienteSearchListaAttesa.trim().length > 0 && pazienteSearchListaAttesa.trim().length < 2) return;
+
+    const timer = window.setTimeout(() => {
+      void caricaPazientiAgenda(pazienteSearchListaAttesa);
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    caricaPazientiAgenda,
+    listaAttesaDraft.creaNuovoPaziente,
+    listaAttesaOpen,
+    pazienteSearchListaAttesa,
+  ]);
 
   const usaDatiDb = settingsCaricate && mediciConfigurati !== null;
   const mediciAgenda = React.useMemo(
@@ -1609,6 +1747,7 @@ export function AdminBookingCalendar({
       );
 
       setAppuntamentoDraft({
+        area,
         medicoId: doctor.id,
         data: dateKey(date),
         ora: formattaOraMinuti(slot),
@@ -1632,7 +1771,7 @@ export function AdminBookingCalendar({
         overbookingReason: dettaglio.reason,
       });
     },
-    [prenotazioniAgenda, prestazioniPerMedico, sede],
+    [area, prenotazioniAgenda, prestazioniPerMedico, sede],
   );
 
   const medicoAppuntamento = React.useMemo(
@@ -1673,6 +1812,353 @@ export function AdminBookingCalendar({
     [appuntamentoDraft?.pazienteId, pazientiAgenda],
   );
 
+  const pazienteSelezionatoListaAttesa = React.useMemo(
+    () => pazientiAgenda.find((paziente) => String(paziente.id) === listaAttesaDraft.pazienteId) ?? null,
+    [listaAttesaDraft.pazienteId, pazientiAgenda],
+  );
+
+  const pazientiFiltratiListaAttesa = React.useMemo(() => {
+    const query = normalizza(listaAttesaDraft.pazienteSearch);
+    if (!query) return pazientiAgenda.slice(0, 8);
+    return pazientiAgenda
+      .filter((paziente) =>
+        [
+          nomePazienteAgenda(paziente),
+          paziente.email,
+          paziente.phone,
+          paziente.codiceFiscale ?? "",
+        ].some((campo) => normalizza(campo).includes(query)),
+      )
+      .slice(0, 8);
+  }, [listaAttesaDraft.pazienteSearch, pazientiAgenda]);
+
+  const prestazioniFiltrateListaAttesa = React.useMemo(() => {
+    const query = normalizza(listaAttesaDraft.prestazioneNome);
+    if (!query) return prestazioniDisponibili.slice(0, 12);
+    return prestazioniDisponibili
+      .filter((prestazione) => matchQueryWords([prestazione.nome, prestazione.specialita], query))
+      .slice(0, 12);
+  }, [listaAttesaDraft.prestazioneNome, prestazioniDisponibili]);
+
+  const esamiLaboratorioListaAttesa = React.useMemo(() => {
+    const query = normalizza(listaAttesaDraft.labExamSearch);
+    const selectedIds = new Set(listaAttesaDraft.labExamIds);
+    const selected = labExams.filter((exam) => selectedIds.has(exam.id));
+    const disponibili = labExams
+      .filter((exam) => !selectedIds.has(exam.id))
+      .filter((exam) => !query || matchQueryWords([exam.codiceAnalisi, exam.descrizione], query))
+      .slice(0, 12);
+    return { selected, disponibili };
+  }, [labExams, listaAttesaDraft.labExamIds, listaAttesaDraft.labExamSearch]);
+
+  const mediciCompatibiliListaAttesa = React.useMemo(() => {
+    const sedeCompatibile = (medico: MedicoAgenda) =>
+      listaAttesaDraft.sede === "tutte" || medico.sedi.includes(listaAttesaDraft.sede);
+
+    const base = mediciAgenda.filter(sedeCompatibile);
+    if (listaAttesaDraft.area === "ambulatorio" && listaAttesaDraft.prestazioneId) {
+      return base.filter((medico) =>
+        prestazioniPerMedico(medico.id).some((prestazione) => prestazione.id === listaAttesaDraft.prestazioneId),
+      );
+    }
+
+    return base;
+  }, [listaAttesaDraft.area, listaAttesaDraft.prestazioneId, listaAttesaDraft.sede, mediciAgenda, prestazioniPerMedico]);
+
+  const slotListaAttesa = React.useMemo((): WaitlistSlot[] => {
+    const doctorIds = listaAttesaDraft.medicoId === "tutti"
+      ? null
+      : new Set([listaAttesaDraft.medicoId]);
+    const doctors = mediciCompatibiliListaAttesa.filter((medico) => !doctorIds || doctorIds.has(medico.id));
+    const startDate = currentDate < todayAgendaDate() ? todayAgendaDate() : currentDate;
+    const slots: WaitlistSlot[] = [];
+
+    for (let dayOffset = 0; dayOffset < 30 && slots.length < 18; dayOffset += 1) {
+      const date = addDays(startDate, dayOffset);
+      doctors.forEach((doctor) => {
+        if (slots.length >= 18) return;
+        const prestazione = prestazioniDisponibili.find((item) => item.id === listaAttesaDraft.prestazioneId);
+        const listino = settingsAgenda?.listini?.find(
+          (item) => item.medicoId === doctor.id && item.prestazioneId === listaAttesaDraft.prestazioneId,
+        );
+        const durata = Math.max(5, listino?.durata ?? prestazione?.durata ?? doctor.durataSlot ?? DEFAULT_DURATA_SLOT);
+        const doctorSlots = creaSlotDisponibili(
+          { ...doctor, durataSlot: durata },
+          date,
+          listaAttesaDraft.sede,
+          prenotazioniAgenda,
+          periodoOrario,
+        ).filter((slot) => !slot.occupato);
+
+        doctorSlots.slice(0, 3).forEach((slot) => {
+          if (slots.length < 18) {
+            slots.push({
+              doctor,
+              date,
+              time: slot.time,
+              sede: slot.sede,
+              durata,
+            });
+          }
+        });
+      });
+    }
+
+    return slots;
+  }, [
+    currentDate,
+    listaAttesaDraft.medicoId,
+    listaAttesaDraft.prestazioneId,
+    listaAttesaDraft.sede,
+    mediciCompatibiliListaAttesa,
+    periodoOrario,
+    prenotazioniAgenda,
+    prestazioniDisponibili,
+    settingsAgenda,
+  ]);
+
+  const listaAttesaDraftHaPaziente = listaAttesaDraft.creaNuovoPaziente
+    ? Boolean(listaAttesaDraft.firstName.trim() && listaAttesaDraft.lastName.trim())
+    : Boolean(pazienteSelezionatoListaAttesa || listaAttesaDraft.pazienteId);
+  const listaAttesaDraftHaRichiesta = listaAttesaDraft.area === "laboratorio"
+    ? listaAttesaDraft.labExamIds.length > 0
+    : Boolean(listaAttesaDraft.prestazioneNome.trim());
+
+  const listaAttesaFiltrata = React.useMemo(() => {
+    const query = listaAttesaSearch.trim();
+    return listaAttesa
+      .filter((item) => item.stato === "attiva")
+      .filter((item) => item.area === area)
+      .filter((item) =>
+        matchQueryWords(
+          [
+            item.pazienteNome,
+            item.pazienteEmail,
+            item.pazienteTelefono,
+            item.prestazioneNome,
+            item.note,
+            item.area === "ambulatorio" ? "Ambulatorio" : "Laboratorio",
+          ],
+          query,
+        ),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [area, listaAttesa, listaAttesaSearch]);
+
+  const apriAppuntamentoDaListaAttesa = React.useCallback(
+    (source: WaitlistDraft | WaitlistItem, slot: WaitlistSlot) => {
+      const isSavedItem = "stato" in source;
+      const prestazione = prestazioniDisponibili.find((item) => item.id === source.prestazioneId);
+      const labExamIds = source.labExamIds ?? [];
+      const labExamNames = labExams
+        .filter((exam) => labExamIds.includes(exam.id))
+        .map((exam) => exam.descrizione);
+      const prestazioneNome =
+        source.prestazioneNome?.trim() ||
+        prestazione?.nome ||
+        labExamNames.join(", ") ||
+        "Prestazione";
+      const selectedPatient = isSavedItem ? null : pazienteSelezionatoListaAttesa;
+
+      const draft: NuovoAppuntamentoDraft = {
+        area: source.area,
+        medicoId: slot.doctor.id,
+        data: dateKey(slot.date),
+        ora: slot.time,
+        durata: slot.durata,
+        sede: slot.sede,
+        prestazioneId: source.prestazioneId ?? "",
+        prestazioneNome,
+        labExamIds,
+        labExamSearch: "",
+        pazienteId: String(source.pazienteId ?? selectedPatient?.id ?? ""),
+        pazienteSearch: "",
+        creaNuovoPaziente: !isSavedItem && listaAttesaDraft.creaNuovoPaziente,
+        firstName: !isSavedItem ? listaAttesaDraft.firstName : "",
+        lastName: !isSavedItem ? listaAttesaDraft.lastName : "",
+        dateOfBirth: !isSavedItem ? listaAttesaDraft.dateOfBirth : "",
+        email: isSavedItem ? source.pazienteEmail ?? "" : listaAttesaDraft.email,
+        phone: isSavedItem ? source.pazienteTelefono ?? "" : listaAttesaDraft.phone,
+        notes: !isSavedItem ? listaAttesaDraft.notes : "",
+        notaPrenotazione: isSavedItem ? source.note ?? "" : source.richiestaNote,
+        overbooking: false,
+        overbookingReason: "",
+      };
+
+      setAppuntamentoDraft(calcolaDraftAppuntamento(draft));
+      setListaAttesaOpen(false);
+    },
+    [
+      calcolaDraftAppuntamento,
+      labExams,
+      listaAttesaDraft.creaNuovoPaziente,
+      listaAttesaDraft.dateOfBirth,
+      listaAttesaDraft.email,
+      listaAttesaDraft.firstName,
+      listaAttesaDraft.lastName,
+      listaAttesaDraft.notes,
+      listaAttesaDraft.phone,
+      pazienteSelezionatoListaAttesa,
+      prestazioniDisponibili,
+    ],
+  );
+
+  const salvaRichiestaListaAttesa = async () => {
+    const isLab = listaAttesaDraft.area === "laboratorio";
+    const prestazioneNome = listaAttesaDraft.prestazioneNome.trim();
+    if (isLab && listaAttesaDraft.labExamIds.length === 0) {
+      toast({
+        title: "Attenzione",
+        description: "Seleziona almeno un esame laboratorio per la richiesta.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!isLab && !prestazioneNome) {
+      toast({
+        title: "Attenzione",
+        description: "Seleziona o scrivi la prestazione ambulatoriale.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!listaAttesaDraft.creaNuovoPaziente && !pazienteSelezionatoListaAttesa) {
+      toast({
+        title: "Attenzione",
+        description: "Seleziona un paziente o creane uno nuovo.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (listaAttesaDraft.creaNuovoPaziente && (!listaAttesaDraft.firstName.trim() || !listaAttesaDraft.lastName.trim())) {
+      toast({
+        title: "Attenzione",
+        description: "Per creare un nuovo paziente servono nome e cognome.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSalvataggioListaAttesa(true);
+    try {
+      let pazienteId: number | string | undefined = pazienteSelezionatoListaAttesa?.id;
+      let pazienteNome = pazienteSelezionatoListaAttesa ? nomePazienteAgenda(pazienteSelezionatoListaAttesa) : "";
+      let pazienteEmail = pazienteSelezionatoListaAttesa?.email ?? "";
+      let pazienteTelefono = pazienteSelezionatoListaAttesa?.phone ?? "";
+
+      if (listaAttesaDraft.creaNuovoPaziente) {
+        const firstName = listaAttesaDraft.firstName.trim();
+        const lastName = listaAttesaDraft.lastName.trim();
+        const response = await fetch("/api/patients", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            firstName,
+            lastName,
+            dateOfBirth: listaAttesaDraft.dateOfBirth || "1900-01-01",
+            codiceFiscale: null,
+            gender: null,
+            email: listaAttesaDraft.email.trim() || `${slugFile(`${firstName}-${lastName}`)}-${Date.now()}@mmedical.local`,
+            phone: listaAttesaDraft.phone.trim() || "N/D",
+            notes: listaAttesaDraft.notes.trim() || null,
+            billingAddress: null,
+            billingCap: null,
+            billingCity: null,
+            billingProvincia: null,
+          }),
+        });
+        if (!response.ok) throw new Error("Creazione paziente non riuscita");
+        const created: unknown = await response.json();
+        if (!isPazienteAgenda(created)) throw new Error("Risposta paziente non valida");
+        pazienteId = created.id;
+        pazienteNome = nomePazienteAgenda(created);
+        pazienteEmail = created.email;
+        pazienteTelefono = created.phone;
+        setPazientiAgenda((current) => [created, ...current.filter((paziente) => paziente.id !== created.id)]);
+      }
+
+      const examNames = labExams
+        .filter((exam) => listaAttesaDraft.labExamIds.includes(exam.id))
+        .map((exam) => exam.descrizione);
+      const item: WaitlistItem = {
+        id: `wait-${Date.now()}`,
+        area: listaAttesaDraft.area,
+        sede: listaAttesaDraft.sede,
+        medicoId: listaAttesaDraft.medicoId === "tutti" ? undefined : listaAttesaDraft.medicoId,
+        prestazioneId: listaAttesaDraft.prestazioneId || undefined,
+        prestazioneNome: prestazioneNome || examNames.join(", "),
+        labExamIds: listaAttesaDraft.labExamIds,
+        pazienteId,
+        pazienteNome,
+        pazienteEmail,
+        pazienteTelefono,
+        note: listaAttesaDraft.richiestaNote.trim() || undefined,
+        stato: "attiva",
+        createdAt: new Date().toISOString(),
+      };
+
+      const response = await fetch("/api/agenda-waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(item),
+      });
+      if (!response.ok) throw new Error("Salvataggio lista d'attesa non riuscito");
+
+      setListaAttesa((current) => [item, ...current.filter((existing) => existing.id !== item.id)]);
+      setListaAttesaDraft(creaWaitlistDraftVuoto(area));
+      toast({ title: "Notifica", description: "Richiesta inserita in lista d'attesa." });
+    } catch (error) {
+      toast({
+        title: "Attenzione",
+        description: error instanceof Error ? error.message : "Lista d'attesa non salvata.",
+        variant: "destructive",
+      });
+    } finally {
+      setSalvataggioListaAttesa(false);
+    }
+  };
+
+  const caricaRichiestaListaAttesaInBozza = (item: WaitlistItem) => {
+    const nameParts = item.pazienteNome.trim().split(/\s+/).filter(Boolean);
+    const firstName = nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : nameParts[0] ?? "Paziente";
+    const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+
+    setListaAttesaDraft({
+      ...creaWaitlistDraftVuoto(item.area),
+      sede: item.sede,
+      medicoId: item.medicoId ?? "tutti",
+      prestazioneId: item.prestazioneId ?? "",
+      prestazioneNome: item.prestazioneNome ?? "",
+      labExamIds: item.labExamIds,
+      pazienteId: item.pazienteId ? String(item.pazienteId) : "",
+      pazienteSearch: item.pazienteNome,
+      creaNuovoPaziente: false,
+      firstName,
+      lastName,
+      email: item.pazienteEmail ?? "",
+      phone: item.pazienteTelefono ?? "",
+      richiestaNote: item.note ?? "",
+    });
+  };
+
+  const eliminaRichiestaListaAttesa = async (item: WaitlistItem) => {
+    setListaAttesa((current) => current.filter((existing) => existing.id !== item.id));
+    try {
+      const response = await fetch(`/api/agenda-waitlist/${encodeURIComponent(item.id)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("Eliminazione non riuscita");
+      toast({ title: "Notifica", description: "Richiesta rimossa dalla lista d'attesa." });
+    } catch {
+      setListaAttesa((current) => [item, ...current]);
+      toast({
+        title: "Attenzione",
+        description: "Non riesco a eliminare la richiesta. Riprova.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const salvaNuovoAppuntamento = async () => {
     if (!appuntamentoDraft || !medicoAppuntamento) return;
 
@@ -1686,7 +2172,13 @@ export function AdminBookingCalendar({
       return;
     }
 
-    if (!appuntamentoDraft.creaNuovoPaziente && !pazienteSelezionatoDialog) {
+    const hasDraftPatientFallback = Boolean(
+      appuntamentoDraft.pazienteId &&
+      appuntamentoDraft.firstName.trim() &&
+      appuntamentoDraft.lastName.trim(),
+    );
+
+    if (!appuntamentoDraft.creaNuovoPaziente && !pazienteSelezionatoDialog && !hasDraftPatientFallback) {
       toast({
         title: "Attenzione",
         description: "Seleziona un paziente oppure creane uno nuovo.",
@@ -1707,13 +2199,16 @@ export function AdminBookingCalendar({
     setSalvataggioAppuntamento(true);
 
     try {
-      let pazienteId: number | string | undefined = pazienteSelezionatoDialog?.id;
-      let pazienteFirstName = pazienteSelezionatoDialog?.firstName ?? "";
-      let pazienteLastName = pazienteSelezionatoDialog?.lastName ?? "";
-      let pazienteNome = pazienteSelezionatoDialog ? nomePazienteAgenda(pazienteSelezionatoDialog) : "";
-      let pazienteEmail = pazienteSelezionatoDialog?.email ?? "";
-      let pazienteTelefono = pazienteSelezionatoDialog?.phone ?? "";
-      let pazienteDataNascita = pazienteSelezionatoDialog?.dateOfBirth ?? "1900-01-01";
+      let pazienteId: number | string | undefined = pazienteSelezionatoDialog?.id ?? appuntamentoDraft.pazienteId;
+      let pazienteFirstName = pazienteSelezionatoDialog?.firstName ?? appuntamentoDraft.firstName.trim();
+      let pazienteLastName = pazienteSelezionatoDialog?.lastName ?? appuntamentoDraft.lastName.trim();
+      let pazienteNome = pazienteSelezionatoDialog
+        ? nomePazienteAgenda(pazienteSelezionatoDialog)
+        : `${pazienteFirstName} ${pazienteLastName}`.trim();
+      let pazienteEmail = pazienteSelezionatoDialog?.email ?? appuntamentoDraft.email.trim();
+      let pazienteTelefono = pazienteSelezionatoDialog?.phone ?? appuntamentoDraft.phone.trim();
+      let pazienteDataNascita =
+        (pazienteSelezionatoDialog?.dateOfBirth ?? appuntamentoDraft.dateOfBirth) || "1900-01-01";
       let pazienteCodiceFiscale = pazienteSelezionatoDialog?.codiceFiscale ?? null;
       let pazienteGenere = pazienteSelezionatoDialog?.gender ?? null;
 
@@ -1759,7 +2254,7 @@ export function AdminBookingCalendar({
       const appuntamento = calcolaDraftAppuntamento(appuntamentoDraft);
       let labBookingId: number | null = null;
 
-      if (area === "ambulatorio" && appuntamento.labExamIds.length > 0) {
+      if (appuntamento.labExamIds.length > 0) {
         const labBookingResponse = await fetch("/api/bookings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1775,7 +2270,7 @@ export function AdminBookingCalendar({
             email: pazienteEmail || `${slugFile(pazienteNome)}-${Date.now()}@mmedical.local`,
             phone: pazienteTelefono || "N/D",
             notes: [
-              `Agenda ambulatorio: ${medicoAppuntamento.nome} - ${prestazione}`,
+              `Agenda ${appuntamento.area === "ambulatorio" ? "ambulatorio" : "laboratorio"}: ${medicoAppuntamento.nome} - ${prestazione}`,
               appuntamento.notaPrenotazione.trim(),
             ].filter(Boolean).join(" | "),
           }),
@@ -1793,7 +2288,7 @@ export function AdminBookingCalendar({
 
       const nuovaPrenotazione: PrenotazioneAgenda = {
         id: `agenda-${Date.now()}`,
-        area,
+        area: appuntamento.area,
         sede: appuntamento.sede,
         medicoId: appuntamento.medicoId,
         pazienteId,
@@ -2176,10 +2671,18 @@ export function AdminBookingCalendar({
             <div className="space-y-2 border-t border-border pt-4">
               <button
                 type="button"
-                className="flex h-9 w-full items-center gap-3 rounded-md px-2 text-sm font-medium text-primary hover:bg-white"
+                onClick={() => setListaAttesaOpen(true)}
+                className="flex h-9 w-full items-center justify-between gap-3 rounded-md px-2 text-sm font-medium text-primary hover:bg-white"
               >
-                <ClipboardList className="h-4 w-4" />
-                Lista d'attesa
+                <span className="flex items-center gap-3">
+                  <ClipboardList className="h-4 w-4" />
+                  Lista d'attesa
+                </span>
+                {listaAttesaFiltrata.length > 0 && (
+                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                    {listaAttesaFiltrata.length}
+                  </Badge>
+                )}
               </button>
               <button
                 type="button"
@@ -2491,6 +2994,407 @@ export function AdminBookingCalendar({
         </section>
       </div>
 
+      <Dialog open={listaAttesaOpen} onOpenChange={setListaAttesaOpen}>
+        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Lista d'attesa</DialogTitle>
+            <DialogDescription>
+              Registra i pazienti senza appuntamento e controlla subito le disponibilita dei medici.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+            <section className="space-y-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={listaAttesaSearch}
+                  onChange={(event) => setListaAttesaSearch(event.target.value)}
+                  placeholder="Cerca in lista d'attesa..."
+                  className="pl-9"
+                />
+              </div>
+
+              <div className="max-h-[620px] space-y-2 overflow-y-auto pr-1">
+                {listaAttesaFiltrata.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
+                    Nessuna richiesta attiva per {area === "ambulatorio" ? "ambulatorio" : "laboratorio"}.
+                  </div>
+                ) : (
+                  listaAttesaFiltrata.map((item) => {
+                    const medico = item.medicoId ? mediciAgenda.find((doctor) => doctor.id === item.medicoId) : null;
+                    const examNames = labExams
+                      .filter((exam) => item.labExamIds.includes(exam.id))
+                      .map((exam) => exam.descrizione);
+                    return (
+                      <article key={item.id} className="rounded-md border border-border bg-white p-3 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-foreground">{item.pazienteNome}</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {item.area === "ambulatorio" ? "Ambulatorio" : "Laboratorio"} · {item.sede === "tutte" ? "Tutte le sedi" : item.sede === "modena" ? "Modena" : "Sassuolo"}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            onClick={() => void eliminaRichiestaListaAttesa(item)}
+                            aria-label="Elimina richiesta"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <p className="mt-2 text-sm font-medium text-foreground">
+                          {item.prestazioneNome || examNames.join(", ") || "Richiesta"}
+                        </p>
+                        {medico && <p className="mt-1 text-xs text-muted-foreground">Medico preferito: {medico.nome}</p>}
+                        {item.note && <p className="mt-2 text-xs text-muted-foreground">Note: {item.note}</p>}
+                        <div className="mt-3">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            onClick={() => caricaRichiestaListaAttesaInBozza(item)}
+                          >
+                            Cerca disponibilita
+                          </Button>
+                        </div>
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+
+            <section className="space-y-4 rounded-md border border-border bg-muted/20 p-4">
+              <div>
+                <h3 className="text-base font-semibold text-foreground">Nuova richiesta</h3>
+                <p className="text-sm text-muted-foreground">
+                  Inserisci paziente e richiesta; se non trovi uno slot, salvala in lista d'attesa.
+                </p>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <Field label="Tipo">
+                  <Select
+                    value={listaAttesaDraft.area}
+                    onValueChange={(value: AreaId) =>
+                      setListaAttesaDraft((current) => ({
+                        ...current,
+                        area: value,
+                        prestazioneId: "",
+                        prestazioneNome: "",
+                        labExamIds: [],
+                        labExamSearch: "",
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ambulatorio">Ambulatorio</SelectItem>
+                      <SelectItem value="laboratorio">Laboratorio</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Sede">
+                  <Select
+                    value={listaAttesaDraft.sede}
+                    onValueChange={(value: SedeId) => setListaAttesaDraft((current) => ({ ...current, sede: value, medicoId: "tutti" }))}
+                  >
+                    <SelectTrigger className="bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SEDI.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Medico">
+                  <Select
+                    value={listaAttesaDraft.medicoId}
+                    onValueChange={(value) => setListaAttesaDraft((current) => ({ ...current, medicoId: value }))}
+                  >
+                    <SelectTrigger className="bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="tutti">Tutti i medici</SelectItem>
+                      {mediciCompatibiliListaAttesa.map((medico) => (
+                        <SelectItem key={medico.id} value={medico.id}>
+                          {medico.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+
+              <div className="space-y-3 rounded-md border border-border bg-white p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Paziente</p>
+                    <p className="text-xs text-muted-foreground">Seleziona dall'anagrafica o crea un paziente al volo.</p>
+                  </div>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground">
+                    <Checkbox
+                      checked={listaAttesaDraft.creaNuovoPaziente}
+                      onCheckedChange={(checked) =>
+                        setListaAttesaDraft((current) => ({
+                          ...current,
+                          creaNuovoPaziente: checked === true,
+                          pazienteId: "",
+                          pazienteSearch: "",
+                        }))
+                      }
+                    />
+                    Nuovo paziente
+                  </label>
+                </div>
+
+                {!listaAttesaDraft.creaNuovoPaziente ? (
+                  <div className="space-y-3">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={listaAttesaDraft.pazienteSearch}
+                        onChange={(event) =>
+                          setListaAttesaDraft((current) => ({
+                            ...current,
+                            pazienteSearch: event.target.value,
+                            pazienteId: "",
+                          }))
+                        }
+                        placeholder="Cerca paziente per nome, email o telefono..."
+                        className="pl-9"
+                      />
+                    </div>
+                    {pazienteSelezionatoListaAttesa && (
+                      <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+                        <p className="text-sm font-semibold text-foreground">{nomePazienteAgenda(pazienteSelezionatoListaAttesa)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {pazienteSelezionatoListaAttesa.phone || "Telefono mancante"} · {pazienteSelezionatoListaAttesa.email || "Email mancante"}
+                        </p>
+                      </div>
+                    )}
+                    <div className="max-h-44 overflow-y-auto rounded-md border border-border">
+                      {pazientiLoading ? (
+                        <p className="px-3 py-4 text-sm text-muted-foreground">Carico pazienti...</p>
+                      ) : pazientiFiltratiListaAttesa.length > 0 ? (
+                        pazientiFiltratiListaAttesa.map((paziente) => (
+                          <button
+                            key={paziente.id}
+                            type="button"
+                            className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-muted/50"
+                            onClick={() =>
+                              setListaAttesaDraft((current) => ({
+                                ...current,
+                                pazienteId: String(paziente.id),
+                                pazienteSearch: "",
+                              }))
+                            }
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium text-foreground">{nomePazienteAgenda(paziente)}</span>
+                              <span className="block truncate text-xs text-muted-foreground">{paziente.phone || paziente.email || "Recapito mancante"}</span>
+                            </span>
+                            {listaAttesaDraft.pazienteId === String(paziente.id) && <Badge variant="secondary">Selezionato</Badge>}
+                          </button>
+                        ))
+                      ) : (
+                        <p className="px-3 py-4 text-sm text-muted-foreground">Nessun paziente trovato.</p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Field label="Nome">
+                      <Input value={listaAttesaDraft.firstName} onChange={(event) => setListaAttesaDraft((current) => ({ ...current, firstName: event.target.value }))} />
+                    </Field>
+                    <Field label="Cognome">
+                      <Input value={listaAttesaDraft.lastName} onChange={(event) => setListaAttesaDraft((current) => ({ ...current, lastName: event.target.value }))} />
+                    </Field>
+                    <Field label="Data nascita">
+                      <Input type="date" value={listaAttesaDraft.dateOfBirth} onChange={(event) => setListaAttesaDraft((current) => ({ ...current, dateOfBirth: event.target.value }))} />
+                    </Field>
+                    <Field label="Telefono">
+                      <Input value={listaAttesaDraft.phone} onChange={(event) => setListaAttesaDraft((current) => ({ ...current, phone: event.target.value }))} />
+                    </Field>
+                    <Field label="Email">
+                      <Input type="email" value={listaAttesaDraft.email} onChange={(event) => setListaAttesaDraft((current) => ({ ...current, email: event.target.value }))} />
+                    </Field>
+                    <Field label="Note paziente">
+                      <Input value={listaAttesaDraft.notes} onChange={(event) => setListaAttesaDraft((current) => ({ ...current, notes: event.target.value }))} />
+                    </Field>
+                  </div>
+                )}
+              </div>
+
+              {listaAttesaDraft.area === "ambulatorio" ? (
+                <div className="space-y-3 rounded-md border border-border bg-white p-3">
+                  <Field label="Prestazione ambulatorio">
+                    <Input
+                      value={listaAttesaDraft.prestazioneNome}
+                      onChange={(event) => setListaAttesaDraft((current) => ({ ...current, prestazioneNome: event.target.value, prestazioneId: "" }))}
+                      placeholder="Cerca o scrivi prestazione..."
+                    />
+                  </Field>
+                  <div className="max-h-44 overflow-y-auto rounded-md border border-border">
+                    {prestazioniFiltrateListaAttesa.length > 0 ? (
+                      prestazioniFiltrateListaAttesa.map((prestazione) => (
+                        <button
+                          key={prestazione.id}
+                          type="button"
+                          className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted/50"
+                          onClick={() =>
+                            setListaAttesaDraft((current) => ({
+                              ...current,
+                              prestazioneId: prestazione.id,
+                              prestazioneNome: prestazione.nome,
+                              medicoId: "tutti",
+                            }))
+                          }
+                        >
+                          <span>
+                            <span className="block font-medium text-foreground">{prestazione.nome}</span>
+                            <span className="block text-xs text-muted-foreground">{prestazione.specialita}</span>
+                          </span>
+                          {listaAttesaDraft.prestazioneId === prestazione.id && <Badge variant="secondary">Scelta</Badge>}
+                        </button>
+                      ))
+                    ) : (
+                      <p className="px-3 py-4 text-sm text-muted-foreground">Nessuna prestazione trovata.</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 rounded-md border border-border bg-white p-3">
+                  <Field label="Esami laboratorio">
+                    <Input
+                      value={listaAttesaDraft.labExamSearch}
+                      onChange={(event) => setListaAttesaDraft((current) => ({ ...current, labExamSearch: event.target.value }))}
+                      placeholder="Cerca esame per codice o descrizione..."
+                    />
+                  </Field>
+                  {esamiLaboratorioListaAttesa.selected.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {esamiLaboratorioListaAttesa.selected.map((exam) => (
+                        <Badge key={exam.id} variant="secondary" className="gap-2 py-1">
+                          <span>{exam.codiceAnalisi} · {exam.descrizione}</span>
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-muted-foreground hover:text-destructive"
+                            onClick={() =>
+                              setListaAttesaDraft((current) => ({
+                                ...current,
+                                labExamIds: current.labExamIds.filter((id) => id !== exam.id),
+                              }))
+                            }
+                          >
+                            Rimuovi
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  <div className="max-h-44 overflow-y-auto rounded-md border border-border">
+                    {esamiLaboratorioListaAttesa.disponibili.length > 0 ? (
+                      esamiLaboratorioListaAttesa.disponibili.map((exam) => (
+                        <button
+                          key={exam.id}
+                          type="button"
+                          className="flex w-full items-center gap-3 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted/50"
+                          onClick={() =>
+                            setListaAttesaDraft((current) => ({
+                              ...current,
+                              labExamIds: Array.from(new Set([...current.labExamIds, exam.id])),
+                            }))
+                          }
+                        >
+                          <Checkbox checked={false} />
+                          <span className="font-mono text-xs text-muted-foreground">{exam.codiceAnalisi}</span>
+                          <span className="font-medium text-foreground">{exam.descrizione}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="px-3 py-4 text-sm text-muted-foreground">Nessun esame trovato.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <Field label="Note richiesta">
+                <Textarea
+                  value={listaAttesaDraft.richiestaNote}
+                  onChange={(event) => setListaAttesaDraft((current) => ({ ...current, richiestaNote: event.target.value }))}
+                  placeholder="Es. chiamare se si libera un posto il venerdi pomeriggio..."
+                  className="min-h-20"
+                />
+              </Field>
+
+              <div className="rounded-md border border-border bg-white p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Prime disponibilita</p>
+                    <p className="text-xs text-muted-foreground">Calcolate sui prossimi 30 giorni con i filtri attuali.</p>
+                  </div>
+                  <Badge variant="outline">{slotListaAttesa.length} slot</Badge>
+                </div>
+                {slotListaAttesa.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                    Nessuno slot disponibile. Salva la richiesta in lista d'attesa e ricontatta il paziente quando riapri disponibilita.
+                  </p>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {slotListaAttesa.slice(0, 9).map((slot) => (
+                      <Button
+                        key={`${dateKey(slot.date)}-${slot.doctor.id}-${slot.sede}-${slot.time}`}
+                        type="button"
+                        variant="outline"
+                        className="h-auto justify-start gap-2 px-3 py-2 text-left"
+                        disabled={!listaAttesaDraftHaPaziente || !listaAttesaDraftHaRichiesta}
+                        onClick={() => apriAppuntamentoDaListaAttesa(listaAttesaDraft, slot)}
+                      >
+                        <Clock className="h-4 w-4 text-primary" />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold">
+                            {format(slot.date, "dd/MM", { locale: it })} · {slot.time}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {slot.doctor.nome} · {slot.sede === "modena" ? "Modena" : "Sassuolo"}
+                          </span>
+                        </span>
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => setListaAttesaOpen(false)}>
+              Chiudi
+            </Button>
+            <Button
+              type="button"
+              onClick={salvaRichiestaListaAttesa}
+              disabled={salvataggioListaAttesa || !listaAttesaDraftHaPaziente || !listaAttesaDraftHaRichiesta}
+              className="gap-2"
+            >
+              <ClipboardList className="h-4 w-4" />
+              {salvataggioListaAttesa ? "Salvo..." : "Metti in lista d'attesa"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={Boolean(appuntamentoDraft)} onOpenChange={(open) => !open && setAppuntamentoDraft(null)}>
         <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
@@ -2605,70 +3509,68 @@ export function AdminBookingCalendar({
                 </Field>
               </div>
 
-              {area === "ambulatorio" && (
-                <div className="space-y-3 rounded-md border border-border p-3">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">Esami laboratorio collegati</p>
-                    <p className="text-xs text-muted-foreground">
-                      Se la visita ambulatoriale richiede esami di laboratorio, selezionali qui: verranno inviati in accettazione laboratorio.
-                    </p>
-                  </div>
+              <div className="space-y-3 rounded-md border border-border p-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Esami laboratorio collegati</p>
+                  <p className="text-xs text-muted-foreground">
+                    Seleziona gli esami di laboratorio da collegare: verranno inviati in accettazione laboratorio.
+                  </p>
+                </div>
 
-                  <Input
-                    value={appuntamentoDraft.labExamSearch}
-                    onChange={(event) => aggiornaDraftAppuntamento({ labExamSearch: event.target.value })}
-                    placeholder="Cerca esame per codice o descrizione..."
-                  />
+                <Input
+                  value={appuntamentoDraft.labExamSearch}
+                  onChange={(event) => aggiornaDraftAppuntamento({ labExamSearch: event.target.value })}
+                  placeholder="Cerca esame per codice o descrizione..."
+                />
 
-                  {esamiLaboratorioFiltratiDialog.selected.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {esamiLaboratorioFiltratiDialog.selected.map((exam) => (
-                        <Badge key={exam.id} variant="secondary" className="gap-2 py-1">
-                          <span>{exam.codiceAnalisi} · {exam.descrizione}</span>
-                          <button
-                            type="button"
-                            className="text-xs font-semibold text-muted-foreground hover:text-destructive"
-                            onClick={() =>
-                              aggiornaDraftAppuntamento({
-                                labExamIds: appuntamentoDraft.labExamIds.filter((id) => id !== exam.id),
-                              })
-                            }
-                          >
-                            Rimuovi
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="max-h-52 overflow-y-auto rounded-md border border-border">
-                    {labExams.length === 0 ? (
-                      <p className="px-3 py-4 text-sm text-muted-foreground">Listino laboratorio non disponibile.</p>
-                    ) : esamiLaboratorioFiltratiDialog.disponibili.length > 0 ? (
-                      esamiLaboratorioFiltratiDialog.disponibili.map((exam) => (
+                {esamiLaboratorioFiltratiDialog.selected.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {esamiLaboratorioFiltratiDialog.selected.map((exam) => (
+                      <Badge key={exam.id} variant="secondary" className="gap-2 py-1">
+                        <span>{exam.codiceAnalisi} · {exam.descrizione}</span>
                         <button
-                          key={exam.id}
                           type="button"
-                          className="flex w-full items-center gap-3 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted/50"
+                          className="text-xs font-semibold text-muted-foreground hover:text-destructive"
                           onClick={() =>
                             aggiornaDraftAppuntamento({
-                              labExamIds: Array.from(new Set([...appuntamentoDraft.labExamIds, exam.id])),
+                              labExamIds: appuntamentoDraft.labExamIds.filter((id) => id !== exam.id),
                             })
                           }
                         >
-                          <Checkbox checked={false} />
-                          <span className="font-mono text-xs text-muted-foreground">{exam.codiceAnalisi}</span>
-                          <span className="font-medium text-foreground">{exam.descrizione}</span>
+                          Rimuovi
                         </button>
-                      ))
-                    ) : (
-                      <p className="px-3 py-4 text-sm text-muted-foreground">
-                        Nessun esame disponibile per questa ricerca.
-                      </p>
-                    )}
+                      </Badge>
+                    ))}
                   </div>
+                )}
+
+                <div className="max-h-52 overflow-y-auto rounded-md border border-border">
+                  {labExams.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-muted-foreground">Listino laboratorio non disponibile.</p>
+                  ) : esamiLaboratorioFiltratiDialog.disponibili.length > 0 ? (
+                    esamiLaboratorioFiltratiDialog.disponibili.map((exam) => (
+                      <button
+                        key={exam.id}
+                        type="button"
+                        className="flex w-full items-center gap-3 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted/50"
+                        onClick={() =>
+                          aggiornaDraftAppuntamento({
+                            labExamIds: Array.from(new Set([...appuntamentoDraft.labExamIds, exam.id])),
+                          })
+                        }
+                      >
+                        <Checkbox checked={false} />
+                        <span className="font-mono text-xs text-muted-foreground">{exam.codiceAnalisi}</span>
+                        <span className="font-medium text-foreground">{exam.descrizione}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="px-3 py-4 text-sm text-muted-foreground">
+                      Nessun esame disponibile per questa ricerca.
+                    </p>
+                  )}
                 </div>
-              )}
+              </div>
 
               <Field label="Nota prenotazione">
                 <Textarea
