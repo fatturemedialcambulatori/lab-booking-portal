@@ -5,12 +5,20 @@ import {
   db,
   infortunisticaCertificatiFilesTable,
 } from "@workspace/db";
+import { requireAnyPermission } from "../lib/auth";
 
 const router = Router();
 
 const STATE_KEY = "infortunistica-state";
 const DEFAULT_BUCKET = "certificati-infortunistica";
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
+const STORAGE_ALLOWED_MIME_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
 
 const cleanEnv = (value: string | undefined) => value?.trim().replace(/^(['"])(.*)\1$/, "$2");
 
@@ -81,6 +89,11 @@ const inferContentType = (fileName: string, providedType: string) => {
 
   return "application/octet-stream";
 };
+
+const isAllowedStorageContentType = (contentType: string) =>
+  STORAGE_ALLOWED_MIME_TYPES.includes(contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "");
+
+router.use(requireAnyPermission(["infortunistica"]));
 
 router.get("/infortunistica-state", async (req, res) => {
   try {
@@ -167,6 +180,10 @@ const caricaCertificatoFile: RequestHandler = async (req, res) => {
     fileName,
     readHeader(req.headers["content-type"], "application/octet-stream"),
   );
+  if (!isAllowedStorageContentType(contentType)) {
+    res.status(400).json({ error: "Tipo file non consentito. Usa PDF, JPG, PNG, DOC o DOCX." });
+    return;
+  }
   const storagePath = [
     clienteId,
     praticaId,

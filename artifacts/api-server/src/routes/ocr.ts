@@ -2,8 +2,10 @@ import { Router } from "express";
 import OpenAI from "openai";
 import { db } from "@workspace/db";
 import { examsTable } from "@workspace/db";
+import { requireAnyPermission } from "../lib/auth";
 
 const router = Router();
+const requireOcrAccess = requireAnyPermission(["laboratorio.accettazione", "ambulatorio.accettazione"]);
 
 let openai: OpenAI | null = null;
 
@@ -19,7 +21,7 @@ function getOpenAIClient() {
   return openai;
 }
 
-router.post("/ocr/prescription", async (req, res) => {
+router.post("/ocr/prescription", requireOcrAccess, async (req, res) => {
   const { imageBase64, mimeType } = req.body as { imageBase64?: string; mimeType?: string };
 
   if (!imageBase64 || !mimeType) {

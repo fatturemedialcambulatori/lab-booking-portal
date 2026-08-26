@@ -3,9 +3,15 @@ import { db } from "@workspace/db";
 import { examsTable, examComponentsTable, examReferenceRangesTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import { CreateExamBody, UpdateExamBody } from "@workspace/api-zod";
+import { requireAnyPermission } from "../lib/auth";
 
 const router = Router();
 const CONTAINER_EXAM_TYPES = new Set(["composito", "pacchetto"]);
+const requireExamManagement = requireAnyPermission([
+  "laboratorio.listino",
+  "ambulatorio.prestazioni",
+  "impostazioni",
+]);
 
 const isContainerExamType = (tipo: unknown) =>
   typeof tipo === "string" && CONTAINER_EXAM_TYPES.has(tipo);
@@ -152,7 +158,7 @@ router.get("/exams", async (req, res) => {
   }
 });
 
-router.post("/exams", async (req, res) => {
+router.post("/exams", requireExamManagement, async (req, res) => {
   const parsed = CreateExamBody.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Dati non validi" });
@@ -187,11 +193,11 @@ router.post("/exams", async (req, res) => {
   }
 });
 
-router.put("/exams/:id", async (req, res) => {
+router.put("/exams/:id", requireExamManagement, async (req, res) => {
   return updateExamById(Number(req.params.id), req.body, req, res);
 });
 
-router.post("/exams-update", async (req, res) => {
+router.post("/exams-update", requireExamManagement, async (req, res) => {
   const rawBody = req.body && typeof req.body === "object" && !Array.isArray(req.body)
     ? req.body as Record<string, unknown>
     : {};
@@ -199,11 +205,11 @@ router.post("/exams-update", async (req, res) => {
   return updateExamById(Number(rawId), body, req, res);
 });
 
-router.delete("/exams/:id", async (req, res) => {
+router.delete("/exams/:id", requireExamManagement, async (req, res) => {
   return deleteExamById(Number(req.params.id), req, res);
 });
 
-router.post("/exams-delete", async (req, res) => {
+router.post("/exams-delete", requireExamManagement, async (req, res) => {
   const id = req.body && typeof req.body === "object" && !Array.isArray(req.body)
     ? Number((req.body as Record<string, unknown>)["id"])
     : NaN;

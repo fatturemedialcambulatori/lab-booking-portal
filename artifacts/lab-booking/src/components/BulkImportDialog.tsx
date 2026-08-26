@@ -1,6 +1,5 @@
 import React from "react";
 import Papa from "papaparse";
-import * as XLSX from "xlsx";
 import {
   Dialog,
   DialogContent,
@@ -97,13 +96,7 @@ async function parseFile(file: File): Promise<{ headers: string[]; raw: Record<s
       });
     });
   }
-  // xlsx / xls / ods
-  const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: "array", cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const data = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: "", raw: false });
-  const headers = data.length > 0 ? Object.keys(data[0]) : [];
-  return { headers, raw: data };
+  throw new Error("Formato non supportato");
 }
 
 interface Result { created: number; skipped: number; errors: string[]; errorCount?: number }
@@ -175,7 +168,7 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
       setRows(parseRows(r, m));
       setStep("preview");
     } catch {
-      setParseError("Impossibile leggere il file. Assicurati che sia un CSV o Excel valido.");
+      setParseError("Impossibile leggere il file. Assicurati che sia un CSV valido.");
     }
   };
 
@@ -286,7 +279,7 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
             </DialogTitle>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Formati supportati: CSV, XLSX, XLS, ODS
+            Formato supportato: CSV
           </p>
         </DialogHeader>
 
@@ -311,7 +304,7 @@ export function BulkImportDialog({ onClose, onImported }: Props) {
               <input
                 id="bulk-file-input"
                 type="file"
-                accept=".csv,.xlsx,.xls,.ods"
+                accept=".csv,text/csv"
                 className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
               />

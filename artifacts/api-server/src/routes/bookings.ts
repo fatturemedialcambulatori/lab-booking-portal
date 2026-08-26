@@ -1,12 +1,22 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { db } from "@workspace/db";
 import { bookingsTable, bookingExamsTable, examsTable, patientsTable, refertiTable, examComponentsTable } from "@workspace/db";
 import { eq, desc, inArray, or, and, isNotNull, sql } from "drizzle-orm";
 import { CreateBookingBody, GetBookingParams } from "@workspace/api-zod";
+import { requireAnyPermission } from "../lib/auth";
 
 const router = Router();
 const VALID_BOOKING_STATUSES = ["confirmed", "pending", "accepted", "completed", "cancelled"] as const;
 const CONTAINER_EXAM_TYPES = new Set(["composito", "pacchetto"]);
+const requireBookingAccess = requireAnyPermission([
+  "laboratorio.accettazione",
+  "ambulatorio.accettazione",
+  "laboratorio.agenda",
+  "ambulatorio.agenda",
+]);
+const PUBLIC_BOOKING_WINDOW_MS = 15 * 60 * 1000;
+const PUBLIC_BOOKING_MAX_PER_WINDOW = Number(process.env["PUBLIC_BOOKING_MAX_PER_WINDOW"] ?? 12);
+const publicBookingHits = new Map<string, { count: number; resetAt: number }>();
 
 type BookingStatusValue = (typeof VALID_BOOKING_STATUSES)[number];
 
@@ -16,6 +26,26 @@ const toDateStr = (v: string | Date | null): string =>
 function isBookingStatus(value: unknown): value is BookingStatusValue {
   return typeof value === "string" && (VALID_BOOKING_STATUSES as readonly string[]).includes(value);
 }
+
+const publicBookingRateLimit: RequestHandler = (req, res, next) => {
+  const now = Date.now();
+  const key = req.ip ?? "unknown";
+  const current = publicBookingHits.get(key);
+
+  if (!current || current.resetAt <= now) {
+    publicBookingHits.set(key, { count: 1, resetAt: now + PUBLIC_BOOKING_WINDOW_MS });
+    next();
+    return;
+  }
+
+  if (current.count >= PUBLIC_BOOKING_MAX_PER_WINDOW) {
+    res.status(429).json({ error: "Troppe prenotazioni inviate. Riprova tra qualche minuto." });
+    return;
+  }
+
+  publicBookingHits.set(key, { ...current, count: current.count + 1 });
+  next();
+};
 
 const isContainerExamType = (tipo: unknown) =>
   typeof tipo === "string" && CONTAINER_EXAM_TYPES.has(tipo);
@@ -70,7 +100,7 @@ async function formatBooking(bookingId: number) {
   };
 }
 
-router.get("/bookings", async (req, res) => {
+router.get("/bookings", requireBookingAccess, async (req, res) => {
   try {
     const bookings = await db
       .select()
@@ -151,7 +181,7 @@ router.get("/bookings", async (req, res) => {
   }
 });
 
-router.post("/bookings", async (req, res) => {
+router.post("/bookings", publicBookingRateLimit, async (req, res) => {
   const parsed = CreateBookingBody.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid booking data" });
@@ -196,8 +226,8 @@ router.post("/bookings", async (req, res) => {
     // Upsert patient: usa il codice fiscale come chiave univoca (fallback: email)
     const cf = data.codiceFiscale?.trim().toUpperCase() ?? null;
     const existingCondition = cf
-      ? and(isNotNull(patientsTable.codiceFiscale), eq(patientsTable.codiceFiscale, cf))
-      : eq(patientsTable.email, data.email);
+      ? and(isNotNull(patientsTable.codiceFiscale), eq(patientsTable.codiceFiscale, cf), sql`${patientsTable.deletedAt} is null`)
+      : and(eq(patientsTable.email, data.email), sql`${patientsTable.deletedAt} is null`);
 
     const existing = await db
       .select({ id: patientsTable.id })
@@ -226,7 +256,7 @@ router.post("/bookings", async (req, res) => {
   }
 });
 
-router.get("/bookings/:id", async (req, res) => {
+router.get("/bookings/:id", requireBookingAccess, async (req, res) => {
   const parsed = GetBookingParams.safeParse({ id: Number(req.params.id) });
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid booking ID" });
@@ -244,7 +274,7 @@ router.get("/bookings/:id", async (req, res) => {
   }
 });
 
-router.patch("/bookings/:id/status", async (req, res) => {
+router.patch("/bookings/:id/status", requireBookingAccess, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: "Invalid booking ID" });
@@ -267,7 +297,7 @@ router.patch("/bookings/:id/status", async (req, res) => {
   }
 });
 
-router.post("/bookings-status", async (req, res) => {
+router.post("/bookings-status", requireBookingAccess, async (req, res) => {
   const { id: rawId, status } = req.body as { id?: unknown; status?: unknown };
   const id = Number(rawId);
   if (!Number.isInteger(id) || id <= 0) {

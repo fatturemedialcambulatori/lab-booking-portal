@@ -1,8 +1,9 @@
 import { Router, type Request, type RequestHandler, type Response } from "express";
 import { db, pool } from "@workspace/db";
 import { patientsTable } from "@workspace/db";
-import { and, eq, ilike, or, inArray } from "drizzle-orm";
+import { and, eq, ilike, or, inArray, isNull } from "drizzle-orm";
 import { CreatePatientBody, UpdatePatientBody } from "@workspace/api-zod";
+import { requireAnyPermission } from "../lib/auth";
 
 const router = Router();
 const MAX_BULK_ERRORS = 50;
@@ -57,7 +58,8 @@ const ensurePatientRegistryColumns = () => {
       add column if not exists convention_expires_at text,
       add column if not exists convention_text text,
       add column if not exists convention_services text,
-      add column if not exists linked_convention_ids text
+      add column if not exists linked_convention_ids text,
+      add column if not exists deleted_at timestamptz
   `).then(() => undefined);
   return patientRegistryColumnsPromise;
 };
@@ -309,6 +311,15 @@ function formatPatient(p: typeof patientsTable.$inferSelect) {
   };
 }
 
+router.use(requireAnyPermission([
+  "anagrafiche",
+  "laboratorio.accettazione",
+  "ambulatorio.accettazione",
+  "laboratorio.agenda",
+  "ambulatorio.agenda",
+  "infortunistica",
+]));
+
 router.get("/patients", async (req, res) => {
   try {
     await ensurePatientRegistryColumns();
@@ -336,7 +347,9 @@ router.get("/patients", async (req, res) => {
       rows = await db
         .select()
         .from(patientsTable)
-        .where(hasRecordTypeFilter ? and(searchWhere, eq(patientsTable.recordType, recordType)) : searchWhere)
+        .where(hasRecordTypeFilter
+          ? and(searchWhere, eq(patientsTable.recordType, recordType), isNull(patientsTable.deletedAt))
+          : and(searchWhere, isNull(patientsTable.deletedAt)))
         .orderBy(patientsTable.lastName, patientsTable.firstName)
         .limit(limit)
         .offset(offset);
@@ -344,7 +357,7 @@ router.get("/patients", async (req, res) => {
       rows = await db
         .select()
         .from(patientsTable)
-        .where(eq(patientsTable.recordType, recordType))
+        .where(and(eq(patientsTable.recordType, recordType), isNull(patientsTable.deletedAt)))
         .orderBy(patientsTable.lastName, patientsTable.firstName)
         .limit(limit)
         .offset(offset);
@@ -352,6 +365,7 @@ router.get("/patients", async (req, res) => {
       rows = await db
         .select()
         .from(patientsTable)
+        .where(isNull(patientsTable.deletedAt))
         .orderBy(patientsTable.lastName, patientsTable.firstName)
         .limit(limit)
         .offset(offset);
@@ -426,7 +440,7 @@ const updatePatientById = async (id: number, body: unknown, req: Request, res: R
     const existing = await db
       .select()
       .from(patientsTable)
-      .where(eq(patientsTable.id, id))
+      .where(and(eq(patientsTable.id, id), isNull(patientsTable.deletedAt)))
       .limit(1);
     if (!existing.length) {
       res.status(404).json({ error: "Patient not found" });
@@ -497,7 +511,8 @@ const deletePatientById = async (id: number, req: Request, res: Response) => {
     await ensurePatientRegistryColumns();
     await syncExpiredConventions();
     const deleted = await db
-      .delete(patientsTable)
+      .update(patientsTable)
+      .set({ deletedAt: new Date() })
       .where(eq(patientsTable.id, id))
       .returning();
     if (!deleted.length) {
@@ -562,19 +577,19 @@ const bulkImportPatients: RequestHandler = async (req, res) => {
         ? db
             .select({ codiceFiscale: patientsTable.codiceFiscale })
             .from(patientsTable)
-            .where(inArray(patientsTable.codiceFiscale, codiceFiscaleValues))
+            .where(and(inArray(patientsTable.codiceFiscale, codiceFiscaleValues), isNull(patientsTable.deletedAt)))
         : Promise.resolve([]),
       emailValues.length
         ? db
             .select({ email: patientsTable.email })
             .from(patientsTable)
-            .where(inArray(patientsTable.email, emailValues))
+            .where(and(inArray(patientsTable.email, emailValues), isNull(patientsTable.deletedAt)))
         : Promise.resolve([]),
       phoneValues.length
         ? db
             .select({ phone: patientsTable.phone })
             .from(patientsTable)
-            .where(inArray(patientsTable.phone, phoneValues))
+            .where(and(inArray(patientsTable.phone, phoneValues), isNull(patientsTable.deletedAt)))
         : Promise.resolve([]),
     ]);
 

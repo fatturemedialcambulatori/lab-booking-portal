@@ -511,7 +511,7 @@ export function AdminAnagrafiche() {
         <div className="flex items-center gap-2 flex-shrink-0">
           <Button variant="outline" onClick={() => setShowBulkImport(true)} className="gap-2">
             <Upload className="h-4 w-4" />
-            Importa CSV/Excel
+            Importa CSV
           </Button>
           <Button onClick={() => { setShowCreate(true); setFormError(null); }} className="gap-2">
             <UserPlus className="h-4 w-4" />

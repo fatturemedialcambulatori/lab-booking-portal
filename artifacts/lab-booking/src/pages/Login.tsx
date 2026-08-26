@@ -2,30 +2,34 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { Lock, Eye, EyeOff } from "lucide-react";
-import { getAccountByUsername, readAdminAccessConfig, getRoleById } from "@/lib/adminAccess";
+import { readAdminAccessConfig, type PermissionId } from "@/lib/adminAccess";
+
+export type AuthUser = {
+  accountId: string;
+  username: string;
+  nome: string;
+  roleId: string;
+  roleName: string;
+  permissions: PermissionId[];
+  expiresAt: string;
+};
 
 interface LoginProps {
-  onSuccess: (role: string) => void;
+  onSuccess: (user: AuthUser) => void;
 }
 
 export function Login({ onSuccess }: LoginProps) {
-  const [accessConfig] = React.useState(readAdminAccessConfig);
-  const [username, setUsername] = React.useState<string>("");
+  const fallbackAccessConfig = React.useMemo(readAdminAccessConfig, []);
+  const defaultUsername = fallbackAccessConfig.account.find((account) => account.stato === "attivo")?.username ?? "";
+  const [username, setUsername] = React.useState<string>(defaultUsername);
   const [password, setPassword] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
   const [error, setError] = React.useState("");
   const [loading, setLoading] = React.useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -38,23 +42,33 @@ export function Login({ onSuccess }: LoginProps) {
       return;
     }
 
-    setLoading(true);
-    setTimeout(() => {
-      const account = getAccountByUsername(accessConfig, username);
-      if (account && account.stato === "attivo" && account.password === password) {
-        try {
-          sessionStorage.setItem("operator_role", account.ruoloId);
-          sessionStorage.setItem("operator_account_username", account.username);
-        } catch {
-          // Continue with in-memory login if browser storage is unavailable.
-        }
-        onSuccess(account.ruoloId);
-      } else {
-        setError("Password non corretta. Riprova.");
+    try {
+      setLoading(true);
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await response.json().catch(() => null) as { user?: AuthUser; error?: string } | null;
+      if (!response.ok || !data?.user) {
+        setError(data?.error ?? "Credenziali non valide. Riprova.");
         setPassword("");
+        return;
       }
+
+      try {
+        sessionStorage.setItem("operator_role", data.user.roleId);
+        sessionStorage.setItem("operator_account_username", data.user.username);
+      } catch {
+        // Continue with in-memory login if browser storage is unavailable.
+      }
+      onSuccess(data.user);
+    } catch {
+      setError("Errore di rete durante il login. Riprova.");
+    } finally {
       setLoading(false);
-    }, 400);
+    }
   };
 
   return (
@@ -72,20 +86,13 @@ export function Login({ onSuccess }: LoginProps) {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="username">Utente</Label>
-              <Select value={username} onValueChange={(v) => { setUsername(v); setError(""); }}>
-                <SelectTrigger id="username" className="w-full">
-                  <SelectValue placeholder="Seleziona utente..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {accessConfig.account
-                    .filter((account) => account.stato === "attivo")
-                    .map((account) => (
-                      <SelectItem key={account.id} value={account.username}>
-                        {account.nome} · {getRoleById(accessConfig, account.ruoloId)?.nome ?? "Ruolo"}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+              <Input
+                id="username"
+                value={username}
+                onChange={(event) => { setUsername(event.target.value); setError(""); }}
+                placeholder="Username"
+                autoComplete="username"
+              />
             </div>
 
             <div className="space-y-1.5">

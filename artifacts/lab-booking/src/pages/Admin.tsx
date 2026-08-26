@@ -18,7 +18,7 @@ import {
   WalletCards,
   type LucideIcon,
 } from "lucide-react";
-import { Login } from "./Login";
+import { Login, type AuthUser } from "./Login";
 import { AdminExams } from "./AdminExams";
 import { AccettazionePaziente } from "./AccettazionePaziente";
 import { AdminAnagrafiche } from "./AdminAnagrafiche";
@@ -28,46 +28,67 @@ import { AdminUsers } from "./AdminUsers";
 import { AdminInfortunistica } from "./AdminInfortunistica";
 import { AdminCassa } from "./AdminCassa";
 import {
-  getRoleById,
-  readAdminAccessConfig,
-  roleHasPermission,
-  type AdminAccessConfig,
   type PermissionId,
 } from "@/lib/adminAccess";
 
-const getStoredRole = () => {
-  try {
-    return sessionStorage.getItem("operator_role");
-  } catch {
-    return null;
-  }
-};
-
 export default function Admin() {
   const [location, navigate] = useLocation();
-  const [accessConfig] = React.useState(readAdminAccessConfig);
-  const [role, setRole] = React.useState<string | null>(getStoredRole);
+  const [authUser, setAuthUser] = React.useState<AuthUser | null>(null);
+  const [checkingSession, setCheckingSession] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me", { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const data = await response.json() as { user?: AuthUser };
+        return data.user ?? null;
+      })
+      .then((user) => {
+        if (!cancelled) setAuthUser(user);
+      })
+      .catch(() => {
+        if (!cancelled) setAuthUser(null);
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingSession(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleLogout = () => {
+    void fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => undefined);
     try {
       sessionStorage.removeItem("operator_role");
+      sessionStorage.removeItem("operator_account_username");
     } catch {
       // The app can still logout in memory if browser storage is unavailable.
     }
-    setRole(null);
+    setAuthUser(null);
   };
 
-  if (!role) {
-    return <Login onSuccess={(r) => setRole(r)} />;
+  if (checkingSession) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-sm text-muted-foreground">
+        Verifica sessione operatore...
+      </div>
+    );
   }
 
-  const roleLabel = getRoleById(accessConfig, role)?.nome ?? role;
+  if (!authUser) {
+    return <Login onSuccess={(user) => setAuthUser(user)} />;
+  }
+
+  const role = authUser.roleId;
+  const roleLabel = authUser.roleName || role;
 
   return (
     <AdminDashboard
-      accessConfig={accessConfig}
       role={role}
       roleLabel={roleLabel}
+      permissions={authUser.permissions}
       onLogout={handleLogout}
       location={location}
       navigate={navigate}
@@ -229,16 +250,16 @@ const permessoVoce = (area: AreaId, tab: TabId): PermissionId | null => {
 };
 
 function AdminDashboard({
-  accessConfig,
   role,
   roleLabel,
+  permissions,
   onLogout,
   location,
   navigate,
 }: {
-  accessConfig: AdminAccessConfig;
   role: string;
   roleLabel: string;
+  permissions: PermissionId[];
   onLogout: () => void;
   location: string;
   navigate: (path: string, options?: { replace?: boolean }) => void;
@@ -254,8 +275,12 @@ function AdminDashboard({
   });
 
   const can = React.useCallback(
-    (permission: PermissionId) => roleHasPermission(accessConfig, role, permission),
-    [accessConfig, role],
+    (permission: PermissionId) => {
+      if (permission === "cassa.modena") return permissions.includes("cassa") || permissions.includes("cassa.modena");
+      if (permission === "cassa.sassuolo") return permissions.includes("cassa") || permissions.includes("cassa.sassuolo");
+      return permissions.includes(permission);
+    },
+    [permissions],
   );
 
   const setActiveTarget = React.useCallback(

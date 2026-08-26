@@ -11,6 +11,7 @@ import { TimeSelection } from "@/components/booking-wizard/TimeSelection";
 import { PersonalData } from "@/components/booking-wizard/PersonalData";
 import { Confirmation } from "@/components/booking-wizard/Confirmation";
 import { SuccessView } from "@/components/booking-wizard/SuccessView";
+import type { Booking } from "@workspace/api-client-react";
 
 const bookingSchema = z.object({
   examIds: z.array(z.number()).min(1, "Seleziona almeno un esame"),
@@ -30,7 +31,7 @@ export type BookingFormValues = z.infer<typeof bookingSchema>;
 
 export default function Home() {
   const [step, setStep] = React.useState(1);
-  const [confirmedBookingId, setConfirmedBookingId] = React.useState<number | null>(null);
+  const [confirmedBooking, setConfirmedBooking] = React.useState<Booking | null>(null);
 
   const form = useForm<BookingFormValues>({
     resolver: zodResolver(bookingSchema),
@@ -69,8 +70,8 @@ export default function Home() {
     setStep((s) => Math.max(s - 1, 1));
   };
 
-  if (confirmedBookingId) {
-    return <SuccessView bookingId={confirmedBookingId} />;
+  if (confirmedBooking) {
+    return <SuccessView booking={confirmedBooking} />;
   }
 
   return (
@@ -121,9 +122,9 @@ export default function Home() {
                 </div>
                 <div className={step === 5 ? "block" : "hidden"}>
                   <Confirmation
-                    onPrev={prevStep}
-                    onSuccess={(id) => setConfirmedBookingId(id)}
-                  />
+	                    onPrev={prevStep}
+	                    onSuccess={(booking) => setConfirmedBooking(booking)}
+	                  />
                 </div>
               </Form>
             </div>

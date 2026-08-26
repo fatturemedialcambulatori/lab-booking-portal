@@ -1,18 +1,16 @@
 import React from "react";
-import { useGetBooking } from "@workspace/api-client-react";
+import type { Booking } from "@workspace/api-client-react";
 import { format, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
 import { CheckCircle2, Calendar, Clock, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export function SuccessView({ bookingId }: { bookingId: number }) {
-  const { data: booking, isLoading } = useGetBooking(bookingId);
-
+export function SuccessView({ booking }: { booking: Booking }) {
   const handleNewBooking = () => {
     window.location.reload();
   };
 
-  const formattedDate = booking?.date
+  const formattedDate = booking.date
     ? format(parseISO(booking.date), "d MMMM yyyy", { locale: it })
     : "";
 
@@ -41,14 +39,8 @@ export function SuccessView({ bookingId }: { bookingId: number }) {
             </p>
           </div>
 
-          {isLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-14 bg-muted animate-pulse rounded-lg" />
-              ))}
-            </div>
-          ) : booking ? (
-            <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+	          {booking ? (
+	            <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
               <div className="bg-primary/8 px-5 py-4 border-b border-border flex items-center justify-between">
                 <p className="text-sm font-semibold text-primary">Prenotazione #{booking.id}</p>
                 <span className="text-xs bg-green-100 text-green-700 font-medium px-2 py-0.5 rounded-full">
@@ -100,7 +92,7 @@ export function SuccessView({ bookingId }: { bookingId: number }) {
                 </div>
               </div>
             </div>
-          ) : null}
+	          ) : null}
 
           <div className="mt-6 text-center">
             <Button variant="outline" onClick={handleNewBooking} className="w-full sm:w-auto">

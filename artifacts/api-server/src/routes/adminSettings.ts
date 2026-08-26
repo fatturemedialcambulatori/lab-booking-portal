@@ -1,11 +1,19 @@
 import { Router } from "express";
 import { db, adminSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { requireAnyPermission, requireAuth } from "../lib/auth";
 
 const router = Router();
 const SETTINGS_KEY = "admin-settings";
 const AGENDA_APPOINTMENTS_KEY = "agenda-appointments";
 const AGENDA_WAITLIST_KEY = "agenda-waitlist";
+const requireSettingsWrite = requireAnyPermission(["impostazioni"]);
+const requireAgendaAccess = requireAnyPermission([
+  "laboratorio.accettazione",
+  "ambulatorio.accettazione",
+  "laboratorio.agenda",
+  "ambulatorio.agenda",
+]);
 
 type AgendaAppointmentValue = Record<string, unknown>;
 
@@ -74,7 +82,7 @@ const saveAgendaWaitlist = async (items: AgendaAppointmentValue[]) => {
   return settings.value;
 };
 
-router.get("/admin-settings", async (req, res) => {
+router.get("/admin-settings", requireAuth, async (req, res) => {
   try {
     const [settings] = await db
       .select()
@@ -89,7 +97,7 @@ router.get("/admin-settings", async (req, res) => {
   }
 });
 
-router.put("/admin-settings", async (req, res) => {
+router.put("/admin-settings", requireSettingsWrite, async (req, res) => {
   if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
     res.status(400).json({ error: "Dati impostazioni non validi" });
     return;
@@ -120,7 +128,7 @@ router.put("/admin-settings", async (req, res) => {
   }
 });
 
-router.get("/agenda-appointments", async (req, res) => {
+router.get("/agenda-appointments", requireAgendaAccess, async (req, res) => {
   try {
     res.json(await loadAgendaAppointments());
   } catch (err) {
@@ -129,7 +137,7 @@ router.get("/agenda-appointments", async (req, res) => {
   }
 });
 
-router.post("/agenda-appointments", async (req, res) => {
+router.post("/agenda-appointments", requireAgendaAccess, async (req, res) => {
   if (!isPlainObject(req.body) || typeof req.body.id !== "string" || req.body.id.trim() === "") {
     res.status(400).json({ error: "Appuntamento non valido" });
     return;
@@ -151,7 +159,7 @@ router.post("/agenda-appointments", async (req, res) => {
   }
 });
 
-router.put("/agenda-appointments", async (req, res) => {
+router.put("/agenda-appointments", requireAgendaAccess, async (req, res) => {
   if (!Array.isArray(req.body)) {
     res.status(400).json({ error: "Lista appuntamenti non valida" });
     return;
@@ -166,7 +174,7 @@ router.put("/agenda-appointments", async (req, res) => {
   }
 });
 
-router.get("/agenda-waitlist", async (req, res) => {
+router.get("/agenda-waitlist", requireAgendaAccess, async (req, res) => {
   try {
     res.json(await loadAgendaWaitlist());
   } catch (err) {
@@ -175,7 +183,7 @@ router.get("/agenda-waitlist", async (req, res) => {
   }
 });
 
-router.post("/agenda-waitlist", async (req, res) => {
+router.post("/agenda-waitlist", requireAgendaAccess, async (req, res) => {
   if (!isPlainObject(req.body) || typeof req.body.id !== "string" || req.body.id.trim() === "") {
     res.status(400).json({ error: "Richiesta lista d'attesa non valida" });
     return;
@@ -197,8 +205,9 @@ router.post("/agenda-waitlist", async (req, res) => {
   }
 });
 
-router.delete("/agenda-waitlist/:id", async (req, res) => {
-  const id = req.params.id?.trim();
+router.delete("/agenda-waitlist/:id", requireAgendaAccess, async (req, res) => {
+  const idParam = req.params.id;
+  const id = Array.isArray(idParam) ? idParam[0]?.trim() : idParam?.trim();
   if (!id) {
     res.status(400).json({ error: "ID richiesta mancante" });
     return;

@@ -69,6 +69,9 @@ const accountVuoto = (ruoloId = ""): AdminAccount => ({
 
 export function AdminUsers() {
   const [config, setConfig] = React.useState<AdminAccessConfig>(readAdminAccessConfig);
+  const [loadingConfig, setLoadingConfig] = React.useState(true);
+  const [savingConfig, setSavingConfig] = React.useState(false);
+  const [configError, setConfigError] = React.useState("");
   const [roleDialogOpen, setRoleDialogOpen] = React.useState(false);
   const [accountDialogOpen, setAccountDialogOpen] = React.useState(false);
   const [editingRoleId, setEditingRoleId] = React.useState<string | null>(null);
@@ -80,10 +83,70 @@ export function AdminUsers() {
   );
   const accountDaEliminare = config.account.find((account) => account.id === accountDaEliminareId) ?? null;
 
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin-access", { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Configurazione account non caricabile");
+        return response.json() as Promise<AdminAccessConfig>;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setConfig(data);
+        writeAdminAccessConfig(data);
+        setConfigError("");
+      })
+      .catch((err) => {
+        if (!cancelled) setConfigError(err instanceof Error ? err.message : "Errore caricamento account");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingConfig(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const persistConfig = async (next: AdminAccessConfig) => {
+    setSavingConfig(true);
+    setConfigError("");
+    try {
+      const response = await fetch("/api/admin-access", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(next),
+      });
+      const data = await response.json().catch(() => null) as unknown;
+      const maybeError = data && typeof data === "object" && "error" in data
+        ? String((data as { error?: unknown }).error ?? "")
+        : "";
+      if (
+        !response.ok ||
+        !data ||
+        typeof data !== "object" ||
+        !("ruoli" in data) ||
+        !("account" in data) ||
+        !Array.isArray((data as AdminAccessConfig).ruoli) ||
+        !Array.isArray((data as AdminAccessConfig).account)
+      ) {
+        throw new Error(maybeError || "Errore salvataggio account");
+      }
+      const savedConfig = data as AdminAccessConfig;
+      setConfig(savedConfig);
+      writeAdminAccessConfig(savedConfig);
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : "Errore salvataggio account");
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
   const salvaConfig = (updater: (corrente: AdminAccessConfig) => AdminAccessConfig) => {
     setConfig((corrente) => {
       const prossima = updater(corrente);
       writeAdminAccessConfig(prossima);
+      void persistConfig(prossima);
       return prossima;
     });
   };
@@ -136,7 +199,7 @@ export function AdminUsers() {
     const nome = accountForm.nome.trim();
     const username = accountForm.username.trim();
     const password = accountForm.password.trim();
-    if (!nome || !username || !password || !accountForm.ruoloId) return;
+    if (!nome || !username || (!editingAccountId && !password) || !accountForm.ruoloId) return;
 
     const nuovoAccount: AdminAccount = {
       ...accountForm,
@@ -186,6 +249,9 @@ export function AdminUsers() {
           <p className="text-sm text-muted-foreground">
             Crea ruoli, scegli cosa possono vedere e assegna gli account operativi.
           </p>
+          {loadingConfig && <p className="mt-2 text-xs text-muted-foreground">Caricamento configurazione server...</p>}
+          {savingConfig && <p className="mt-2 text-xs text-muted-foreground">Salvataggio permessi...</p>}
+          {configError && <p className="mt-2 text-xs text-destructive">{configError}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={apriNuovoRuolo} className="gap-2">

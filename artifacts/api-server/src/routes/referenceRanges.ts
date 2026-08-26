@@ -2,9 +2,15 @@ import { Router, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { examReferenceRangesTable, type Fascia } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
+import { requireAnyPermission } from "../lib/auth";
 
 const router = Router();
 const VALID_REFERENCE_RANGE_TYPES = ["range", "gt", "gte", "lt", "lte", "qualitative", "fasce"] as const;
+const requireReferenceRangeManagement = requireAnyPermission([
+  "laboratorio.listino",
+  "ambulatorio.prestazioni",
+  "impostazioni",
+]);
 
 const isReferenceRangeType = (value: unknown): value is (typeof VALID_REFERENCE_RANGE_TYPES)[number] =>
   typeof value === "string" && (VALID_REFERENCE_RANGE_TYPES as readonly string[]).includes(value);
@@ -186,11 +192,11 @@ router.get("/exam-reference-ranges", async (req, res) => {
   return listReferenceRangesByExamId(Number(req.query["examId"]), req, res);
 });
 
-router.post("/exams/:id/reference-ranges", async (req, res) => {
+router.post("/exams/:id/reference-ranges", requireReferenceRangeManagement, async (req, res) => {
   return createReferenceRangeForExam(Number(req.params.id), req.body, req, res);
 });
 
-router.post("/exam-reference-ranges", async (req, res) => {
+router.post("/exam-reference-ranges", requireReferenceRangeManagement, async (req, res) => {
   const rawBody = req.body && typeof req.body === "object" && !Array.isArray(req.body)
     ? req.body as Record<string, unknown>
     : {};
@@ -198,11 +204,11 @@ router.post("/exam-reference-ranges", async (req, res) => {
   return createReferenceRangeForExam(Number(rawExamId), body, req, res);
 });
 
-router.put("/exams/:id/reference-ranges/:rangeId", async (req, res) => {
+router.put("/exams/:id/reference-ranges/:rangeId", requireReferenceRangeManagement, async (req, res) => {
   return updateReferenceRangeById(Number(req.params.id), Number(req.params.rangeId), req.body, req, res);
 });
 
-router.post("/exam-reference-ranges-update", async (req, res) => {
+router.post("/exam-reference-ranges-update", requireReferenceRangeManagement, async (req, res) => {
   const rawBody = req.body && typeof req.body === "object" && !Array.isArray(req.body)
     ? req.body as Record<string, unknown>
     : {};
@@ -210,11 +216,11 @@ router.post("/exam-reference-ranges-update", async (req, res) => {
   return updateReferenceRangeById(Number(rawExamId), Number(rawRangeId), body, req, res);
 });
 
-router.delete("/exams/:id/reference-ranges/:rangeId", async (req, res) => {
+router.delete("/exams/:id/reference-ranges/:rangeId", requireReferenceRangeManagement, async (req, res) => {
   return deleteReferenceRangeById(Number(req.params.id), Number(req.params.rangeId), req, res);
 });
 
-router.post("/exam-reference-ranges-delete", async (req, res) => {
+router.post("/exam-reference-ranges-delete", requireReferenceRangeManagement, async (req, res) => {
   const examId = req.body && typeof req.body === "object" && !Array.isArray(req.body)
     ? Number((req.body as Record<string, unknown>)["examId"])
     : NaN;

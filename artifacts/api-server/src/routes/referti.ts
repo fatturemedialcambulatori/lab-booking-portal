@@ -2,8 +2,15 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { refertiTable } from "@workspace/db";
 import { eq, and, isNull } from "drizzle-orm";
+import { requireAnyPermission } from "../lib/auth";
 
 const router = Router();
+
+router.use(requireAnyPermission([
+  "laboratorio.accettazione",
+  "ambulatorio.accettazione",
+  "laboratorio.listino",
+]));
 
 router.get("/referti", async (req, res) => {
   const bookingId = Number(req.query.bookingId);

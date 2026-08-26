@@ -1,12 +1,10 @@
 import React from "react";
-import * as XLSX from "xlsx";
 import {
   CalendarDays,
   Check,
   ChevronsUpDown,
   Download,
   Euro,
-  FileSpreadsheet,
   FileText,
   Plane,
   Plus,
@@ -216,7 +214,7 @@ type GruppoExportCompensi = {
   righe: PrenotazioneCalcolata[];
 };
 
-type FormatoExportCompensi = "pdf" | "csv" | "excel";
+type FormatoExportCompensi = "pdf" | "csv";
 
 type OpzioniExportCompensi = {
   oscuraPazienti: boolean;
@@ -249,8 +247,6 @@ type Specialita = {
   nome: string;
   attiva: boolean;
 };
-
-type ExcelRow = Record<string, unknown>;
 
 const GIORNI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
 
@@ -589,119 +585,6 @@ const slugId = (prefisso: string, valore: string, fallback = Date.now()) => {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return `${prefisso}-${slug || fallback}`;
-};
-
-const trovaValore = (row: ExcelRow, chiavi: string[]) => {
-  const chiaviNormalizzate = chiavi.map(normalizzaTesto);
-  const entry = Object.entries(row).find(([key]) => chiaviNormalizzate.includes(normalizzaTesto(key)));
-  return entry?.[1];
-};
-
-const leggiTesto = (row: ExcelRow, chiavi: string[], fallback = "") => {
-  const valore = trovaValore(row, chiavi);
-  return valore === undefined || valore === null ? fallback : String(valore).trim();
-};
-
-const leggiNumero = (row: ExcelRow, chiavi: string[], fallback = 0) => {
-  const valore = trovaValore(row, chiavi);
-  if (typeof valore === "number") return Number.isFinite(valore) ? valore : fallback;
-  const numero = Number(String(valore ?? "").replace(",", "."));
-  return Number.isFinite(numero) ? numero : fallback;
-};
-
-const leggiBooleano = (row: ExcelRow, chiavi: string[], fallback = true) => {
-  const valore = trovaValore(row, chiavi);
-  if (typeof valore === "boolean") return valore;
-  const testo = normalizzaTesto(String(valore ?? ""));
-  if (["si", "sì", "true", "1", "attivo", "aperta", "aperto"].includes(testo)) return true;
-  if (["no", "false", "0", "inattivo", "chiusa", "chiuso"].includes(testo)) return false;
-  return fallback;
-};
-
-const leggiGiorniDisponibilita = (row: ExcelRow, chiavi: string[], fallback: string[] = []) => {
-  const testo = leggiTesto(row, chiavi);
-  if (!testo) return fallback;
-
-  return testo
-    .split(/[;,|]/)
-    .map((giorno) => giorno.trim())
-    .filter(Boolean);
-};
-
-const leggiFasceDisponibilita = (
-  row: ExcelRow,
-  chiavi: string[],
-  fallbackGiorni: string[] = [],
-) => {
-  const testo = leggiTesto(row, chiavi);
-  if (!testo) return fasceDaGiorni(fallbackGiorni);
-
-  return testo
-    .split(/[;,|]/)
-    .map((parte, index) => {
-      const testoFascia = parte.trim();
-      if (!testoFascia) return null;
-
-      const giorno = GIORNI.find((giornoDisponibile) =>
-        normalizzaTesto(testoFascia).startsWith(normalizzaTesto(giornoDisponibile)),
-      ) ?? GIORNI[0];
-      const orari = testoFascia.match(/(\d{1,2}:\d{2})\s*(?:-|alle|a)\s*(\d{1,2}:\d{2})/i);
-      const normalizzaOrarioExcel = (orario: string | undefined, fallback: string) =>
-        orario && /^\d:\d{2}$/.test(orario) ? `0${orario}` : normalizzaOrario(orario, fallback);
-
-      return normalizzaFasciaDisponibilita(
-        {
-          id: creaIdAgenda("fascia"),
-          giorno,
-          dalle: normalizzaOrarioExcel(orari?.[1], DEFAULT_FASCIA_DALLE),
-          alle: normalizzaOrarioExcel(orari?.[2], DEFAULT_FASCIA_ALLE),
-        },
-        giorno,
-        index,
-      );
-    })
-    .filter((fascia): fascia is FasciaDisponibilita => Boolean(fascia));
-};
-
-const leggiEccezioniAgenda = (row: ExcelRow) => {
-  const testo = leggiTesto(row, ["eccezioniAgenda", "eccezioni agenda", "eccezioni"]);
-  if (!testo) return [];
-
-  try {
-    const parsed: unknown = JSON.parse(testo);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((eccezione, index) =>
-      normalizzaEccezioneAgenda(eccezione as Partial<EccezioneAgendaMedico>, index),
-    );
-  } catch {
-    return [];
-  }
-};
-
-const leggiPianoFerie = (row: ExcelRow) => {
-  const testo = leggiTesto(row, ["pianoFerie", "piano ferie", "ferie"]);
-  if (!testo) return [];
-
-  try {
-    const parsed: unknown = JSON.parse(testo);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((ferie, index) =>
-      normalizzaPianoFerieMedico(ferie as Partial<PianoFerieMedico>, index),
-    );
-  } catch {
-    return [];
-  }
-};
-
-const leggiCompensoTipo = (row: ExcelRow) => {
-  const valore = normalizzaTesto(leggiTesto(row, ["compensoTipo", "tipo compenso", "tipo", "compenso tipo"], "percentuale"));
-  return valore.startsWith("f") ? "fisso" : "percentuale";
-};
-
-const righeFoglio = (workbook: XLSX.WorkBook, nomeFoglio: string) => {
-  const nome = workbook.SheetNames.find((sheetName) => normalizzaTesto(sheetName) === normalizzaTesto(nomeFoglio));
-  if (!nome) return null;
-  return XLSX.utils.sheet_to_json<ExcelRow>(workbook.Sheets[nome], { defval: "" });
 };
 
 const isAdminSettingsData = (value: unknown): value is AdminSettingsData => {
@@ -2015,9 +1898,6 @@ export function AdminSettings({
     return `m-medical-compensi-${periodoCompensi.dal || "inizio"}-${periodoCompensi.al || "fine"}-${medicoSlug}-${privacy}.${estensione}`;
   };
 
-  const nomeFoglioExcel = (nome: string, index: number) =>
-    `${index + 1}-${nome}`.replace(/[\\/?*[\]:]/g, " ").slice(0, 31) || `Medico ${index + 1}`;
-
   const costruisciGruppiExportCompensi = (): GruppoExportCompensi[] => {
     const separaMedici = opzioniExportCompensi.separaMedici && medicoCompensiFiltro === "tutti";
     if (!separaMedici) {
@@ -2048,7 +1928,6 @@ export function AdminSettings({
   const costruisciRigheExportCompensi = (
     righe: PrenotazioneCalcolata[],
     opzioni: OpzioniExportCompensi,
-    formato: "excel" | "testo",
   ): RigaExportCompenso[] =>
     righe.map(({ prenotazione, medico, prestazione, listino, incasso, quota, netto }) => {
       const riga: RigaExportCompenso = {
@@ -2063,71 +1942,29 @@ export function AdminSettings({
         "Valore compenso":
           listino.compensoTipo === "percentuale"
             ? `${listino.compensoValore}%`
-            : formato === "excel"
-              ? listino.compensoValore
-              : formattaNumeroCsv(listino.compensoValore),
+            : formattaNumeroCsv(listino.compensoValore),
         Stato: LABEL_STATO_PRENOTAZIONE[prenotazione.stato],
         Fatturazione: prenotazione.fatturata ? "Fatturata" : "Non fatturata",
         "Numero fattura": prenotazione.numeroFattura ?? "",
       };
 
-      if (opzioni.mostraIncasso) riga["Importo fatturato"] = formato === "excel" ? incasso : formattaNumeroCsv(incasso);
-      if (opzioni.mostraCompensi) riga["Quota medico"] = formato === "excel" ? quota : formattaNumeroCsv(quota);
-      if (opzioni.mostraNettoStudio) riga["Netto studio"] = formato === "excel" ? netto : formattaNumeroCsv(netto);
+      if (opzioni.mostraIncasso) riga["Importo fatturato"] = formattaNumeroCsv(incasso);
+      if (opzioni.mostraCompensi) riga["Quota medico"] = formattaNumeroCsv(quota);
+      if (opzioni.mostraNettoStudio) riga["Netto studio"] = formattaNumeroCsv(netto);
 
       return riga;
     });
 
-  const costruisciRigheRiepilogoExport = (gruppi: GruppoExportCompensi[], formato: "excel" | "testo") =>
+  const costruisciRigheRiepilogoExport = (gruppi: GruppoExportCompensi[]) =>
     gruppi.map((gruppo) => {
       const totali = calcolaTotaliCompensi(gruppo.righe);
       const riga: RigaExportCompenso = { Medico: gruppo.nome };
       if (opzioniExportCompensi.mostraTotalePrenotazioni) riga["Eseguite e fatturate"] = totali.prenotazioni;
-      if (opzioniExportCompensi.mostraIncasso) {
-        riga["Incasso/Fatturato"] = formato === "excel" ? totali.incasso : formattaNumeroCsv(totali.incasso);
-      }
-      if (opzioniExportCompensi.mostraCompensi) {
-        riga["Compensi medici"] = formato === "excel" ? totali.compenso : formattaNumeroCsv(totali.compenso);
-      }
-      if (opzioniExportCompensi.mostraNettoStudio) {
-        riga["Netto studio"] = formato === "excel" ? totali.netto : formattaNumeroCsv(totali.netto);
-      }
+      if (opzioniExportCompensi.mostraIncasso) riga["Incasso/Fatturato"] = formattaNumeroCsv(totali.incasso);
+      if (opzioniExportCompensi.mostraCompensi) riga["Compensi medici"] = formattaNumeroCsv(totali.compenso);
+      if (opzioniExportCompensi.mostraNettoStudio) riga["Netto studio"] = formattaNumeroCsv(totali.netto);
       return riga;
     });
-
-  const esportaDettaglioCompensiExcel = () => {
-    if (prenotazioniCompensi.length === 0) {
-      mostraNotifica(
-        "Nessuna prestazione eseguita e fatturata da esportare con il filtro corrente.",
-        "destructive",
-      );
-      return;
-    }
-
-    const gruppi = costruisciGruppiExportCompensi();
-    const workbook = XLSX.utils.book_new();
-    if (mostraRiepilogoExport) {
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.json_to_sheet(costruisciRigheRiepilogoExport(gruppi, "excel")),
-        "Riepilogo",
-      );
-    }
-
-    const colonne = colonneExportCompensi(opzioniExportCompensi);
-    gruppi.forEach((gruppo, index) => {
-      const worksheet = XLSX.utils.json_to_sheet(
-        costruisciRigheExportCompensi(gruppo.righe, opzioniExportCompensi, "excel"),
-        { header: colonne },
-      );
-      XLSX.utils.book_append_sheet(workbook, worksheet, nomeFoglioExcel(gruppo.nome, index));
-    });
-
-    XLSX.writeFile(workbook, nomeFileCompensi("xlsx"));
-    mostraNotifica(
-      gruppi.length > 1 ? "Excel esportato con un foglio separato per medico." : "Excel dettaglio compensi esportato.",
-    );
-  };
 
   const esportaDettaglioCompensiCsv = () => {
     if (prenotazioniCompensi.length === 0) {
@@ -2141,8 +1978,8 @@ export function AdminSettings({
     const gruppi = costruisciGruppiExportCompensi();
     const colonne = colonneExportCompensi(opzioniExportCompensi);
     gruppi.forEach((gruppo) => {
-      const righe = costruisciRigheExportCompensi(gruppo.righe, opzioniExportCompensi, "testo");
-      const righeRiepilogo = mostraRiepilogoExport ? costruisciRigheRiepilogoExport([gruppo], "testo") : [];
+      const righe = costruisciRigheExportCompensi(gruppo.righe, opzioniExportCompensi);
+      const righeRiepilogo = mostraRiepilogoExport ? costruisciRigheRiepilogoExport([gruppo]) : [];
       const csv = [
         ...(righeRiepilogo.length > 0
           ? [
@@ -2207,7 +2044,7 @@ export function AdminSettings({
     const privacy = opzioniExportCompensi.oscuraPazienti ? "Pazienti oscurati" : "Pazienti visibili";
     const sezioniHtml = gruppi
       .map((gruppo, index) => {
-        const righe = costruisciRigheExportCompensi(gruppo.righe, opzioniExportCompensi, "testo");
+        const righe = costruisciRigheExportCompensi(gruppo.righe, opzioniExportCompensi);
         const righeHtml = righe
           .map(
             (riga) => `
@@ -2284,305 +2121,87 @@ export function AdminSettings({
   const confermaExportCompensi = () => {
     if (formatoExportCompensi === "pdf") esportaDettaglioCompensiPdf();
     if (formatoExportCompensi === "csv") esportaDettaglioCompensiCsv();
-    if (formatoExportCompensi === "excel") esportaDettaglioCompensiExcel();
     setExportCompensiOpen(false);
   };
 
-  const esportaExcel = () => {
-    const workbook = XLSX.utils.book_new();
-    const listaSpecialita = specialitaDisponibili.map((nome) => {
-      const configurazione = specialita.find((item) => stessaSpecialita(item.nome, nome));
-      return {
-        id: configurazione?.id ?? slugId("specialita", nome),
-        nome,
-        attiva: configurazione?.attiva ?? true,
-      };
-    });
-    const listaMedici = medici.map((medico) => {
-      const datiFatturazione = {
-        ...DATI_FATTURAZIONE_MEDICO_VUOTI,
-        ...medico.datiFatturazione,
-      };
-      const fasceDisponibilitaPerSede = normalizzaFasceDisponibilitaPerSede(medico);
-      const disponibilitaPerSede = disponibilitaSediDaFasce(fasceDisponibilitaPerSede);
+  const esportaConfigurazione = () => {
+    const payload: AdminSettingsData = {
+      specialita: specialita.map((item) => ({ ...item })),
+      prestazioni: copiaPrestazioni(prestazioni),
+      medici: medici.map(normalizzaMedico),
+      listini: listini.map((item) => ({ ...item })),
+      conventionTemplates: copiaConventionTemplates(conventionTemplates),
+    };
 
-      return {
-        id: medico.id,
-        nome: medico.nome,
-        specialita: medico.specialita,
-        disponibilita: unisciDisponibilitaSedi(disponibilitaPerSede).join(", "),
-        disponibilitaModena: disponibilitaPerSede.modena.join(", "),
-        disponibilitaSassuolo: disponibilitaPerSede.sassuolo.join(", "),
-        fasceModena: fasceDisponibilitaPerSede.modena.map(descriviFasciaDisponibilita).join(", "),
-        fasceSassuolo: fasceDisponibilitaPerSede.sassuolo.map(descriviFasciaDisponibilita).join(", "),
-        eccezioniAgenda: JSON.stringify(normalizzaEccezioniAgenda(medico)),
-        pianoFerie: JSON.stringify(normalizzaPianoFerie(medico)),
-        intestatarioFatturazione: datiFatturazione.intestatario,
-        partitaIva: datiFatturazione.partitaIva,
-        codiceFiscale: datiFatturazione.codiceFiscale,
-        indirizzoFatturazione: datiFatturazione.indirizzo,
-        cap: datiFatturazione.cap,
-        citta: datiFatturazione.citta,
-        provincia: datiFatturazione.provincia,
-        emailFatturazione: datiFatturazione.emailFatturazione,
-        pec: datiFatturazione.pec,
-        codiceSdi: datiFatturazione.codiceSdi,
-        regimeFiscale: datiFatturazione.regimeFiscale,
-        noteFatturazione: datiFatturazione.noteFatturazione,
-      };
-    });
-    const listaPrestazioni = prestazioni.map((prestazione) => ({
-      id: prestazione.id,
-      nome: prestazione.nome,
-      specialita: prestazione.specialita,
-      durata: prestazione.durata,
-      attiva: prestazione.attiva,
-    }));
-    const listaListini = listini.map((listino) => {
-      const medico = medici.find((item) => item.id === listino.medicoId);
-      const prestazione = prestazioni.find((item) => item.id === listino.prestazioneId);
-      return {
-        id: listino.id,
-        medicoId: listino.medicoId,
-        medico: medico?.nome ?? "",
-        prestazioneId: listino.prestazioneId,
-        prestazione: prestazione?.nome ?? "",
-        specialita: prestazione?.specialita ?? medico?.specialita ?? "",
-        durata: listino.durata,
-        importo: listino.prezzo,
-        compensoTipo: listino.compensoTipo,
-        compensoValore: listino.compensoValore,
-        quotaMedico: quotaMedico(listino),
-        nettoStudio: nettoStudio(listino),
-      };
-    });
-    const listaConvenzioni = conventionTemplates.flatMap((template) =>
-      template.services.length > 0
-        ? template.services.map((service) => ({
-            templateId: template.id,
-            modello: template.nome,
-            descrizione: template.descrizione,
-            attiva: template.attiva,
-            prestazioneId: service.prestazioneId,
-            prestazione: service.nome,
-            specialita: service.specialita,
-            durata: service.durata,
-            modalitaPrezzo: service.pricingMode === "discount" ? "Sconto %" : "Prezzo finale",
-            scontoPercentuale: service.discountPercent,
-            prezzoConvenzione: service.prezzo,
-          }))
-        : [{
-            templateId: template.id,
-            modello: template.nome,
-            descrizione: template.descrizione,
-            attiva: template.attiva,
-            prestazioneId: "",
-            prestazione: "",
-            specialita: "",
-            durata: 0,
-            modalitaPrezzo: "Prezzo finale",
-            scontoPercentuale: 0,
-            prezzoConvenzione: 0,
-          }],
+    scaricaBlob(
+      JSON.stringify(payload, null, 2),
+      `m-medical-configurazione-${new Date().toISOString().slice(0, 10)}.json`,
+      "application/json;charset=utf-8;",
     );
-
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(listaMedici), "Medici");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(listaSpecialita), "Specialita");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(listaPrestazioni), "Prestazioni");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(listaListini), "Listini");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(listaConvenzioni), "Convenzioni");
-    XLSX.writeFile(workbook, `m-medical-configurazione-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    mostraNotifica("Configurazione esportata in JSON.");
   };
 
-  const importaExcel = async (file: File) => {
-    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
-    const righeSpecialita = righeFoglio(workbook, "Specialita");
-    const righePrestazioni = righeFoglio(workbook, "Prestazioni");
-    const righeMedici = righeFoglio(workbook, "Medici");
-    const righeListini = righeFoglio(workbook, "Listini");
-    const righeConvenzioni = righeFoglio(workbook, "Convenzioni");
+  const importaConfigurazione = async (file: File) => {
+    if (!file.name.toLocaleLowerCase("it-IT").endsWith(".json")) {
+      throw new Error("Formato non supportato");
+    }
 
-    const prossimeSpecialita = righeSpecialita
-      ? righeSpecialita
-          .map((row, index) => {
-            const nome = leggiTesto(row, ["nome", "specialita", "specialità"]);
-            if (!nome) return null;
-            return {
-              id: leggiTesto(row, ["id"], slugId("specialita", nome, index)),
-              nome,
-              attiva: leggiBooleano(row, ["attiva", "stato"], true),
-            } satisfies Specialita;
-          })
-          .filter((item): item is Specialita => Boolean(item))
-      : specialita;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      throw new Error("JSON non valido");
+    }
 
-    const prossimePrestazioni = righePrestazioni
-      ? righePrestazioni
-          .map((row, index) => {
-            const nome = leggiTesto(row, ["nome", "prestazione"]);
-            if (!nome) return null;
-            const specialitaPrestazione = leggiTesto(row, ["specialita", "specialità"], "Generale");
-            return {
-              id: leggiTesto(row, ["id", "prestazioneId", "prestazione id"], slugId("prestazione", nome, index)),
-              nome,
-              specialita: specialitaPrestazione,
-              durata: Math.max(5, leggiNumero(row, ["durata", "durata base"], 30)),
-              attiva: leggiBooleano(row, ["attiva", "stato"], true),
-            } satisfies Prestazione;
-          })
-          .filter((item): item is Prestazione => Boolean(item))
-      : prestazioni;
+    if (!isAdminSettingsData(parsed)) {
+      throw new Error("Configurazione non valida");
+    }
 
-    const prossimiMedici = righeMedici
-      ? righeMedici
-          .map((row, index): Medico | null => {
-            const nome = leggiTesto(row, ["nome", "medico"]);
-            if (!nome) return null;
-            const disponibilitaGenerale = leggiGiorniDisponibilita(row, [
-              "disponibilita",
-              "disponibilità",
-              "giorni",
-            ]);
-            const disponibilitaPerSede: DisponibilitaPerSedeMedico = {
-              modena: leggiGiorniDisponibilita(
-                row,
-                ["disponibilitaModena", "disponibilità modena", "giorni modena", "modena"],
-                disponibilitaGenerale,
-              ),
-              sassuolo: leggiGiorniDisponibilita(
-                row,
-                ["disponibilitaSassuolo", "disponibilità sassuolo", "giorni sassuolo", "sassuolo"],
-              ),
-            };
-            const fasceDisponibilitaPerSede: FasceDisponibilitaPerSedeMedico = {
-              modena: leggiFasceDisponibilita(
-                row,
-                ["fasceModena", "fasce modena", "orari modena", "disponibilita oraria modena"],
-                disponibilitaPerSede.modena,
-              ),
-              sassuolo: leggiFasceDisponibilita(
-                row,
-                ["fasceSassuolo", "fasce sassuolo", "orari sassuolo", "disponibilita oraria sassuolo"],
-                disponibilitaPerSede.sassuolo,
-              ),
-            };
-            return {
-              id: leggiTesto(row, ["id", "medicoId", "medico id"], slugId("medico", nome, index)),
-              nome,
-              specialita: leggiTesto(row, ["specialita", "specialità"], "Generale"),
-              agendaAperta: true,
-              disponibilita: unisciDisponibilitaSedi(disponibilitaSediDaFasce(fasceDisponibilitaPerSede)),
-              disponibilitaPerSede: disponibilitaSediDaFasce(fasceDisponibilitaPerSede),
-              fasceDisponibilitaPerSede,
-              eccezioniAgenda: leggiEccezioniAgenda(row),
-              pianoFerie: leggiPianoFerie(row),
-              datiFatturazione: {
-                intestatario: leggiTesto(
-                  row,
-                  ["intestatarioFatturazione", "intestatario fatturazione", "ragione sociale", "intestatario"],
-                ),
-                partitaIva: leggiTesto(row, ["partitaIva", "partita iva", "p iva", "p.iva", "iva"]),
-                codiceFiscale: leggiTesto(row, ["codiceFiscale", "codice fiscale", "cf"]),
-                indirizzo: leggiTesto(row, ["indirizzoFatturazione", "indirizzo fatturazione", "indirizzo"]),
-                cap: leggiTesto(row, ["cap"]),
-                citta: leggiTesto(row, ["citta", "città", "comune"]),
-                provincia: leggiTesto(row, ["provincia", "prov"]),
-                emailFatturazione: leggiTesto(
-                  row,
-                  ["emailFatturazione", "email fatturazione", "email"],
-                ),
-                pec: leggiTesto(row, ["pec"]),
-                codiceSdi: leggiTesto(row, ["codiceSdi", "codice sdi", "sdi"]),
-                regimeFiscale: leggiTesto(row, ["regimeFiscale", "regime fiscale", "regime"]),
-                noteFatturazione: leggiTesto(
-                  row,
-                  ["noteFatturazione", "note fatturazione", "note"],
-                ),
-              },
-            } satisfies Medico;
-          })
-          .filter((item): item is Medico => Boolean(item))
-      : medici;
-
-    const medicoById = new Map(prossimiMedici.map((medico) => [medico.id, medico]));
-    const medicoByNome = new Map(prossimiMedici.map((medico) => [normalizzaTesto(medico.nome), medico]));
-    const prestazioneById = new Map(prossimePrestazioni.map((prestazione) => [prestazione.id, prestazione]));
-    const prestazioneByNome = new Map(
-      prossimePrestazioni.map((prestazione) => [normalizzaTesto(prestazione.nome), prestazione]),
-    );
-
-    const prossimiListini = righeListini
-      ? righeListini
-          .map((row, index) => {
-            const medicoId = leggiTesto(row, ["medicoId", "medico id"]);
-            const medicoNome = leggiTesto(row, ["medico", "nome medico"]);
-            const medico = medicoById.get(medicoId) ?? medicoByNome.get(normalizzaTesto(medicoNome));
-            const prestazioneId = leggiTesto(row, ["prestazioneId", "prestazione id"]);
-            const prestazioneNome = leggiTesto(row, ["prestazione", "nome prestazione"]);
-            const prestazione =
-              prestazioneById.get(prestazioneId) ?? prestazioneByNome.get(normalizzaTesto(prestazioneNome));
-
-            if (!medico || !prestazione) return null;
-
-            const compensoTipo = leggiCompensoTipo(row);
-            const compensoRaw = leggiNumero(row, ["compensoValore", "compenso valore", "compenso", "compenso %", "compenso fisso"], 0);
-            return {
-              id: leggiTesto(row, ["id"], `listino-${index + 1}`),
-              medicoId: medico.id,
-              prestazioneId: prestazione.id,
-              durata: Math.max(5, leggiNumero(row, ["durata"], prestazione.durata)),
-              prezzo: Math.max(0, leggiNumero(row, ["prezzo", "importo", "costo visita"], 0)),
-              compensoTipo,
-              compensoValore:
-                compensoTipo === "percentuale"
-                  ? limitaPercentuale(compensoRaw)
-                  : Math.max(0, compensoRaw),
-            } satisfies Listino;
-          })
-          .filter((item): item is Listino => Boolean(item))
-      : listini;
-
-    const prossimiTemplate = righeConvenzioni
-      ? Array.from(
-          righeConvenzioni.reduce((map, row, index) => {
-            const nome = leggiTesto(row, ["modello", "nome", "convenzione"], "Convenzione base");
-            const templateId = leggiTesto(row, ["templateId", "template id", "id"], slugId("convenzione-base", nome, index));
-            const existing = map.get(templateId) ?? {
-              id: templateId,
-              nome,
-              descrizione: leggiTesto(row, ["descrizione", "testo", "testo convenzione"]),
-              attiva: leggiBooleano(row, ["attiva", "stato"], true),
-              services: [],
-            } satisfies ConventionTemplate;
-
-            const prestazioneId = leggiTesto(row, ["prestazioneId", "prestazione id"]);
-            const prestazioneNome = leggiTesto(row, ["prestazione", "nome prestazione"]);
-            const prestazione =
-              prestazioneById.get(prestazioneId) ?? prestazioneByNome.get(normalizzaTesto(prestazioneNome));
-
-            if (prestazione) {
-              const modalitaRaw = normalizzaTesto(String(row["modalitaPrezzo"] ?? row["modalita prezzo"] ?? row["tipoPrezzo"] ?? row["tipo prezzo"] ?? ""));
-              const scontoPercentuale = Math.max(0, Math.min(100, leggiNumero(row, ["scontoPercentuale", "sconto percentuale", "sconto %", "sconto"], 0)));
-              const pricingMode = modalitaRaw.includes("sconto") || scontoPercentuale > 0 ? "discount" : "fixed";
-              existing.services.push({
-                id: prestazione.id,
-                prestazioneId: prestazione.id,
-                nome: prestazione.nome,
-                specialita: prestazione.specialita,
-                durata: Math.max(5, leggiNumero(row, ["durata"], prestazione.durata)),
-                pricingMode,
-                discountPercent: pricingMode === "discount" ? scontoPercentuale : 0,
-                prezzo: pricingMode === "fixed"
-                  ? Math.max(0, leggiNumero(row, ["prezzoConvenzione", "prezzo convenzione", "prezzo", "importo"], 0))
-                  : 0,
-              });
-            }
-
-            map.set(templateId, existing);
-            return map;
-          }, new Map<string, ConventionTemplate>()).values(),
-        )
-      : conventionTemplates;
+    const data = parsed;
+    const prossimeSpecialita = data.specialita
+      .filter((item) => Boolean(item?.nome))
+      .map((item, index) => ({
+        id: item.id || slugId("specialita", item.nome, index),
+        nome: item.nome,
+        attiva: item.attiva !== false,
+      }));
+    const prossimePrestazioni = data.prestazioni
+      .filter((item) => Boolean(item?.nome))
+      .map((item, index) => ({
+        id: item.id || slugId("prestazione", item.nome, index),
+        nome: item.nome,
+        specialita: item.specialita || "Generale",
+        durata: Math.max(5, Number(item.durata) || 30),
+        attiva: item.attiva !== false,
+      }));
+    const prossimiMedici = data.medici
+      .filter((item) => Boolean(item?.nome))
+      .map((item, index) => normalizzaMedico({
+        ...item,
+        id: item.id || slugId("medico", item.nome, index),
+      }));
+    const prestazioneIds = new Set(prossimePrestazioni.map((item) => item.id));
+    const medicoIds = new Set(prossimiMedici.map((item) => item.id));
+    const prossimiListini = data.listini
+      .filter((item) => medicoIds.has(item.medicoId) && prestazioneIds.has(item.prestazioneId))
+      .map((item, index): Listino => {
+        const compensoTipo: CompensoTipo = item.compensoTipo === "fisso" ? "fisso" : "percentuale";
+        return {
+          id: item.id || `listino-${index + 1}`,
+          medicoId: item.medicoId,
+          prestazioneId: item.prestazioneId,
+          durata: Math.max(5, Number(item.durata) || 30),
+          prezzo: Math.max(0, Number(item.prezzo) || 0),
+          compensoTipo,
+          compensoValore: compensoTipo === "fisso"
+            ? Math.max(0, Number(item.compensoValore) || 0)
+            : limitaPercentuale(Number(item.compensoValore) || 0),
+        };
+      });
+    const templateInput = (data as Partial<AdminSettingsData>).conventionTemplates;
+    const prossimiTemplate = Array.isArray(templateInput) && templateInput.length > 0
+      ? templateInput.map((template, index) => normalizzaConventionTemplate(template, index))
+      : copiaConventionTemplates(CONVENTION_TEMPLATES_INIZIALI);
 
     setSpecialita(prossimeSpecialita);
     setPrestazioni(prossimePrestazioni);
@@ -2597,15 +2216,15 @@ export function AdminSettings({
     );
   };
 
-  const apriImportExcel = () => importInputRef.current?.click();
+  const apriImportConfigurazione = () => importInputRef.current?.click();
 
-  const gestisciImportExcel = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const gestisciImportConfigurazione = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      await importaExcel(file);
+      await importaConfigurazione(file);
     } catch {
-      mostraNotifica("Import non riuscito. Controlla il formato del file Excel.", "destructive");
+      mostraNotifica("Import non riuscito. Controlla il formato del file JSON.", "destructive");
     } finally {
       event.target.value = "";
     }
@@ -2783,9 +2402,9 @@ export function AdminSettings({
       <input
         ref={importInputRef}
         type="file"
-        accept=".xlsx,.xls"
+        accept=".json"
         className="hidden"
-        onChange={gestisciImportExcel}
+        onChange={gestisciImportConfigurazione}
       />
 
       <Tabs
@@ -2827,7 +2446,7 @@ export function AdminSettings({
                   editing={prestazioniModificaAttiva}
                   onUnlock={sbloccaModificaPrestazioni}
                 />
-                <ImportExportActions onExport={esportaExcel} onImportClick={apriImportExcel} />
+                <ImportExportActions onExport={esportaConfigurazione} onImportClick={apriImportConfigurazione} />
               </div>
             }
           >
@@ -3045,7 +2664,7 @@ export function AdminSettings({
                   editing={prestazioniModificaAttiva}
                   onUnlock={sbloccaModificaPrestazioni}
                 />
-                <ImportExportActions onExport={esportaExcel} onImportClick={apriImportExcel} />
+                <ImportExportActions onExport={esportaConfigurazione} onImportClick={apriImportConfigurazione} />
               </div>
             }
           >
@@ -3222,7 +2841,7 @@ export function AdminSettings({
             title="Convenzioni base"
             description="Crea il modello standard con prestazioni e prezzi convenzionati; poi lo applichi ad aziende e societa sportive."
             icon={<FileText className="h-5 w-5" />}
-            actions={<ImportExportActions onExport={esportaExcel} onImportClick={apriImportExcel} />}
+            actions={<ImportExportActions onExport={esportaConfigurazione} onImportClick={apriImportConfigurazione} />}
           >
             <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
               <div className="space-y-3">
@@ -3502,7 +3121,7 @@ export function AdminSettings({
             icon={<CalendarDays className="h-5 w-5" />}
             actions={
               <div className="flex flex-wrap justify-end gap-2">
-                <ImportExportActions onExport={esportaExcel} onImportClick={apriImportExcel} />
+                <ImportExportActions onExport={esportaConfigurazione} onImportClick={apriImportConfigurazione} />
               </div>
             }
           >
@@ -4618,16 +4237,6 @@ export function AdminSettings({
                   <Download className="h-4 w-4" />
                   CSV
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => apriExportCompensi("excel")}
-                  disabled={prenotazioniCompensi.length === 0}
-                  className="gap-2"
-                >
-                  <FileSpreadsheet className="h-4 w-4" />
-                  Excel
-                </Button>
               </div>
             </div>
 
@@ -4817,9 +4426,7 @@ export function AdminSettings({
       <Dialog open={exportCompensiOpen} onOpenChange={setExportCompensiOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>
-              Export {formatoExportCompensi === "excel" ? "Excel" : formatoExportCompensi.toUpperCase()} compensi
-            </DialogTitle>
+            <DialogTitle>Export {formatoExportCompensi.toUpperCase()} compensi</DialogTitle>
             <DialogDescription>
               Le opzioni vengono applicate solo alle prestazioni eseguite e fatturate nel periodo filtrato.
             </DialogDescription>
@@ -4872,7 +4479,7 @@ export function AdminSettings({
                 checked={medicoCompensiFiltro === "tutti" && opzioniExportCompensi.separaMedici}
                 disabled={medicoCompensiFiltro !== "tutti"}
                 label="Separa i medici"
-                description="Con più medici: Excel usa fogli separati, CSV scarica file distinti, PDF crea sezioni separate."
+                description="Con più medici: CSV scarica file distinti e PDF crea sezioni separate."
                 onCheckedChange={(checked) => aggiornaOpzioneExportCompensi("separaMedici", checked)}
               />
             </div>

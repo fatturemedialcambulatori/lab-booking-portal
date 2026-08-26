@@ -25,6 +25,7 @@ export const patientsTable = pgTable("patients", {
   billingCap: text("billing_cap"),
   billingCity: text("billing_city"),
   billingProvincia: text("billing_provincia"),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

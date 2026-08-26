@@ -1,6 +1,6 @@
 import React from "react";
 import { useFormContext } from "react-hook-form";
-import { useListExams, useCreateBooking } from "@workspace/api-client-react";
+import { useListExams, useCreateBooking, type Booking } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { format, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
@@ -20,8 +20,8 @@ export function Confirmation({
   onPrev,
   onSuccess,
 }: {
-  onPrev: () => void;
-  onSuccess: (id: number) => void;
+	  onPrev: () => void;
+	  onSuccess: (booking: Booking) => void;
 }) {
   const { getValues } = useFormContext<BookingFormValues>();
   const values = getValues();
@@ -57,9 +57,9 @@ export function Confirmation({
         },
       },
       {
-        onSuccess: (booking) => {
-          onSuccess(booking.id);
-        },
+	        onSuccess: (booking) => {
+	          onSuccess(booking);
+	        },
       }
     );
   };

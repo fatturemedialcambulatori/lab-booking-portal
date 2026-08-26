@@ -1,6 +1,7 @@
 import express, { Router, type RequestHandler } from "express";
 import { eq } from "drizzle-orm";
 import { adminSettingsTable, db } from "@workspace/db";
+import { hasPermission, requireAnyPermission } from "../lib/auth";
 
 const router = Router();
 
@@ -9,6 +10,11 @@ const DEFAULT_BUCKET = "certificati-infortunistica";
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const CASSA_DOCUMENT_TYPES = ["fatturato", "pos"] as const;
 const CASSA_TRASH_LIMIT = 80;
+const STORAGE_ALLOWED_MIME_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+];
 
 type CassaDocument = {
   id: string;
@@ -102,6 +108,22 @@ const readUnknownNumber = (value: unknown, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const normalizeSedeId = (value: string) => value.trim().toLocaleLowerCase("it-IT");
+
+const canAccessCassaSede = (req: Parameters<RequestHandler>[0], sedeId: string) => {
+  const normalized = normalizeSedeId(sedeId);
+  if (hasPermission(req, "cassa")) return true;
+  if (normalized === "modena") return hasPermission(req, "cassa.modena");
+  if (normalized === "sassuolo") return hasPermission(req, "cassa.sassuolo");
+  return false;
+};
+
+const rejectCassaSede = (req: Parameters<RequestHandler>[0], res: Parameters<RequestHandler>[1], sedeId: string) => {
+  if (canAccessCassaSede(req, sedeId)) return false;
+  res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+  return true;
+};
+
 const inferContentType = (fileName: string, providedType: string) => {
   if (providedType && providedType !== "application/octet-stream") return providedType;
 
@@ -112,6 +134,9 @@ const inferContentType = (fileName: string, providedType: string) => {
 
   return "application/octet-stream";
 };
+
+const isAllowedStorageContentType = (contentType: string) =>
+  STORAGE_ALLOWED_MIME_TYPES.includes(contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "");
 
 const splitBuffer = (buffer: Buffer, separator: Buffer) => {
   const chunks: Buffer[] = [];
@@ -286,6 +311,36 @@ const withFileUrl = (document: CassaDocument): CassaDocument => ({
   fileUrl: document.fileUrl ?? `/api/cassa-file-download?id=${encodeURIComponent(document.id)}`,
 });
 
+const filterCassaStateForRequest = (req: Parameters<RequestHandler>[0], state: CassaState): CassaState => {
+  if (hasPermission(req, "cassa")) return state;
+
+  const canReadRecord = (record: CassaRecord) => canAccessCassaSede(req, readRecordString(record, "sedeId"));
+  const canReadDocument = (document: CassaDocument) => canAccessCassaSede(req, document.sedeId);
+
+  return {
+    ...state,
+    giorni: Array.isArray(state.giorni) ? state.giorni.filter(isCassaRecord).filter(canReadRecord) : [],
+    spese: Array.isArray(state.spese) ? state.spese.filter(isCassaRecord).filter(canReadRecord) : [],
+    documenti: Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument).filter(canReadDocument) : [],
+    cestino: normalizeDeletedClosures(state.cestino).filter((item) => canAccessCassaSede(req, item.sedeId)),
+  };
+};
+
+const cassaStateHasOnlyAllowedSedi = (req: Parameters<RequestHandler>[0], state: CassaState) => {
+  const records = [
+    ...(Array.isArray(state.giorni) ? state.giorni.filter(isCassaRecord) : []),
+    ...(Array.isArray(state.spese) ? state.spese.filter(isCassaRecord) : []),
+  ];
+  const documents = Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument) : [];
+  const deleted = normalizeDeletedClosures(state.cestino);
+
+  return (
+    records.every((record) => canAccessCassaSede(req, readRecordString(record, "sedeId"))) &&
+    documents.every((document) => canAccessCassaSede(req, document.sedeId)) &&
+    deleted.every((item) => canAccessCassaSede(req, item.sedeId))
+  );
+};
+
 const decodeBase64File = (value: string, fallbackContentType: string) => {
   const match = value.match(/^data:([^;]+);base64,(.+)$/);
   if (match) {
@@ -356,7 +411,7 @@ const ensureStorageBucket = async (config: NonNullable<ReturnType<typeof getStor
       name: config.bucket,
       public: false,
       file_size_limit: MAX_FILE_BYTES,
-      allowed_mime_types: null,
+      allowed_mime_types: STORAGE_ALLOWED_MIME_TYPES,
     }),
   });
 
@@ -520,9 +575,11 @@ const withPublicDocumentUrls = (state: CassaState): CassaState => ({
   })),
 });
 
+router.use(requireAnyPermission(["cassa", "cassa.modena", "cassa.sassuolo"]));
+
 router.get("/cassa-state", async (req, res) => {
   try {
-    res.json(withPublicDocumentUrls(await loadCassaState()));
+    res.json(withPublicDocumentUrls(filterCassaStateForRequest(req, await loadCassaState())));
   } catch (err) {
     req.log.error({ err }, "Failed to load cassa state");
     res.status(500).json({ error: "Internal server error" });
@@ -535,8 +592,16 @@ router.put("/cassa-state", async (req, res) => {
     return;
   }
 
+  if (!cassaStateHasOnlyAllowedSedi(req, req.body as CassaState)) {
+    res.status(403).json({ error: "Permesso insufficiente per una o piu sedi" });
+    return;
+  }
+
   try {
-    res.json(withPublicDocumentUrls(await saveCassaState(await mergeCassaState(req.body as CassaState))));
+    res.json(withPublicDocumentUrls(filterCassaStateForRequest(
+      req,
+      await saveCassaState(await mergeCassaState(req.body as CassaState)),
+    )));
   } catch (err) {
     req.log.error({ err }, "Failed to save cassa state");
     res.status(500).json({ error: "Internal server error" });
@@ -595,6 +660,12 @@ const uploadCassaFileJson: RequestHandler = async (req, res) => {
   }
 
   const contentType = inferContentType(fileName, decodedFile.contentType);
+  if (rejectCassaSede(req, res, sedeId)) return;
+  if (!isAllowedStorageContentType(contentType)) {
+    res.status(400).json({ error: "Tipo file non consentito. Usa PDF, JPG o PNG." });
+    return;
+  }
+
   const storagePath = ["cassa", sedeId, data, tipo, `${Date.now()}-${fileName}`].join("/");
 
   try {
@@ -647,6 +718,11 @@ router.post("/cassa-file-delete", async (req, res) => {
 
   try {
     const state = await loadCassaState();
+    const existingDocument = (Array.isArray(state.documenti) ? state.documenti : [])
+      .filter(isCassaDocument)
+      .find((document) => document.id === documentId);
+    if (existingDocument && rejectCassaSede(req, res, existingDocument.sedeId)) return;
+
     const documenti = (Array.isArray(state.documenti) ? state.documenti : [])
       .filter(isCassaDocument)
       .filter((document) => document.id !== documentId);
@@ -664,11 +740,16 @@ router.post("/cassa-spesa-delete", async (req, res) => {
 
   try {
     const state = await loadCassaState();
+    const existingSpesa = (Array.isArray(state.spese) ? state.spese : [])
+      .filter(isCassaRecord)
+      .find((spesa) => readRecordString(spesa, "id") === spesaId);
+    if (existingSpesa && rejectCassaSede(req, res, readRecordString(existingSpesa, "sedeId"))) return;
+
     const spese = (Array.isArray(state.spese) ? state.spese : [])
       .filter(isCassaRecord)
       .filter((spesa) => readRecordString(spesa, "id") !== spesaId);
 
-    res.json(withPublicDocumentUrls(await saveCassaState({ ...state, spese })));
+    res.json(withPublicDocumentUrls(filterCassaStateForRequest(req, await saveCassaState({ ...state, spese }))));
   } catch (err) {
     req.log.error({ err }, "Failed to delete cassa expense");
     res.status(500).json({ error: "Internal server error" });
@@ -678,6 +759,7 @@ router.post("/cassa-spesa-delete", async (req, res) => {
 router.post("/cassa-chiusura-delete", async (req, res) => {
   const sedeId = sanitizeSegment(readBodyString(req.body?.sedeId), "sede");
   const data = sanitizeSegment(readBodyString(req.body?.data), "data");
+  if (rejectCassaSede(req, res, sedeId)) return;
 
   try {
     const state = await loadCassaState();
@@ -703,13 +785,13 @@ router.post("/cassa-chiusura-delete", async (req, res) => {
         ].slice(-CASSA_TRASH_LIMIT)
       : normalizeDeletedClosures(state.cestino);
 
-    res.json(withPublicDocumentUrls(await saveCassaState({
+    res.json(withPublicDocumentUrls(filterCassaStateForRequest(req, await saveCassaState({
       ...state,
       giorni: currentGiorni.filter((giorno) => !matchesSedeData(giorno, sedeId, data)),
       spese: currentSpese.filter((spesa) => !matchesSedeData(spesa, sedeId, data)),
       documenti: currentDocumenti.filter((documento) => !(documento.sedeId === sedeId && documento.data === data)),
       cestino,
-    })));
+    }))));
   } catch (err) {
     req.log.error({ err }, "Failed to delete cassa closure");
     res.status(500).json({ error: "Internal server error" });
@@ -732,8 +814,9 @@ router.post("/cassa-chiusura-restore", async (req, res) => {
     const currentSpese = (Array.isArray(state.spese) ? state.spese : []).filter(isCassaRecord);
     const currentDocumenti = (Array.isArray(state.documenti) ? state.documenti : []).filter(isCassaDocument);
     const restoredDocumentIds = new Set(closure.documenti.map((documento) => documento.id));
+    if (rejectCassaSede(req, res, closure.sedeId)) return;
 
-    res.json(withPublicDocumentUrls(await saveCassaState({
+    res.json(withPublicDocumentUrls(filterCassaStateForRequest(req, await saveCassaState({
       ...state,
       giorni: [
         ...currentGiorni.filter((giorno) => !matchesSedeData(giorno, closure.sedeId, closure.data)),
@@ -748,7 +831,7 @@ router.post("/cassa-chiusura-restore", async (req, res) => {
         ...closure.documenti,
       ],
       cestino: cestino.filter((item) => item.id !== trashId),
-    })));
+    }))));
   } catch (err) {
     req.log.error({ err }, "Failed to restore cassa closure");
     res.status(500).json({ error: "Internal server error" });
@@ -758,13 +841,14 @@ router.post("/cassa-chiusura-restore", async (req, res) => {
 router.post("/cassa-documents-recover", async (req, res) => {
   const sedeId = sanitizeSegment(readBodyString(req.body?.sedeId), "sede");
   const data = sanitizeSegment(readBodyString(req.body?.data), new Date().toISOString().slice(0, 10));
+  if (rejectCassaSede(req, res, sedeId)) return;
 
   try {
     const recovered = await recoverCassaDocumentsFromStorage(sedeId, data);
     if (recovered.length === 0) {
       res.json({
         recovered: 0,
-        state: withPublicDocumentUrls(await loadCassaState()),
+        state: withPublicDocumentUrls(filterCassaStateForRequest(req, await loadCassaState())),
       });
       return;
     }
@@ -780,7 +864,7 @@ router.post("/cassa-documents-recover", async (req, res) => {
 
     res.json({
       recovered: recovered.length,
-      state: withPublicDocumentUrls(saved),
+      state: withPublicDocumentUrls(filterCassaStateForRequest(req, saved)),
     });
   } catch (err) {
     req.log.error({ err }, "Failed to recover cassa documents");
@@ -834,6 +918,11 @@ const uploadCassaFile: RequestHandler = async (req, res) => {
     fileName,
     multipartUpload?.contentType ?? readHeader(req.headers["content-type"], "application/octet-stream"),
   );
+  if (rejectCassaSede(req, res, sedeId)) return;
+  if (!isAllowedStorageContentType(contentType)) {
+    res.status(400).json({ error: "Tipo file non consentito. Usa PDF, JPG o PNG." });
+    return;
+  }
   const storagePath = ["cassa", sedeId, data, tipo, `${Date.now()}-${fileName}`].join("/");
 
   try {
@@ -901,9 +990,14 @@ const signCassaFileUpload: RequestHandler = async (req, res) => {
     const fileName = sanitizeSegment(readBodyString(req.body?.fileName, "documento.jpg"), "documento.jpg");
     const contentType = inferContentType(fileName, readBodyString(req.body?.contentType, "application/octet-stream"));
     const sizeBytes = Number.isFinite(Number(req.body?.sizeBytes)) ? Number(req.body.sizeBytes) : 0;
+    if (rejectCassaSede(req, res, sedeId)) return;
 
     if (sizeBytes > MAX_FILE_BYTES) {
       res.status(413).json({ error: "File troppo grande. Il piano Free consente massimo 50 MB per file." });
+      return;
+    }
+    if (!isAllowedStorageContentType(contentType)) {
+      res.status(400).json({ error: "Tipo file non consentito. Usa PDF, JPG o PNG." });
       return;
     }
 
@@ -967,6 +1061,14 @@ const completeCassaFileUpload: RequestHandler = async (req, res) => {
 
   const candidate = req.body as Partial<CassaDocument>;
   const documentId = sanitizeSegment(readBodyString(candidate.id) || readHeader(req.params.documentId), "documento");
+  const config = getStorageConfig();
+  if (!config) {
+    res.status(503).json({
+      error: "Supabase Storage non configurato",
+      details: "Imposta SUPABASE_SERVICE_ROLE_KEY su Vercel.",
+    });
+    return;
+  }
   if (
     candidate.id !== documentId ||
     !candidate.data ||
@@ -980,6 +1082,24 @@ const completeCassaFileUpload: RequestHandler = async (req, res) => {
     !candidate.uploadedAt
   ) {
     res.status(400).json({ error: "Documento cassa non valido" });
+    return;
+  }
+  if (rejectCassaSede(req, res, candidate.sedeId)) return;
+  if (candidate.bucket !== config.bucket) {
+    res.status(400).json({ error: "Bucket documento non valido" });
+    return;
+  }
+  if (!isAllowedStorageContentType(candidate.contentType)) {
+    res.status(400).json({ error: "Tipo file non consentito. Usa PDF, JPG o PNG." });
+    return;
+  }
+  if (candidate.sizeBytes > MAX_FILE_BYTES) {
+    res.status(413).json({ error: "File troppo grande. Il piano Free consente massimo 50 MB per file." });
+    return;
+  }
+  const expectedPrefix = ["cassa", candidate.sedeId, candidate.data, candidate.tipo].join("/") + "/";
+  if (!candidate.storagePath.startsWith(expectedPrefix) || candidate.storagePath.includes("..")) {
+    res.status(400).json({ error: "Percorso documento non valido" });
     return;
   }
 
@@ -1031,6 +1151,7 @@ const downloadCassaFile: RequestHandler = async (req, res) => {
       res.status(404).json({ error: "Documento cassa non trovato" });
       return;
     }
+    if (rejectCassaSede(req, res, document.sedeId)) return;
 
     const downloadResponse = await fetch(
       `${config.supabaseUrl}/storage/v1/object/${document.bucket}/${encodeURI(document.storagePath)}`,
