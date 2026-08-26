@@ -42,7 +42,7 @@ const getStoredRole = () => {
 };
 
 export default function Admin() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const [accessConfig] = React.useState(readAdminAccessConfig);
   const [role, setRole] = React.useState<string | null>(getStoredRole);
 
@@ -67,6 +67,7 @@ export default function Admin() {
       role={role}
       roleLabel={roleLabel}
       onLogout={handleLogout}
+      location={location}
       navigate={navigate}
     />
   );
@@ -127,6 +128,57 @@ const CASSA_ITEMS: MenuItem[] = [
   { id: "cassa-sassuolo", label: "Sassuolo", Icon: WalletCards },
 ];
 
+const cleanAdminPath = (path: string) => path.split(/[?#]/)[0]?.replace(/\/+$/, "") || "/admin";
+
+const adminPathForTarget = (area: AreaId, tab: TabId) => {
+  if (tab === "anagrafiche") return "/admin/anagrafiche";
+  if (tab === "infortunistica") return "/admin/infortunistica";
+  if (tab === "impostazioni") return "/admin/impostazioni";
+  if (tab === "utenti") return "/admin/utenti";
+
+  if (area === "cassa") {
+    if (tab === "cassa-modena") return "/admin/cassa/modena";
+    if (tab === "cassa-sassuolo") return "/admin/cassa/sassuolo";
+    return "/admin/cassa/totale";
+  }
+
+  const tabSlug = tab === "prenotazioni" ? "agenda" : area === "ambulatorio" && tab === "listino" ? "prestazioni" : tab;
+  return `/admin/${area}/${tabSlug}`;
+};
+
+const routeTargetFromPath = (path: string): { area: AreaId; tab: TabId } | null => {
+  const cleaned = cleanAdminPath(path);
+  if (cleaned === "/admin") return null;
+
+  const parts = cleaned.split("/").filter(Boolean);
+  if (parts[0] !== "admin") return null;
+
+  const [section, rawTab] = parts.slice(1);
+
+  if (section === "anagrafiche") return { area: "laboratorio", tab: "anagrafiche" };
+  if (section === "infortunistica" || section === "infortunistica-stradale") {
+    return { area: "laboratorio", tab: "infortunistica" };
+  }
+  if (section === "impostazioni") return { area: "laboratorio", tab: "impostazioni" };
+  if (section === "utenti") return { area: "laboratorio", tab: "utenti" };
+
+  if (section === "cassa") {
+    if (rawTab === "modena") return { area: "cassa", tab: "cassa-modena" };
+    if (rawTab === "sassuolo") return { area: "cassa", tab: "cassa-sassuolo" };
+    return { area: "cassa", tab: "cassa-totale" };
+  }
+
+  if (section !== "laboratorio" && section !== "ambulatorio") return null;
+  if (rawTab === "accettazione") return { area: section, tab: "accettazione" };
+  if (rawTab === "agenda" || rawTab === "prenotazioni") return { area: section, tab: "prenotazioni" };
+  if (section === "laboratorio" && rawTab === "listino") return { area: section, tab: "listino" };
+  if (section === "ambulatorio" && (rawTab === "prestazioni" || rawTab === "listino")) {
+    return { area: section, tab: "listino" };
+  }
+
+  return null;
+};
+
 const MENU_GROUPS: MenuGroup[] = [
   {
     id: "laboratorio",
@@ -179,16 +231,19 @@ function AdminDashboard({
   role,
   roleLabel,
   onLogout,
+  location,
   navigate,
 }: {
   accessConfig: AdminAccessConfig;
   role: string;
   roleLabel: string;
   onLogout: () => void;
-  navigate: (path: string) => void;
+  location: string;
+  navigate: (path: string, options?: { replace?: boolean }) => void;
 }) {
-  const [activeArea, setActiveArea] = React.useState<AreaId>("laboratorio");
-  const [activeTab, setActiveTab] = React.useState<TabId>("accettazione");
+  const initialTarget = React.useMemo(() => routeTargetFromPath(location), [location]);
+  const [activeArea, setActiveArea] = React.useState<AreaId>(initialTarget?.area ?? "laboratorio");
+  const [activeTab, setActiveTab] = React.useState<TabId>(initialTarget?.tab ?? "accettazione");
   const [settingsSaveControl, setSettingsSaveControl] = React.useState<SettingsSaveControl | null>(null);
   const [settingsTarget, setSettingsTarget] = React.useState<SettingsTarget>({
     tab: "prestazioni",
@@ -199,6 +254,18 @@ function AdminDashboard({
   const can = React.useCallback(
     (permission: PermissionId) => roleHasPermission(accessConfig, role, permission),
     [accessConfig, role],
+  );
+
+  const setActiveTarget = React.useCallback(
+    (area: AreaId, tab: TabId, options?: { replace?: boolean }) => {
+      setActiveArea(area);
+      setActiveTab(tab);
+      const nextPath = adminPathForTarget(area, tab);
+      if (cleanAdminPath(location) !== nextPath) {
+        navigate(nextPath, options);
+      }
+    },
+    [location, navigate],
   );
 
   const visibleMenuGroups = React.useMemo(
@@ -216,12 +283,19 @@ function AdminDashboard({
   const firstAllowedTarget = React.useMemo(() => {
     const firstGroup = visibleMenuGroups[0];
     if (firstGroup?.items[0]) return { area: firstGroup.id, tab: firstGroup.items[0].id };
-    if (can("anagrafiche")) return { area: activeArea, tab: "anagrafiche" as TabId };
-    if (can("infortunistica")) return { area: activeArea, tab: "infortunistica" as TabId };
-    if (can("impostazioni")) return { area: activeArea, tab: "impostazioni" as TabId };
-    if (can("utenti")) return { area: activeArea, tab: "utenti" as TabId };
+    if (can("anagrafiche")) return { area: "laboratorio" as AreaId, tab: "anagrafiche" as TabId };
+    if (can("infortunistica")) return { area: "laboratorio" as AreaId, tab: "infortunistica" as TabId };
+    if (can("impostazioni")) return { area: "laboratorio" as AreaId, tab: "impostazioni" as TabId };
+    if (can("utenti")) return { area: "laboratorio" as AreaId, tab: "utenti" as TabId };
     return null;
-  }, [activeArea, can, visibleMenuGroups]);
+  }, [can, visibleMenuGroups]);
+
+  React.useEffect(() => {
+    const routeTarget = routeTargetFromPath(location);
+    if (!routeTarget) return;
+    setActiveArea(routeTarget.area);
+    setActiveTab(routeTarget.tab);
+  }, [location]);
 
   React.useEffect(() => {
     const permission = permessoVoce(activeArea, activeTab);
@@ -231,9 +305,14 @@ function AdminDashboard({
     if (!permission && activeTab === "impostazioni" && can("impostazioni")) return;
     if (!permission && activeTab === "utenti" && can("utenti")) return;
     if (!firstAllowedTarget) return;
-    setActiveArea(firstAllowedTarget.area);
-    setActiveTab(firstAllowedTarget.tab);
-  }, [activeArea, activeTab, can, firstAllowedTarget]);
+    setActiveTarget(firstAllowedTarget.area, firstAllowedTarget.tab, { replace: true });
+  }, [activeArea, activeTab, can, firstAllowedTarget, setActiveTarget]);
+
+  React.useEffect(() => {
+    const routeTarget = routeTargetFromPath(location);
+    if (routeTarget || !firstAllowedTarget) return;
+    setActiveTarget(firstAllowedTarget.area, firstAllowedTarget.tab, { replace: true });
+  }, [firstAllowedTarget, location, setActiveTarget]);
 
   const activeGroup =
     visibleMenuGroups.find((group) => group.id === activeArea) ?? visibleMenuGroups[0] ?? MENU_GROUPS[0];
@@ -263,7 +342,7 @@ function AdminDashboard({
 
   const apriProfiloMedico = (medicoId: string) => {
     setSettingsTarget({ tab: "medici", medicoId, key: Date.now() });
-    setActiveTab("impostazioni");
+    setActiveTarget(activeArea, "impostazioni");
   };
   const isCassaTab = activeTab.startsWith("cassa-");
   const showSettingsSave = activeTab === "impostazioni";
@@ -324,10 +403,7 @@ function AdminDashboard({
                         <button
                           key={`${group.id}-${item.id}`}
                           type="button"
-                          onClick={() => {
-                            setActiveArea(group.id);
-                            setActiveTab(item.id);
-                          }}
+                          onClick={() => setActiveTarget(group.id, item.id)}
                           aria-current={isActive ? "page" : undefined}
                           className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
                             isActive
@@ -348,7 +424,7 @@ function AdminDashboard({
               <section className="space-y-2">
                 <button
                   type="button"
-                  onClick={() => setActiveTab("infortunistica")}
+                  onClick={() => setActiveTarget(activeArea, "infortunistica")}
                   aria-current={activeTab === "infortunistica" ? "page" : undefined}
                   className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
                     activeTab === "infortunistica"
@@ -367,7 +443,7 @@ function AdminDashboard({
             {can("anagrafiche") && (
               <button
                 type="button"
-                onClick={() => setActiveTab("anagrafiche")}
+                onClick={() => setActiveTarget(activeArea, "anagrafiche")}
                 aria-current={activeTab === "anagrafiche" ? "page" : undefined}
                 className={`mb-2 flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
                   activeTab === "anagrafiche"
@@ -386,7 +462,7 @@ function AdminDashboard({
                   type="button"
                   onClick={() => {
                     setSettingsTarget({ tab: "prestazioni", medicoId: null, key: Date.now() });
-                    setActiveTab("impostazioni");
+                    setActiveTarget(activeArea, "impostazioni");
                   }}
                   aria-current={activeTab === "impostazioni" ? "page" : undefined}
                   className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
@@ -402,7 +478,7 @@ function AdminDashboard({
                 {can("utenti") && (
                 <button
                   type="button"
-                  onClick={() => setActiveTab("utenti")}
+                  onClick={() => setActiveTarget(activeArea, "utenti")}
                   aria-current={activeTab === "utenti" ? "page" : undefined}
                   className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
                     activeTab === "utenti"

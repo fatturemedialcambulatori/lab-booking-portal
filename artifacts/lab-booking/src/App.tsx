@@ -65,6 +65,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/admin" component={Admin} />
+      <Route path="/admin/*?" component={Admin} />
       <Route path="/cassa-camera" component={CassaMobileUpload} />
       <Route component={NotFound} />
     </Switch>
