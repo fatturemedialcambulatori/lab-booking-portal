@@ -148,10 +148,13 @@ type AssegnazioneRisorsaGiorno = {
   sedeId: SedeOperativa;
   medicoId: string;
   risorsaId: string;
+  strumentoId?: string;
   dalle: string;
   alle: string;
   note?: string;
 };
+
+type TipoConflittoAssegnazioneRisorsa = "ambulatorio" | "strumento" | "medico";
 
 type LabExamOption = {
   id: number;
@@ -933,6 +936,7 @@ const isAssegnazioneRisorsaGiorno = (value: unknown): value is AssegnazioneRisor
     isSedeOperativa(item.sedeId) &&
     typeof item.medicoId === "string" &&
     typeof item.risorsaId === "string" &&
+    (item.strumentoId === undefined || typeof item.strumentoId === "string") &&
     /^\d{2}:\d{2}$/.test(item.dalle ?? "") &&
     /^\d{2}:\d{2}$/.test(item.alle ?? "")
   );
@@ -1308,6 +1312,20 @@ const slotBloccatoDaFerie = (
 ) =>
   ferieMedicoNelGiorno(doctor, date, sede).find((ferie) => start < ferie.end && end > ferie.start);
 
+const medicoDisponibilePerIntervallo = (
+  doctor: MedicoAgenda,
+  date: Date,
+  sede: SedeOperativa,
+  start: number,
+  end: number,
+) =>
+  fasceMedicoNelGiorno(doctor, date, sede).some((fascia) => {
+    if (fascia.sede !== sede) return false;
+    const inizioFascia = minutiDaOra(fascia.dalle);
+    const fineFascia = minutiDaOra(fascia.alle);
+    return start >= inizioFascia && end <= fineFascia && !slotBloccatoDaFerie(doctor, date, sede, start, end);
+  });
+
 const ferieCopreInteraAgenda = (doctor: MedicoAgenda, date: Date, sede: SedeId) => {
   const start = ORA_INIZIO * 60;
   const end = ORA_FINE * 60;
@@ -1347,6 +1365,30 @@ const fasceSiSovrappongono = (aDalle: string, aAlle: string, bDalle: string, bAl
   const bStart = minutiDaOra(bDalle);
   const bEnd = minutiDaOra(bAlle);
   return aStart < bEnd && aEnd > bStart;
+};
+
+const trovaConflittoAssegnazioneRisorsa = (
+  assegnazioni: AssegnazioneRisorsaGiorno[],
+  candidata: AssegnazioneRisorsaGiorno,
+  ignoraId?: string,
+): TipoConflittoAssegnazioneRisorsa | null => {
+  for (const assegnazione of assegnazioni) {
+    if (assegnazione.id === ignoraId) continue;
+    if (assegnazione.data !== candidata.data || assegnazione.sedeId !== candidata.sedeId) continue;
+    if (!fasceSiSovrappongono(assegnazione.dalle, assegnazione.alle, candidata.dalle, candidata.alle)) continue;
+
+    if (assegnazione.risorsaId === candidata.risorsaId) return "ambulatorio";
+    if (assegnazione.medicoId === candidata.medicoId) return "medico";
+    if (candidata.strumentoId && assegnazione.strumentoId === candidata.strumentoId) return "strumento";
+  }
+
+  return null;
+};
+
+const messaggioConflittoAssegnazioneRisorsa = (tipo: TipoConflittoAssegnazioneRisorsa) => {
+  if (tipo === "medico") return "Questo medico e gia assegnato in una fascia sovrapposta.";
+  if (tipo === "strumento") return "Questo strumento e gia assegnato in una fascia sovrapposta.";
+  return "Questo ambulatorio e gia occupato in una fascia sovrapposta.";
 };
 
 const dettaglioDisponibilitaSlot = (
@@ -1901,7 +1943,15 @@ export function AdminBookingCalendar({
   );
 
   const creaAssegnazioneRisorsa = React.useCallback(
-    (sedeId: SedeOperativa, medicoId: string, risorsaId: string, dalle: string, alle: string) => {
+    (
+      sedeId: SedeOperativa,
+      medicoId: string,
+      risorsaId: string,
+      dalle: string,
+      alle: string,
+      strumentoId = "",
+      note = "",
+    ) => {
       if (!medicoId || !risorsaId) return;
       if (minutiDaOra(alle) <= minutiDaOra(dalle)) {
         toast({
@@ -1918,24 +1968,19 @@ export function AdminBookingCalendar({
         sedeId,
         medicoId,
         risorsaId,
+        strumentoId: strumentoId || undefined,
         dalle,
         alle,
-        note: "",
+        note,
       };
 
       aggiornaAssegnazioniRisorse((correnti) => {
-        const conflitto = correnti.some(
-          (assegnazione) =>
-            assegnazione.data === nuova.data &&
-            assegnazione.sedeId === nuova.sedeId &&
-            assegnazione.risorsaId === nuova.risorsaId &&
-            fasceSiSovrappongono(assegnazione.dalle, assegnazione.alle, nuova.dalle, nuova.alle),
-        );
+        const conflitto = trovaConflittoAssegnazioneRisorsa(correnti, nuova);
 
         if (conflitto) {
           toast({
             title: "Attenzione",
-            description: "Questa risorsa e gia assegnata in una fascia sovrapposta.",
+            description: messaggioConflittoAssegnazioneRisorsa(conflitto),
             variant: "destructive",
           });
           return correnti;
@@ -1949,11 +1994,32 @@ export function AdminBookingCalendar({
 
   const aggiornaAssegnazioneRisorsa = React.useCallback(
     (id: string, patch: Partial<AssegnazioneRisorsaGiorno>) => {
-      aggiornaAssegnazioniRisorse((correnti) =>
-        correnti.map((assegnazione) =>
-          assegnazione.id === id ? { ...assegnazione, ...patch } : assegnazione,
-        ),
-      );
+      aggiornaAssegnazioniRisorse((correnti) => {
+        const corrente = correnti.find((assegnazione) => assegnazione.id === id);
+        if (!corrente) return correnti;
+
+        const aggiornata = { ...corrente, ...patch };
+        if (minutiDaOra(aggiornata.alle) <= minutiDaOra(aggiornata.dalle)) {
+          toast({
+            title: "Attenzione",
+            description: "L'orario di fine deve essere successivo all'orario di inizio.",
+            variant: "destructive",
+          });
+          return correnti;
+        }
+
+        const conflitto = trovaConflittoAssegnazioneRisorsa(correnti, aggiornata, id);
+        if (conflitto) {
+          toast({
+            title: "Attenzione",
+            description: messaggioConflittoAssegnazioneRisorsa(conflitto),
+            variant: "destructive",
+          });
+          return correnti;
+        }
+
+        return correnti.map((assegnazione) => (assegnazione.id === id ? aggiornata : assegnazione));
+      });
     },
     [aggiornaAssegnazioniRisorse],
   );
@@ -4583,7 +4649,15 @@ export function AdminAmbulatorioOrganization({
   );
 
   const creaAssegnazioneRisorsa = React.useCallback(
-    (sedeId: SedeOperativa, medicoId: string, risorsaId: string, dalle: string, alle: string) => {
+    (
+      sedeId: SedeOperativa,
+      medicoId: string,
+      risorsaId: string,
+      dalle: string,
+      alle: string,
+      strumentoId = "",
+      note = "",
+    ) => {
       if (!medicoId || !risorsaId) return;
       if (minutiDaOra(alle) <= minutiDaOra(dalle)) {
         toast({
@@ -4600,24 +4674,19 @@ export function AdminAmbulatorioOrganization({
         sedeId,
         medicoId,
         risorsaId,
+        strumentoId: strumentoId || undefined,
         dalle,
         alle,
-        note: "",
+        note,
       };
 
       aggiornaAssegnazioniRisorse((correnti) => {
-        const conflitto = correnti.some(
-          (assegnazione) =>
-            assegnazione.data === nuova.data &&
-            assegnazione.sedeId === nuova.sedeId &&
-            assegnazione.risorsaId === nuova.risorsaId &&
-            fasceSiSovrappongono(assegnazione.dalle, assegnazione.alle, nuova.dalle, nuova.alle),
-        );
+        const conflitto = trovaConflittoAssegnazioneRisorsa(correnti, nuova);
 
         if (conflitto) {
           toast({
             title: "Attenzione",
-            description: "Questa risorsa e gia assegnata in una fascia sovrapposta.",
+            description: messaggioConflittoAssegnazioneRisorsa(conflitto),
             variant: "destructive",
           });
           return correnti;
@@ -4631,11 +4700,32 @@ export function AdminAmbulatorioOrganization({
 
   const aggiornaAssegnazioneRisorsa = React.useCallback(
     (id: string, patch: Partial<AssegnazioneRisorsaGiorno>) => {
-      aggiornaAssegnazioniRisorse((correnti) =>
-        correnti.map((assegnazione) =>
-          assegnazione.id === id ? { ...assegnazione, ...patch } : assegnazione,
-        ),
-      );
+      aggiornaAssegnazioniRisorse((correnti) => {
+        const corrente = correnti.find((assegnazione) => assegnazione.id === id);
+        if (!corrente) return correnti;
+
+        const aggiornata = { ...corrente, ...patch };
+        if (minutiDaOra(aggiornata.alle) <= minutiDaOra(aggiornata.dalle)) {
+          toast({
+            title: "Attenzione",
+            description: "L'orario di fine deve essere successivo all'orario di inizio.",
+            variant: "destructive",
+          });
+          return correnti;
+        }
+
+        const conflitto = trovaConflittoAssegnazioneRisorsa(correnti, aggiornata, id);
+        if (conflitto) {
+          toast({
+            title: "Attenzione",
+            description: messaggioConflittoAssegnazioneRisorsa(conflitto),
+            variant: "destructive",
+          });
+          return correnti;
+        }
+
+        return correnti.map((assegnazione) => (assegnazione.id === id ? aggiornata : assegnazione));
+      });
     },
     [aggiornaAssegnazioniRisorse],
   );
@@ -4750,7 +4840,15 @@ function ResourceOrganizationPanel({
   doctors: MedicoAgenda[];
   resources: RisorsaSede[];
   assignments: AssegnazioneRisorsaGiorno[];
-  onCreateAssignment: (sedeId: SedeOperativa, medicoId: string, risorsaId: string, dalle: string, alle: string) => void;
+  onCreateAssignment: (
+    sedeId: SedeOperativa,
+    medicoId: string,
+    risorsaId: string,
+    dalle: string,
+    alle: string,
+    strumentoId?: string,
+    note?: string,
+  ) => void;
   onUpdateAssignment: (id: string, patch: Partial<AssegnazioneRisorsaGiorno>) => void;
   onDeleteAssignment: (id: string) => void;
   onOpenDoctor?: (doctorId: string) => void;
@@ -4759,7 +4857,7 @@ function ResourceOrganizationPanel({
 
   return (
     <div className="border-b border-border bg-[#fbfdfc]">
-      <div className={`grid gap-3 p-3 ${sedi.length === 1 ? "xl:grid-cols-1" : "xl:grid-cols-2"}`}>
+      <div className="space-y-4 p-3">
         {sedi.map((sedeId) => (
           <SedeResourceOrganizer
             key={sedeId}
@@ -4779,6 +4877,19 @@ function ResourceOrganizationPanel({
   );
 }
 
+type OrganizerDraft = {
+  id?: string;
+  sedeId: SedeOperativa;
+  risorsaId: string;
+  medicoId: string;
+  strumentoId: string;
+  dalle: string;
+  alle: string;
+  note: string;
+};
+
+const NESSUNO_STRUMENTO_VALUE = "__nessuno_strumento__";
+
 function SedeResourceOrganizer({
   date,
   sedeId,
@@ -4795,48 +4906,212 @@ function SedeResourceOrganizer({
   doctors: MedicoAgenda[];
   resources: RisorsaSede[];
   assignments: AssegnazioneRisorsaGiorno[];
-  onCreateAssignment: (sedeId: SedeOperativa, medicoId: string, risorsaId: string, dalle: string, alle: string) => void;
+  onCreateAssignment: (
+    sedeId: SedeOperativa,
+    medicoId: string,
+    risorsaId: string,
+    dalle: string,
+    alle: string,
+    strumentoId?: string,
+    note?: string,
+  ) => void;
   onUpdateAssignment: (id: string, patch: Partial<AssegnazioneRisorsaGiorno>) => void;
   onDeleteAssignment: (id: string) => void;
   onOpenDoctor?: (doctorId: string) => void;
 }) {
   const dayKey = dateKey(date);
-  const doctorsWorking = doctors.filter(
-    (doctor) => doctor.sedi.includes(sedeId) && medicoLavoraNelGiorno(doctor, date, sedeId),
+  const doctorsSede = React.useMemo(
+    () =>
+      doctors
+        .filter((doctor) => doctor.sedi.includes(sedeId))
+        .sort((a, b) => a.nome.localeCompare(b.nome, "it", { sensitivity: "base" })),
+    [doctors, sedeId],
   );
-  const resourcesSede = resources.filter((resource) => resource.sedeId === sedeId);
-  const assignmentsSede = assignments.filter((assignment) => assignment.data === dayKey && assignment.sedeId === sedeId);
-  const [doctorId, setDoctorId] = React.useState(doctorsWorking[0]?.id ?? "");
-  const [resourceId, setResourceId] = React.useState(resourcesSede[0]?.id ?? "");
-  const [dalle, setDalle] = React.useState("09:00");
-  const [alle, setAlle] = React.useState("13:00");
+  const doctorsWorking = React.useMemo(
+    () => doctorsSede.filter((doctor) => medicoLavoraNelGiorno(doctor, date, sedeId)),
+    [date, doctorsSede, sedeId],
+  );
+  const doctorsWorkingIds = React.useMemo(() => new Set(doctorsWorking.map((doctor) => doctor.id)), [doctorsWorking]);
+  const resourcesSede = React.useMemo(
+    () => resources.filter((resource) => resource.sedeId === sedeId),
+    [resources, sedeId],
+  );
+  const ambulatori = React.useMemo(
+    () => resourcesSede.filter((resource) => resource.tipo === "ambulatorio"),
+    [resourcesSede],
+  );
+  const strumenti = React.useMemo(
+    () => resourcesSede.filter((resource) => resource.tipo !== "ambulatorio"),
+    [resourcesSede],
+  );
+  const ambulatoriIds = React.useMemo(() => new Set(ambulatori.map((resource) => resource.id)), [ambulatori]);
+  const assignmentsSede = React.useMemo(
+    () =>
+      assignments
+        .filter((assignment) => assignment.data === dayKey && assignment.sedeId === sedeId)
+        .sort((a, b) => `${a.dalle}${a.alle}`.localeCompare(`${b.dalle}${b.alle}`)),
+    [assignments, dayKey, sedeId],
+  );
+  const assignmentsSenzaAmbulatorio = React.useMemo(
+    () => assignmentsSede.filter((assignment) => !ambulatoriIds.has(assignment.risorsaId)),
+    [ambulatoriIds, assignmentsSede],
+  );
+  const [draft, setDraft] = React.useState<OrganizerDraft | null>(null);
+  const totalHeight = agendaSlots.length * SLOT_HEIGHT;
+  const gridTemplateColumns = `76px repeat(${Math.max(ambulatori.length, 1)}, minmax(220px, 1fr))`;
+  const mediciDisponibiliPerSlot = React.useCallback(
+    (slot: number) =>
+      doctorsWorking.filter((doctor) => medicoDisponibilePerIntervallo(doctor, date, sedeId, slot, slot + SLOT_MINUTES)),
+    [date, doctorsWorking, sedeId],
+  );
 
-  React.useEffect(() => {
-    setDoctorId((current) =>
-      doctorsWorking.some((doctor) => doctor.id === current) ? current : doctorsWorking[0]?.id ?? "",
-    );
-  }, [doctorsWorking]);
+  const aggiornaDraft = (patch: Partial<OrganizerDraft>) => {
+    setDraft((corrente) => (corrente ? { ...corrente, ...patch } : corrente));
+  };
 
-  React.useEffect(() => {
-    setResourceId((current) =>
-      resourcesSede.some((resource) => resource.id === current) ? current : resourcesSede[0]?.id ?? "",
-    );
-  }, [resourcesSede]);
+  const apriNuovaAssegnazione = (risorsaId: string, slot: number) => {
+    const mediciSlot = mediciDisponibiliPerSlot(slot);
+    const medicoSuggerito = mediciSlot[0];
 
-  React.useEffect(() => {
-    const doctor = doctorsWorking.find((item) => item.id === doctorId) ?? doctorsWorking[0];
-    const fascia = doctor ? fasceMedicoNelGiorno(doctor, date, sedeId)[0] : null;
-    if (!fascia) return;
-    setDalle(fascia.dalle);
-    setAlle(fascia.alle);
-  }, [date, doctorId, doctorsWorking, sedeId]);
+    if (!medicoSuggerito) {
+      toast({
+        title: "Nessun medico disponibile",
+        description: `Non risultano medici disponibili alle ${formattaOraMinuti(slot)} a ${labelSedeOperativa(sedeId)}.`,
+        variant: "destructive",
+      });
+      return;
+    }
 
-  const ambulatori = resourcesSede.filter((resource) => resource.tipo === "ambulatorio").length;
-  const strumenti = resourcesSede.filter((resource) => resource.tipo !== "ambulatorio").length;
+    const durataSuggerita = Math.max(SLOT_MINUTES, medicoSuggerito.durataSlot || DEFAULT_DURATA_SLOT);
+    const fineSuggerita = Math.min(slot + durataSuggerita, ORA_FINE * 60);
+    const fine = medicoDisponibilePerIntervallo(medicoSuggerito, date, sedeId, slot, fineSuggerita)
+      ? fineSuggerita
+      : slot + SLOT_MINUTES;
+
+    setDraft({
+      sedeId,
+      risorsaId,
+      medicoId: medicoSuggerito.id,
+      strumentoId: "",
+      dalle: formattaOraMinuti(slot),
+      alle: formattaOraMinuti(fine),
+      note: "",
+    });
+  };
+
+  const apriModificaAssegnazione = (assignment: AssegnazioneRisorsaGiorno) => {
+    const risorsaIsAmbulatorio = ambulatoriIds.has(assignment.risorsaId);
+    const strumentoLegacy = !risorsaIsAmbulatorio && strumenti.some((strumento) => strumento.id === assignment.risorsaId)
+      ? assignment.risorsaId
+      : "";
+    const risorsaId = risorsaIsAmbulatorio ? assignment.risorsaId : ambulatori[0]?.id ?? "";
+
+    if (!risorsaId) {
+      toast({
+        title: "Ambulatorio mancante",
+        description: "Configura almeno un ambulatorio per completare questa assegnazione.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setDraft({
+      id: assignment.id,
+      sedeId: assignment.sedeId,
+      risorsaId,
+      medicoId: assignment.medicoId,
+      strumentoId: assignment.strumentoId ?? strumentoLegacy,
+      dalle: assignment.dalle,
+      alle: assignment.alle,
+      note: assignment.note ?? "",
+    });
+  };
+
+  const salvaDraft = () => {
+    if (!draft) return;
+    const start = minutiDaOra(draft.dalle);
+    const end = minutiDaOra(draft.alle);
+    const doctor = doctorsSede.find((item) => item.id === draft.medicoId);
+
+    if (!doctor || !draft.risorsaId) {
+      toast({
+        title: "Dati mancanti",
+        description: "Seleziona un medico e un ambulatorio.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (end <= start) {
+      toast({
+        title: "Attenzione",
+        description: "L'orario di fine deve essere successivo all'orario di inizio.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!medicoDisponibilePerIntervallo(doctor, date, sedeId, start, end)) {
+      toast({
+        title: "Medico non disponibile",
+        description: "Il medico non risulta disponibile in questa fascia oraria.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const candidato: AssegnazioneRisorsaGiorno = {
+      id: draft.id ?? "nuova-assegnazione",
+      data: dayKey,
+      sedeId,
+      medicoId: draft.medicoId,
+      risorsaId: draft.risorsaId,
+      strumentoId: draft.strumentoId || undefined,
+      dalle: draft.dalle,
+      alle: draft.alle,
+      note: draft.note,
+    };
+    const conflitto = trovaConflittoAssegnazioneRisorsa(assignments, candidato, draft.id);
+
+    if (conflitto) {
+      toast({
+        title: "Attenzione",
+        description: messaggioConflittoAssegnazioneRisorsa(conflitto),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (draft.id) {
+      onUpdateAssignment(draft.id, {
+        medicoId: draft.medicoId,
+        risorsaId: draft.risorsaId,
+        strumentoId: draft.strumentoId || undefined,
+        dalle: draft.dalle,
+        alle: draft.alle,
+        note: draft.note,
+      });
+    } else {
+      onCreateAssignment(sedeId, draft.medicoId, draft.risorsaId, draft.dalle, draft.alle, draft.strumentoId, draft.note);
+    }
+
+    setDraft(null);
+  };
+
+  const eliminaDraft = () => {
+    if (!draft?.id) return;
+    onDeleteAssignment(draft.id);
+    setDraft(null);
+  };
+
+  const doctorDraft = draft ? doctorsSede.find((doctor) => doctor.id === draft.medicoId) : null;
+  const doctorDraftDisponibile = draft && doctorDraft
+    ? medicoDisponibilePerIntervallo(doctorDraft, date, sedeId, minutiDaOra(draft.dalle), minutiDaOra(draft.alle))
+    : false;
 
   return (
-    <section className="rounded-md border border-border bg-white p-3 shadow-sm">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <section className="rounded-md border border-border bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <Building2 className="h-4 w-4 text-primary" />
@@ -4849,137 +5124,304 @@ function SedeResourceOrganizer({
         </div>
         <div className="flex flex-wrap gap-1.5">
           <Badge variant="outline" className="bg-white">
-            Ambulatori: {ambulatori}
+            Ambulatori: {ambulatori.length}
           </Badge>
           <Badge variant="outline" className="bg-white">
-            Strumenti: {strumenti}
+            Strumenti: {strumenti.length}
           </Badge>
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 md:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_92px_92px_auto]">
-        <Field label="Medico">
-          <Select value={doctorId} onValueChange={setDoctorId}>
-            <SelectTrigger className="h-9 bg-white">
-              <SelectValue placeholder="Seleziona medico" />
-            </SelectTrigger>
-            <SelectContent>
-              {doctorsWorking.map((doctor) => (
-                <SelectItem key={doctor.id} value={doctor.id}>
-                  {doctor.nome}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label="Ambulatorio / strumento">
-          <Select value={resourceId} onValueChange={setResourceId}>
-            <SelectTrigger className="h-9 bg-white">
-              <SelectValue placeholder="Seleziona risorsa" />
-            </SelectTrigger>
-            <SelectContent>
-              {resourcesSede.map((resource) => (
-                <SelectItem key={resource.id} value={resource.id}>
-                  {resource.nome} · {labelTipoRisorsaSede(resource.tipo)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label="Dalle">
-          <Input type="time" value={dalle} onChange={(event) => setDalle(event.target.value)} className="h-9 bg-white" />
-        </Field>
-        <Field label="Alle">
-          <Input type="time" value={alle} onChange={(event) => setAlle(event.target.value)} className="h-9 bg-white" />
-        </Field>
-        <div className="flex items-end">
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => onCreateAssignment(sedeId, doctorId, resourceId, dalle, alle)}
-            disabled={!doctorId || !resourceId || doctorsWorking.length === 0 || resourcesSede.length === 0}
-            className="h-9 w-full gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Assegna
-          </Button>
-        </div>
+      <div className="flex flex-wrap gap-2 p-3">
+        {doctorsWorking.length > 0 ? (
+          doctorsWorking.map((doctor) => (
+            <button
+              key={doctor.id}
+              type="button"
+              onClick={() => onOpenDoctor?.(doctor.id)}
+              className="inline-flex max-w-full items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-left text-xs font-semibold text-emerald-900 transition-colors hover:bg-emerald-100"
+              title={`Apri profilo ${doctor.nome}`}
+            >
+              <span className={`h-2.5 w-2.5 rounded-full ${doctor.colore}`} />
+              <span className="truncate">{doctor.nome}</span>
+              <span className="truncate font-medium text-emerald-700">{doctor.specialita}</span>
+            </button>
+          ))
+        ) : (
+          <p className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+            Nessun medico disponibile in questa sede per la giornata selezionata.
+          </p>
+        )}
       </div>
 
-      {assignmentsSede.length > 0 ? (
-        <div className="mt-3 max-h-40 space-y-2 overflow-y-auto pr-1">
-          {assignmentsSede.map((assignment) => {
-            const doctor = doctors.find((item) => item.id === assignment.medicoId);
-            const resource = resources.find((item) => item.id === assignment.risorsaId);
+      {ambulatori.length > 0 ? (
+        <div className="overflow-auto border-t border-border">
+          <div className="min-w-[980px]">
+            <div
+              className="sticky top-0 z-20 grid border-b border-border bg-white"
+              style={{ gridTemplateColumns }}
+            >
+              <div className="border-r border-border px-3 py-3 text-xs font-semibold uppercase text-muted-foreground">
+                Ora
+              </div>
+              {ambulatori.map((ambulatorio) => {
+                const count = assignmentsSede.filter((assignment) => assignment.risorsaId === ambulatorio.id).length;
 
-            return (
-              <div
-                key={assignment.id}
-                className="grid gap-2 rounded-md border border-border bg-muted/20 p-2 md:grid-cols-[minmax(150px,1fr)_minmax(150px,1fr)_88px_88px_minmax(120px,1fr)_36px]"
-              >
-                <button
+                return (
+                  <div key={ambulatorio.id} className="min-w-0 border-r border-border px-3 py-3 last:border-r-0">
+                    <div className="flex min-w-0 items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-foreground">{ambulatorio.nome}</p>
+                        <p className="truncate text-xs text-muted-foreground">{labelTipoRisorsaSede(ambulatorio.tipo)}</p>
+                      </div>
+                      <Badge variant={count > 0 ? "secondary" : "outline"}>{count} fasce</Badge>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="grid" style={{ gridTemplateColumns, minHeight: `${totalHeight}px` }}>
+              <div className="sticky left-0 z-10 border-r border-border bg-white">
+                {agendaSlots.map((slot) => (
+                  <div
+                    key={slot}
+                    className="border-b border-border/75 px-3 pt-1 text-xs text-muted-foreground"
+                    style={{ height: SLOT_HEIGHT }}
+                  >
+                    {formattaOraMinuti(slot)}
+                  </div>
+                ))}
+              </div>
+
+              {ambulatori.map((ambulatorio) => {
+                const assignmentsAmbulatorio = assignmentsSede.filter(
+                  (assignment) => assignment.risorsaId === ambulatorio.id,
+                );
+
+                return (
+                  <div key={ambulatorio.id} className="relative border-r border-border bg-white last:border-r-0">
+                    {agendaSlots.map((slot) => {
+                      const mediciSlot = mediciDisponibiliPerSlot(slot);
+                      const isAvailable = mediciSlot.length > 0;
+
+                      return (
+                        <button
+                          key={slot}
+                          type="button"
+                          onClick={() => apriNuovaAssegnazione(ambulatorio.id, slot)}
+                          className={`relative z-0 block w-full border-b border-border/70 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                            slot % 60 === 30 ? "border-dashed" : ""
+                          } ${
+                            isAvailable
+                              ? "bg-emerald-50/70 hover:bg-emerald-100"
+                              : "bg-white hover:bg-muted/50"
+                          }`}
+                          style={{ height: SLOT_HEIGHT }}
+                          title={
+                            isAvailable
+                              ? `${mediciSlot.length} medici disponibili alle ${formattaOraMinuti(slot)}`
+                              : `Nessun medico disponibile alle ${formattaOraMinuti(slot)}`
+                          }
+                        />
+                      );
+                    })}
+
+                    {assignmentsAmbulatorio.map((assignment) => {
+                      const doctor = doctorsSede.find((item) => item.id === assignment.medicoId);
+                      const strumento = strumenti.find((item) => item.id === assignment.strumentoId);
+                      const start = Math.max(minutiDaOra(assignment.dalle), ORA_INIZIO * 60);
+                      const end = Math.min(minutiDaOra(assignment.alle), ORA_FINE * 60);
+                      if (end <= ORA_INIZIO * 60 || start >= ORA_FINE * 60 || end <= start) return null;
+
+                      return (
+                        <button
+                          key={assignment.id}
+                          type="button"
+                          onClick={() => apriModificaAssegnazione(assignment)}
+                          className={`absolute left-1.5 right-1.5 z-20 overflow-hidden rounded-md border border-white/45 px-2 py-1 text-left text-white shadow-sm ${
+                            doctor?.colore ?? "bg-primary"
+                          }`}
+                          style={{
+                            top: ((start - ORA_INIZIO * 60) / SLOT_MINUTES) * SLOT_HEIGHT + 3,
+                            height: Math.max(((end - start) / SLOT_MINUTES) * SLOT_HEIGHT - 6, 30),
+                          }}
+                          title={`Modifica assegnazione ${doctor?.nome ?? "medico"}`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-xs font-semibold">{doctor?.nome ?? "Medico non trovato"}</span>
+                            <span className="shrink-0 text-[10px] font-semibold">
+                              {assignment.dalle}-{assignment.alle}
+                            </span>
+                          </div>
+                          <p className="truncate text-[11px] opacity-90">{doctor?.specialita ?? "-"}</p>
+                          {strumento && (
+                            <p className="truncate text-[11px] opacity-90">
+                              {labelTipoRisorsaSede(strumento.tipo)} · {strumento.nome}
+                            </p>
+                          )}
+                          {assignment.note && <p className="truncate text-[11px] opacity-80">{assignment.note}</p>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="border-t border-border p-3">
+          <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-4 text-sm text-muted-foreground">
+            Nessun ambulatorio configurato per {labelSedeOperativa(sedeId)}.
+          </div>
+        </div>
+      )}
+
+      {assignmentsSenzaAmbulatorio.length > 0 && (
+        <div className="border-t border-amber-200 bg-amber-50/70 p-3">
+          <p className="text-xs font-semibold uppercase text-amber-900">Assegnazioni da completare</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {assignmentsSenzaAmbulatorio.map((assignment) => {
+              const doctor = doctorsSede.find((item) => item.id === assignment.medicoId);
+              const resource = resourcesSede.find((item) => item.id === assignment.risorsaId);
+              return (
+                <Button
+                  key={assignment.id}
                   type="button"
-                  onClick={() => doctor && onOpenDoctor?.(doctor.id)}
-                  className="min-w-0 rounded-md px-2 py-1 text-left hover:bg-white"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => apriModificaAssegnazione(assignment)}
+                  className="h-auto justify-start bg-white py-2 text-left"
                 >
-                  <p className="truncate text-sm font-semibold text-foreground">{doctor?.nome ?? "Medico non trovato"}</p>
-                  <p className="truncate text-xs text-muted-foreground">{doctor?.specialita ?? "-"}</p>
-                </button>
-                <Select
-                  value={assignment.risorsaId}
-                  onValueChange={(value) => onUpdateAssignment(assignment.id, { risorsaId: value })}
-                >
-                  <SelectTrigger className="h-9 bg-white">
-                    <SelectValue />
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-semibold">
+                      {assignment.dalle}-{assignment.alle} · {doctor?.nome ?? "Medico non trovato"}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {resource?.nome ?? "Risorsa non trovata"}: scegli un ambulatorio.
+                    </span>
+                  </span>
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <Dialog open={Boolean(draft)} onOpenChange={(open) => !open && setDraft(null)}>
+        {draft && (
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>{draft.id ? "Modifica assegnazione" : "Nuova assegnazione"}</DialogTitle>
+              <DialogDescription>
+                Organizza medico, ambulatorio e strumento per {labelSedeOperativa(sedeId)}.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Ambulatorio">
+                <Select value={draft.risorsaId} onValueChange={(value) => aggiornaDraft({ risorsaId: value })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleziona ambulatorio" />
                   </SelectTrigger>
                   <SelectContent>
-                    {resourcesSede.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.nome} · {labelTipoRisorsaSede(item.tipo)}
+                    {ambulatori.map((ambulatorio) => (
+                      <SelectItem key={ambulatorio.id} value={ambulatorio.id}>
+                        {ambulatorio.nome}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+              </Field>
+
+              <Field label="Medico">
+                <Select value={draft.medicoId} onValueChange={(value) => aggiornaDraft({ medicoId: value })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleziona medico" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {doctorsSede.map((doctor) => {
+                      const lavoraOggi = doctorsWorkingIds.has(doctor.id);
+                      return (
+                        <SelectItem key={doctor.id} value={doctor.id} disabled={!lavoraOggi && doctor.id !== draft.medicoId}>
+                          {doctor.nome}{lavoraOggi ? "" : " · non disponibile oggi"}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field label="Dalle">
                 <Input
                   type="time"
-                  value={assignment.dalle}
-                  onChange={(event) => onUpdateAssignment(assignment.id, { dalle: event.target.value })}
-                  className="h-9 bg-white"
-                  aria-label="Dalle"
+                  value={draft.dalle}
+                  onChange={(event) => aggiornaDraft({ dalle: event.target.value })}
                 />
+              </Field>
+              <Field label="Alle">
                 <Input
                   type="time"
-                  value={assignment.alle}
-                  onChange={(event) => onUpdateAssignment(assignment.id, { alle: event.target.value })}
-                  className="h-9 bg-white"
-                  aria-label="Alle"
+                  value={draft.alle}
+                  onChange={(event) => aggiornaDraft({ alle: event.target.value })}
                 />
+              </Field>
+
+              <Field label="Strumento opzionale">
+                <Select
+                  value={draft.strumentoId || NESSUNO_STRUMENTO_VALUE}
+                  onValueChange={(value) =>
+                    aggiornaDraft({ strumentoId: value === NESSUNO_STRUMENTO_VALUE ? "" : value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Nessuno strumento" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NESSUNO_STRUMENTO_VALUE}>Solo medico</SelectItem>
+                    {strumenti.map((strumento) => (
+                      <SelectItem key={strumento.id} value={strumento.id}>
+                        {strumento.nome} · {labelTipoRisorsaSede(strumento.tipo)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field label="Note">
                 <Input
-                  value={assignment.note ?? ""}
-                  onChange={(event) => onUpdateAssignment(assignment.id, { note: event.target.value })}
-                  className="h-9 bg-white"
+                  value={draft.note}
+                  onChange={(event) => aggiornaDraft({ note: event.target.value })}
                   placeholder="Note organizzative"
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onDeleteAssignment(assignment.id)}
-                  className="h-9 w-9 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  aria-label={`Elimina assegnazione ${resource?.nome ?? ""}`}
-                  title="Elimina assegnazione"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+              </Field>
+            </div>
+
+            {doctorDraft && !doctorDraftDisponibile && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Il medico selezionato non risulta disponibile in questa fascia.
               </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="mt-3 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-          Nessuna risorsa assegnata per questa giornata.
-        </div>
-      )}
+            )}
+
+            <DialogFooter className="gap-2">
+              {draft.id && (
+                <Button type="button" variant="destructive" onClick={eliminaDraft} className="mr-auto gap-2">
+                  <Trash2 className="h-4 w-4" />
+                  Elimina
+                </Button>
+              )}
+              <Button type="button" variant="outline" onClick={() => setDraft(null)}>
+                Annulla
+              </Button>
+              <Button type="button" onClick={salvaDraft} className="gap-2">
+                <Check className="h-4 w-4" />
+                Salva
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
     </section>
   );
 }
