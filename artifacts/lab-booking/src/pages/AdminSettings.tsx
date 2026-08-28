@@ -120,7 +120,7 @@ type DatiFatturazioneMedico = {
 };
 
 type SedeMedicoId = "modena" | "sassuolo";
-type TipoRisorsaSede = "ambulatorio" | "ecografo" | "ecg";
+type TipoRisorsaSede = "ambulatorio" | "ecografo" | "ecg" | "strumento";
 
 type RisorsaSede = {
   id: string;
@@ -272,6 +272,7 @@ const TIPI_RISORSA_SEDE: Array<{ id: TipoRisorsaSede; label: string; plurale: st
   { id: "ambulatorio", label: "Ambulatorio", plurale: "Ambulatori" },
   { id: "ecografo", label: "Ecografo", plurale: "Ecografi" },
   { id: "ecg", label: "ECG", plurale: "ECG" },
+  { id: "strumento", label: "Altro strumento", plurale: "Altri strumenti" },
 ];
 
 const creaRisorsaSedePreset = (
@@ -635,7 +636,7 @@ const isSedeMedicoId = (value: unknown): value is SedeMedicoId =>
   value === "modena" || value === "sassuolo";
 
 const isTipoRisorsaSede = (value: unknown): value is TipoRisorsaSede =>
-  value === "ambulatorio" || value === "ecografo" || value === "ecg";
+  value === "ambulatorio" || value === "ecografo" || value === "ecg" || value === "strumento";
 
 const normalizzaRisorsaSede = (risorsa: Partial<RisorsaSede>, index = 0): RisorsaSede => {
   const sedeId = isSedeMedicoId(risorsa.sedeId) ? risorsa.sedeId : "modena";
@@ -2357,15 +2358,19 @@ export function AdminSettings({
   const contaRisorseSede = (sedeId: SedeMedicoId, tipo: TipoRisorsaSede) =>
     risorseSedi.filter((risorsa) => risorsa.sedeId === sedeId && risorsa.tipo === tipo && risorsa.attiva).length;
 
+  const contaStrumentiSede = (sedeId: SedeMedicoId) =>
+    risorseSedi.filter((risorsa) => risorsa.sedeId === sedeId && risorsa.tipo !== "ambulatorio" && risorsa.attiva).length;
+
   const aggiungiRisorsaSede = (sedeId: SedeMedicoId, tipo: TipoRisorsaSede) => {
     const numero = risorseSedi.filter((risorsa) => risorsa.sedeId === sedeId && risorsa.tipo === tipo).length + 1;
+    const nomeBase = tipo === "strumento" ? "Strumento" : labelTipoRisorsa(tipo);
     setRisorseSedi((correnti) => [
       ...correnti,
       {
         id: creaIdAgenda("risorsa"),
         sedeId,
         tipo,
-        nome: `${labelTipoRisorsa(tipo)} ${numero}`,
+        nome: `${nomeBase} ${numero}`,
         attiva: true,
         note: "",
       },
@@ -2426,7 +2431,7 @@ export function AdminSettings({
       tab: "risorse" as SettingsTabId,
       icon: <Building2 className="h-5 w-5" />,
       title: "Risorse sedi",
-      description: "Ambulatori, ecografi ed ECG per Modena e Sassuolo",
+      description: "Ambulatori e strumenti per Modena e Sassuolo",
       count: `${risorseSedi.filter((risorsa) => risorsa.attiva).length} attive`,
     },
   ];
@@ -3311,7 +3316,7 @@ export function AdminSettings({
         <TabsContent value="risorse" className="space-y-4">
           <SettingsPanel
             title="Risorse sedi"
-            description="Configura sale, ecografi ed ECG disponibili per ogni sede. L'agenda ambulatorio usa queste risorse per organizzare la giornata."
+            description="Configura ambulatori e strumenti disponibili per ogni sede. L'agenda ambulatorio usa queste risorse per organizzare la giornata."
             icon={<Building2 className="h-5 w-5" />}
             actions={
               <div className="flex flex-wrap justify-end gap-2">
@@ -3335,28 +3340,36 @@ export function AdminSettings({
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
-                        {TIPI_RISORSA_SEDE.map((tipo) => (
-                          <Badge key={tipo.id} variant="secondary" className="whitespace-nowrap">
-                            {tipo.plurale}: {contaRisorseSede(sedeItem.id, tipo.id)}
-                          </Badge>
-                        ))}
+                        <Badge variant="secondary" className="whitespace-nowrap">
+                          Ambulatori: {contaRisorseSede(sedeItem.id, "ambulatorio")}
+                        </Badge>
+                        <Badge variant="secondary" className="whitespace-nowrap">
+                          Strumenti: {contaStrumentiSede(sedeItem.id)}
+                        </Badge>
                       </div>
                     </div>
 
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {TIPI_RISORSA_SEDE.map((tipo) => (
-                        <Button
-                          key={tipo.id}
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => aggiungiRisorsaSede(sedeItem.id, tipo.id)}
-                          className="gap-2"
-                        >
-                          <Plus className="h-4 w-4" />
-                          Aggiungi {tipo.label}
-                        </Button>
-                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => aggiungiRisorsaSede(sedeItem.id, "ambulatorio")}
+                        className="gap-2"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Aggiungi ambulatorio
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => aggiungiRisorsaSede(sedeItem.id, "strumento")}
+                        className="gap-2"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Aggiungi strumento
+                      </Button>
                     </div>
 
                     {risorseSede.length > 0 ? (
@@ -3365,7 +3378,7 @@ export function AdminSettings({
                           <TableHeader>
                             <TableRow>
                               <TableHead className="min-w-[220px]">Nome</TableHead>
-                              <TableHead className="w-44">Tipo</TableHead>
+                              <TableHead className="w-44">Categoria</TableHead>
                               <TableHead className="w-36">Stato</TableHead>
                               <TableHead className="min-w-[220px]">Note</TableHead>
                               <TableHead className="w-16">Azioni</TableHead>

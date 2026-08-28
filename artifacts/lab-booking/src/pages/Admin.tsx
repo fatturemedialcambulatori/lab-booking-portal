@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
   Bell,
+  Building2,
   CalendarDays,
   Car,
   CircleHelp,
@@ -23,7 +24,7 @@ import { Login, type AuthUser } from "./Login";
 import { AdminExams } from "./AdminExams";
 import { AccettazionePaziente } from "./AccettazionePaziente";
 import { AdminAnagrafiche } from "./AdminAnagrafiche";
-import { AdminBookingCalendar } from "./AdminBookingCalendar";
+import { AdminAmbulatorioOrganization, AdminBookingCalendar } from "./AdminBookingCalendar";
 import { AdminSettings, type SettingsSaveControl } from "./AdminSettings";
 import { AdminUsers } from "./AdminUsers";
 import { AdminInfortunistica } from "./AdminInfortunistica";
@@ -102,6 +103,7 @@ type TabId =
   | "prenotazioni"
   | "accettazione"
   | "listino"
+  | "organizzazione-ambulatorio"
   | "anagrafiche"
   | "infortunistica"
   | "cassa-totale"
@@ -140,9 +142,12 @@ const WORKFLOW_ITEMS: MenuItem[] = [
   { id: "listino", label: "Listino Esami", Icon: FlaskConical },
 ];
 
-const AMBULATORIO_ITEMS: MenuItem[] = WORKFLOW_ITEMS.map((item) =>
-  item.id === "listino" ? { ...item, label: "Prestazioni", Icon: Stethoscope } : item,
-);
+const AMBULATORIO_ITEMS: MenuItem[] = [
+  { id: "accettazione", label: "Accettazione", Icon: UserCheck },
+  { id: "prenotazioni", label: "Agenda", Icon: CalendarDays },
+  { id: "organizzazione-ambulatorio", label: "Organizzazione", Icon: Building2 },
+  { id: "listino", label: "Prestazioni", Icon: Stethoscope },
+];
 
 const ANAGRAFICHE_ITEM: MenuItem = { id: "anagrafiche", label: "Anagrafiche", Icon: Users };
 const INFORTUNISTICA_ITEM: MenuItem = { id: "infortunistica", label: "Infortunistica stradale", Icon: Car };
@@ -168,6 +173,10 @@ const adminPathForTarget = (area: AreaId, tab: TabId) => {
     if (tab === "cassa-modena") return "/admin/cassa/modena";
     if (tab === "cassa-sassuolo") return "/admin/cassa/sassuolo";
     return "/admin/cassa/totale";
+  }
+
+  if (area === "ambulatorio" && tab === "organizzazione-ambulatorio") {
+    return "/admin/ambulatorio/organizzazione";
   }
 
   const tabSlug = tab === "prenotazioni" ? "agenda" : area === "ambulatorio" && tab === "listino" ? "prestazioni" : tab;
@@ -201,6 +210,9 @@ const routeTargetFromPath = (path: string): { area: AreaId; tab: TabId } | null 
   if (rawTab === "accettazione") return { area: section, tab: "accettazione" };
   if (rawTab === "agenda" || rawTab === "prenotazioni") return { area: section, tab: "prenotazioni" };
   if (section === "laboratorio" && rawTab === "listino") return { area: section, tab: "listino" };
+  if (section === "ambulatorio" && rawTab === "organizzazione") {
+    return { area: section, tab: "organizzazione-ambulatorio" };
+  }
   if (section === "ambulatorio" && (rawTab === "prestazioni" || rawTab === "listino")) {
     return { area: section, tab: "listino" };
   }
@@ -247,6 +259,7 @@ const permessoVoce = (area: AreaId, tab: TabId): PermissionId | null => {
   if (area === "ambulatorio") {
     if (tab === "accettazione") return "ambulatorio.accettazione";
     if (tab === "prenotazioni") return "ambulatorio.agenda";
+    if (tab === "organizzazione-ambulatorio") return "ambulatorio.agenda";
     if (tab === "listino") return "ambulatorio.prestazioni";
   }
   if (tab === "anagrafiche") return "anagrafiche";
@@ -621,6 +634,10 @@ function AdminDashboard({
                 area={activeArea === "ambulatorio" ? "ambulatorio" : "laboratorio"}
                 onOpenDoctor={apriProfiloMedico}
               />
+            )}
+
+            {activeTab === "organizzazione-ambulatorio" && (
+              <AdminAmbulatorioOrganization onOpenDoctor={apriProfiloMedico} />
             )}
 
             {activeTab === "listino" && (

@@ -75,7 +75,7 @@ type SedeOperativa = Exclude<SedeId, "tutte">;
 type StatoPrenotazione = "confermata" | "accettata" | "completata" | "annullata";
 type PeriodoOrarioDisponibile = "tutto" | "mattina" | "pomeriggio";
 type WorkListPeriodo = "giorno" | "periodo";
-type TipoRisorsaSede = "ambulatorio" | "ecografo" | "ecg";
+type TipoRisorsaSede = "ambulatorio" | "ecografo" | "ecg" | "strumento";
 
 type FasciaDisponibilita = {
   id?: string;
@@ -307,6 +307,7 @@ const TIPI_RISORSA_SEDE: Array<{ id: TipoRisorsaSede; label: string; plurale: st
   { id: "ambulatorio", label: "Ambulatorio", plurale: "Ambulatori" },
   { id: "ecografo", label: "Ecografo", plurale: "Ecografi" },
   { id: "ecg", label: "ECG", plurale: "ECG" },
+  { id: "strumento", label: "Altro strumento", plurale: "Altri strumenti" },
 ];
 const RISORSE_SEDI_DEMO: RisorsaSede[] = [
   ...Array.from({ length: 5 }, (_, index) => ({
@@ -906,7 +907,7 @@ const isSedeOperativa = (value: unknown): value is SedeOperativa =>
   value === "modena" || value === "sassuolo";
 
 const isTipoRisorsaSede = (value: unknown): value is TipoRisorsaSede =>
-  value === "ambulatorio" || value === "ecografo" || value === "ecg";
+  value === "ambulatorio" || value === "ecografo" || value === "ecg" || value === "strumento";
 
 const normalizzaRisorsaSedeAgenda = (value: Partial<RisorsaSede>, index = 0): RisorsaSede => {
   const sedeId = isSedeOperativa(value.sedeId) ? value.sedeId : "modena";
@@ -1240,6 +1241,26 @@ const labelSedeOperativa = (sede: SedeOperativa) => (sede === "modena" ? "Modena
 
 const labelTipoRisorsaSede = (tipo: TipoRisorsaSede) =>
   TIPI_RISORSA_SEDE.find((item) => item.id === tipo)?.label ?? tipo;
+
+const risorseAgendaDaSettings = (settingsAgenda: AdminSettingsData | null) => {
+  const risorseSettings = settingsAgenda?.risorseSedi;
+  const risorseDaUsare = Array.isArray(risorseSettings) && risorseSettings.length > 0
+    ? risorseSettings
+    : RISORSE_SEDI_DEMO;
+
+  return risorseDaUsare
+    .map((risorsa, index) => normalizzaRisorsaSedeAgenda(risorsa, index))
+    .filter((risorsa) => risorsa.attiva !== false)
+    .sort((a, b) => {
+      const sedeDiff = SEDI_OPERATIVE.indexOf(a.sedeId) - SEDI_OPERATIVE.indexOf(b.sedeId);
+      if (sedeDiff !== 0) return sedeDiff;
+      const tipoDiff =
+        TIPI_RISORSA_SEDE.findIndex((tipo) => tipo.id === a.tipo) -
+        TIPI_RISORSA_SEDE.findIndex((tipo) => tipo.id === b.tipo);
+      if (tipoDiff !== 0) return tipoDiff;
+      return a.nome.localeCompare(b.nome, "it", { numeric: true });
+    });
+};
 
 const fasceMedicoNelGiorno = (doctor: MedicoAgenda, date: Date, sede: SedeId) => {
   const dayKey = dateKey(date);
@@ -1699,25 +1720,7 @@ export function AdminBookingCalendar({
     () => unisciPrenotazioniAgenda(prenotazioniBaseAgenda, prenotazioniSalvate),
     [prenotazioniBaseAgenda, prenotazioniSalvate],
   );
-  const risorseAgenda = React.useMemo(() => {
-    const risorseSettings = settingsAgenda?.risorseSedi;
-    const risorseDaUsare = Array.isArray(risorseSettings) && risorseSettings.length > 0
-      ? risorseSettings
-      : RISORSE_SEDI_DEMO;
-
-    return risorseDaUsare
-      .map((risorsa, index) => normalizzaRisorsaSedeAgenda(risorsa, index))
-      .filter((risorsa) => risorsa.attiva !== false)
-      .sort((a, b) => {
-        const sedeDiff = SEDI_OPERATIVE.indexOf(a.sedeId) - SEDI_OPERATIVE.indexOf(b.sedeId);
-        if (sedeDiff !== 0) return sedeDiff;
-        const tipoDiff =
-          TIPI_RISORSA_SEDE.findIndex((tipo) => tipo.id === a.tipo) -
-          TIPI_RISORSA_SEDE.findIndex((tipo) => tipo.id === b.tipo);
-        if (tipoDiff !== 0) return tipoDiff;
-        return a.nome.localeCompare(b.nome, "it", { numeric: true });
-      });
-  }, [settingsAgenda]);
+  const risorseAgenda = React.useMemo(() => risorseAgendaDaSettings(settingsAgenda), [settingsAgenda]);
   const risorseAgendaIds = React.useMemo(() => new Set(risorseAgenda.map((risorsa) => risorsa.id)), [risorseAgenda]);
   const assegnazioniRisorseValide = React.useMemo(
     () => assegnazioniRisorse.filter((assegnazione) => risorseAgendaIds.has(assegnazione.risorsaId)),
@@ -4442,6 +4445,295 @@ export function AdminBookingCalendar({
   );
 }
 
+export function AdminAmbulatorioOrganization({
+  onOpenDoctor,
+}: {
+  onOpenDoctor?: (doctorId: string) => void;
+}) {
+  const [currentDate, setCurrentDate] = React.useState(() => todayAgendaDate());
+  const [sede, setSede] = React.useState<SedeId>("tutte");
+  const [settingsAgenda, setSettingsAgenda] = React.useState<AdminSettingsData | null>(null);
+  const [mediciConfigurati, setMediciConfigurati] = React.useState<MedicoAgenda[] | null>(null);
+  const [settingsCaricate, setSettingsCaricate] = React.useState(false);
+  const [assegnazioniRisorse, setAssegnazioniRisorse] = React.useState<AssegnazioneRisorsaGiorno[]>(() =>
+    leggiAssegnazioniRisorseLocali(),
+  );
+
+  React.useEffect(() => {
+    let active = true;
+
+    const caricaImpostazioni = async () => {
+      try {
+        const response = await fetch("/api/admin-settings");
+        if (!response.ok) throw new Error("Impostazioni non disponibili");
+        const data: unknown = await response.json();
+        if (!active) return;
+
+        if (isAdminSettingsData(data)) {
+          setSettingsAgenda(data);
+          setMediciConfigurati(mediciDaAdminSettings(data, "ambulatorio"));
+        } else {
+          setSettingsAgenda(null);
+          setMediciConfigurati([]);
+        }
+      } catch {
+        if (!active) return;
+        setSettingsAgenda(null);
+        setMediciConfigurati(null);
+        toast({
+          title: "Attenzione",
+          description: "Organizzazione non collegata alle impostazioni DB. Sto mostrando i dati demo.",
+          variant: "destructive",
+        });
+      } finally {
+        if (active) setSettingsCaricate(true);
+      }
+    };
+
+    void caricaImpostazioni();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let active = true;
+
+    const caricaAssegnazioniRisorse = async () => {
+      try {
+        const response = await fetch("/api/agenda-resource-assignments");
+        if (!response.ok) throw new Error("Organizzazione risorse non disponibile");
+        const data: unknown = await response.json();
+        if (!active) return;
+
+        const remoteAssignments = normalizzaAssegnazioniRisorse(data);
+        setAssegnazioniRisorse((localAssignments) =>
+          unisciAssegnazioniRisorse(remoteAssignments, localAssignments),
+        );
+      } catch {
+        if (!active) return;
+        setAssegnazioniRisorse(leggiAssegnazioniRisorseLocali());
+      }
+    };
+
+    void caricaAssegnazioniRisorse();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    salvaAssegnazioniRisorseLocali(assegnazioniRisorse);
+  }, [assegnazioniRisorse]);
+
+  const mediciAgenda = React.useMemo(() => {
+    if (!settingsCaricate) return [];
+    return mediciConfigurati ?? MEDICI_AGENDA_DEMO.filter((medico) => medico.area === "ambulatorio");
+  }, [mediciConfigurati, settingsCaricate]);
+  const mediciAmbulatorio = React.useMemo(
+    () => mediciAgenda.filter((medico) => medico.area === "ambulatorio"),
+    [mediciAgenda],
+  );
+  const risorseAgenda = React.useMemo(() => risorseAgendaDaSettings(settingsAgenda), [settingsAgenda]);
+  const risorseAgendaIds = React.useMemo(() => new Set(risorseAgenda.map((risorsa) => risorsa.id)), [risorseAgenda]);
+  const assegnazioniRisorseValide = React.useMemo(
+    () => assegnazioniRisorse.filter((assegnazione) => risorseAgendaIds.has(assegnazione.risorsaId)),
+    [assegnazioniRisorse, risorseAgendaIds],
+  );
+  const sediVisibili = sede === "tutte" ? SEDI_OPERATIVE : [sede];
+  const mediciOggi = mediciAmbulatorio.filter((medico) => medicoLavoraNelGiorno(medico, currentDate, sede));
+  const ambulatoriVisibili = risorseAgenda.filter(
+    (risorsa) => sediVisibili.includes(risorsa.sedeId) && risorsa.tipo === "ambulatorio",
+  );
+  const strumentiVisibili = risorseAgenda.filter(
+    (risorsa) => sediVisibili.includes(risorsa.sedeId) && risorsa.tipo !== "ambulatorio",
+  );
+  const assegnazioniGiorno = assegnazioniRisorseValide.filter(
+    (assegnazione) => assegnazione.data === dateKey(currentDate) && sediVisibili.includes(assegnazione.sedeId),
+  );
+
+  const salvaAssegnazioniRisorseRemote = React.useCallback(async (items: AssegnazioneRisorsaGiorno[]) => {
+    try {
+      const response = await fetch("/api/agenda-resource-assignments", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(items),
+      });
+      if (!response.ok) throw new Error("Salvataggio organizzazione risorse non riuscito");
+    } catch {
+      toast({
+        title: "Attenzione",
+        description: "Organizzazione risorse salvata solo in locale. Verifica il collegamento DB.",
+        variant: "destructive",
+      });
+    }
+  }, []);
+
+  const aggiornaAssegnazioniRisorse = React.useCallback(
+    (updater: (items: AssegnazioneRisorsaGiorno[]) => AssegnazioneRisorsaGiorno[]) => {
+      setAssegnazioniRisorse((correnti) => {
+        const prossime = updater(correnti);
+        void salvaAssegnazioniRisorseRemote(prossime);
+        return prossime;
+      });
+    },
+    [salvaAssegnazioniRisorseRemote],
+  );
+
+  const creaAssegnazioneRisorsa = React.useCallback(
+    (sedeId: SedeOperativa, medicoId: string, risorsaId: string, dalle: string, alle: string) => {
+      if (!medicoId || !risorsaId) return;
+      if (minutiDaOra(alle) <= minutiDaOra(dalle)) {
+        toast({
+          title: "Attenzione",
+          description: "L'orario di fine deve essere successivo all'orario di inizio.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const nuova: AssegnazioneRisorsaGiorno = {
+        id: `risorsa-agenda-${Date.now()}`,
+        data: dateKey(currentDate),
+        sedeId,
+        medicoId,
+        risorsaId,
+        dalle,
+        alle,
+        note: "",
+      };
+
+      aggiornaAssegnazioniRisorse((correnti) => {
+        const conflitto = correnti.some(
+          (assegnazione) =>
+            assegnazione.data === nuova.data &&
+            assegnazione.sedeId === nuova.sedeId &&
+            assegnazione.risorsaId === nuova.risorsaId &&
+            fasceSiSovrappongono(assegnazione.dalle, assegnazione.alle, nuova.dalle, nuova.alle),
+        );
+
+        if (conflitto) {
+          toast({
+            title: "Attenzione",
+            description: "Questa risorsa e gia assegnata in una fascia sovrapposta.",
+            variant: "destructive",
+          });
+          return correnti;
+        }
+
+        return [...correnti, nuova];
+      });
+    },
+    [aggiornaAssegnazioniRisorse, currentDate],
+  );
+
+  const aggiornaAssegnazioneRisorsa = React.useCallback(
+    (id: string, patch: Partial<AssegnazioneRisorsaGiorno>) => {
+      aggiornaAssegnazioniRisorse((correnti) =>
+        correnti.map((assegnazione) =>
+          assegnazione.id === id ? { ...assegnazione, ...patch } : assegnazione,
+        ),
+      );
+    },
+    [aggiornaAssegnazioniRisorse],
+  );
+
+  const eliminaAssegnazioneRisorsa = React.useCallback(
+    (id: string) => {
+      aggiornaAssegnazioniRisorse((correnti) => correnti.filter((assegnazione) => assegnazione.id !== id));
+    },
+    [aggiornaAssegnazioniRisorse],
+  );
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 rounded-lg border border-border bg-white p-5 shadow-sm xl:flex-row xl:items-center xl:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Ambulatorio</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Organizzazione Modena e Sassuolo</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Assegna i medici disponibili agli ambulatori e agli strumenti della giornata.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[auto_auto_minmax(170px,1fr)_180px] xl:min-w-[720px]">
+          <Button type="button" variant="outline" onClick={() => setCurrentDate(todayAgendaDate())}>
+            Oggi
+          </Button>
+          <div className="flex overflow-hidden rounded-md border border-border bg-white">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setCurrentDate((date) => addDays(date, -1))}
+              aria-label="Giorno precedente"
+              className="rounded-none"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setCurrentDate((date) => addDays(date, 1))}
+              aria-label="Giorno successivo"
+              className="rounded-none border-l border-border"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+          <Input
+            type="date"
+            value={dateKey(currentDate)}
+            onChange={(event) => setCurrentDate(new Date(`${event.target.value}T12:00:00`))}
+          />
+          <Select value={sede} onValueChange={(value: SedeId) => setSede(value)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SEDI.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        <SummaryCard label="Medici disponibili" value={mediciOggi.length} />
+        <SummaryCard label="Ambulatori" value={ambulatoriVisibili.length} />
+        <SummaryCard label="Strumenti" value={strumentiVisibili.length} />
+        <SummaryCard label="Assegnazioni" value={assegnazioniGiorno.length} />
+      </div>
+
+      <ResourceOrganizationPanel
+        date={currentDate}
+        sede={sede}
+        doctors={mediciAmbulatorio}
+        resources={risorseAgenda}
+        assignments={assegnazioniRisorseValide}
+        onCreateAssignment={creaAssegnazioneRisorsa}
+        onUpdateAssignment={aggiornaAssegnazioneRisorsa}
+        onDeleteAssignment={eliminaAssegnazioneRisorsa}
+        onOpenDoctor={onOpenDoctor}
+      />
+    </div>
+  );
+}
+
+function SummaryCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-border bg-white px-4 py-3 shadow-sm">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-2 text-2xl font-semibold text-foreground">{value}</p>
+    </div>
+  );
+}
+
 function ResourceOrganizationPanel({
   date,
   sede,
@@ -4539,10 +4831,8 @@ function SedeResourceOrganizer({
     setAlle(fascia.alle);
   }, [date, doctorId, doctorsWorking, sedeId]);
 
-  const risorsePerTipo = TIPI_RISORSA_SEDE.map((tipo) => ({
-    ...tipo,
-    count: resourcesSede.filter((resource) => resource.tipo === tipo.id).length,
-  }));
+  const ambulatori = resourcesSede.filter((resource) => resource.tipo === "ambulatorio").length;
+  const strumenti = resourcesSede.filter((resource) => resource.tipo !== "ambulatorio").length;
 
   return (
     <section className="rounded-md border border-border bg-white p-3 shadow-sm">
@@ -4554,15 +4844,16 @@ function SedeResourceOrganizer({
             <Badge variant="secondary">{doctorsWorking.length} medici oggi</Badge>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Organizza sale e macchinari per {format(date, "EEEE d MMMM", { locale: it })}.
+            Organizza ambulatori e strumenti per {format(date, "EEEE d MMMM", { locale: it })}.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {risorsePerTipo.map((tipo) => (
-            <Badge key={tipo.id} variant="outline" className="bg-white">
-              {tipo.plurale}: {tipo.count}
-            </Badge>
-          ))}
+          <Badge variant="outline" className="bg-white">
+            Ambulatori: {ambulatori}
+          </Badge>
+          <Badge variant="outline" className="bg-white">
+            Strumenti: {strumenti}
+          </Badge>
         </div>
       </div>
 
@@ -4581,7 +4872,7 @@ function SedeResourceOrganizer({
             </SelectContent>
           </Select>
         </Field>
-        <Field label="Risorsa">
+        <Field label="Ambulatorio / strumento">
           <Select value={resourceId} onValueChange={setResourceId}>
             <SelectTrigger className="h-9 bg-white">
               <SelectValue placeholder="Seleziona risorsa" />
