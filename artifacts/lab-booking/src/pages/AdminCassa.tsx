@@ -2,7 +2,10 @@ import React from "react";
 import {
   AlertTriangle,
   Banknote,
+  BarChart3,
   Camera,
+  CalendarRange,
+  ChevronDown,
   CreditCard,
   Download,
   Landmark,
@@ -14,6 +17,7 @@ import {
   RotateCcw,
   Save,
   Trash2,
+  TrendingUp,
   Upload,
   WalletCards,
 } from "lucide-react";
@@ -116,6 +120,24 @@ type TotaliCassa = {
   saldo: number;
 };
 
+type RigaPeriodoCassa = {
+  data: string;
+  totali: TotaliCassa;
+  documenti: DocumentoCassa[];
+  speseCount: number;
+  documentiCount: number;
+  chiusureCount: number;
+};
+
+type RigaMeseCassa = {
+  key: string;
+  label: string;
+  dal: string;
+  al: string;
+  totali: TotaliCassa;
+  giorniConDati: number;
+};
+
 const SEDI_CASSA: Array<{ id: SedeCassaId; label: string }> = [
   { id: "modena", label: "Modena" },
   { id: "sassuolo", label: "Sassuolo" },
@@ -136,12 +158,44 @@ const valuta = new Intl.NumberFormat("it-IT", {
   currency: "EUR",
 });
 
-const todayKey = () => new Date().toISOString().slice(0, 10);
+const localDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const todayKey = () => localDateKey(new Date());
 
 const firstDayOfMonth = () => {
   const date = new Date();
-  date.setDate(1);
-  return date.toISOString().slice(0, 10);
+  return localDateKey(new Date(date.getFullYear(), date.getMonth(), 1));
+};
+
+const addDaysToKey = (data: string, days: number) => {
+  const date = new Date(`${data}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return localDateKey(date);
+};
+
+const monthStartKey = (year: number, monthIndex: number) =>
+  localDateKey(new Date(year, monthIndex, 1));
+
+const monthEndKey = (year: number, monthIndex: number) =>
+  localDateKey(new Date(year, monthIndex + 1, 0));
+
+const monthLabel = (year: number, monthIndex: number) =>
+  new Intl.DateTimeFormat("it-IT", { month: "short" }).format(new Date(year, monthIndex, 1));
+
+const daysBetween = (dal: string, al: string) => {
+  if (!dal || !al || dal > al) return [];
+  const days: string[] = [];
+  let current = dal;
+  while (current <= al) {
+    days.push(current);
+    current = addDaysToKey(current, 1);
+  }
+  return days;
 };
 
 const emptyState = (): CassaState => ({
@@ -324,6 +378,53 @@ const sommaTotali = (giorni: ChiusuraCassa[], spese: SpesaCassa[]): TotaliCassa 
   };
 };
 
+const incassiDaTotali = (totali: TotaliCassa) =>
+  totali.contanti + totali.bancomat + totali.assegni;
+
+const creaRighePeriodo = (
+  state: CassaState,
+  sediVisibili: SedeCassaId[],
+  dal: string,
+  al: string,
+  includeGiorniVuoti = false,
+): RigaPeriodoCassa[] => {
+  const dayKeys = new Set<string>();
+  if (includeGiorniVuoti) {
+    daysBetween(dal, al).forEach((data) => dayKeys.add(data));
+  }
+  state.giorni.forEach((item) => {
+    if (sediVisibili.includes(item.sedeId) && item.data >= dal && item.data <= al) {
+      dayKeys.add(item.data);
+    }
+  });
+  state.spese.forEach((item) => {
+    if (sediVisibili.includes(item.sedeId) && item.data >= dal && item.data <= al) {
+      dayKeys.add(item.data);
+    }
+  });
+  state.documenti.forEach((item) => {
+    if (sediVisibili.includes(item.sedeId) && item.data >= dal && item.data <= al) {
+      dayKeys.add(item.data);
+    }
+  });
+
+  return Array.from(dayKeys)
+    .sort((a, b) => b.localeCompare(a))
+    .map((data) => {
+      const giorni = state.giorni.filter((item) => sediVisibili.includes(item.sedeId) && item.data === data);
+      const spese = state.spese.filter((item) => sediVisibili.includes(item.sedeId) && item.data === data);
+      const documenti = state.documenti.filter((item) => sediVisibili.includes(item.sedeId) && item.data === data);
+      return {
+        data,
+        totali: sommaTotali(giorni, spese),
+        documenti,
+        speseCount: spese.length,
+        documentiCount: documenti.length,
+        chiusureCount: giorni.length,
+      };
+    });
+};
+
 export function AdminCassa({ scope }: { scope: CassaScope }) {
   const [state, setState] = React.useState<CassaState>(emptyState);
   const [giorno, setGiorno] = React.useState(todayKey);
@@ -337,6 +438,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   const [moneyDrafts, setMoneyDrafts] = React.useState<MoneyDrafts>({});
   const [openChiusure, setOpenChiusure] = React.useState<Set<string>>(() => new Set());
   const [pendingChiusure, setPendingChiusure] = React.useState<Set<string>>(() => new Set());
+  const [dettaglioMeseAperto, setDettaglioMeseAperto] = React.useState(false);
   const saveTimerRef = React.useRef<number | null>(null);
   const queuedStateRef = React.useRef<CassaState | null>(null);
   const saveInFlightRef = React.useRef(false);
@@ -873,38 +975,55 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   const chiusureGiorno = sediVisibili.map((sedeId) => getChiusura(sedeId, giorno));
   const speseGiorno = state.spese.filter((spesa) => sediVisibili.includes(spesa.sedeId) && spesa.data === giorno);
   const totaliGiorno = sommaTotali(chiusureGiorno, speseGiorno);
+  const today = todayKey();
+  const yesterday = addDaysToKey(today, -1);
+  const dashboardMonthStart = firstDayOfMonth();
+  const currentYear = new Date().getFullYear();
+  const currentMonthIndex = new Date().getMonth();
 
-  const righePeriodo = React.useMemo(() => {
-    const dayKeys = new Set<string>();
-    state.giorni.forEach((item) => {
-      if (sediVisibili.includes(item.sedeId) && item.data >= periodoDal && item.data <= periodoAl) {
-        dayKeys.add(item.data);
-      }
-    });
-    state.spese.forEach((item) => {
-      if (sediVisibili.includes(item.sedeId) && item.data >= periodoDal && item.data <= periodoAl) {
-        dayKeys.add(item.data);
-      }
-    });
-    state.documenti.forEach((item) => {
-      if (sediVisibili.includes(item.sedeId) && item.data >= periodoDal && item.data <= periodoAl) {
-        dayKeys.add(item.data);
-      }
-    });
+  const righeMeseCorrente = React.useMemo(
+    () => creaRighePeriodo(state, sediVisibili, dashboardMonthStart, today, true),
+    [dashboardMonthStart, sediVisibili, state, today],
+  );
 
-    return Array.from(dayKeys)
-      .sort((a, b) => b.localeCompare(a))
-      .map((data) => {
-        const giorni = state.giorni.filter((item) => sediVisibili.includes(item.sedeId) && item.data === data);
-        const spese = state.spese.filter((item) => sediVisibili.includes(item.sedeId) && item.data === data);
-        const documenti = state.documenti.filter((item) => sediVisibili.includes(item.sedeId) && item.data === data);
-        return {
-          data,
-          totali: sommaTotali(giorni, spese),
-          documenti,
-        };
-      });
-  }, [periodoAl, periodoDal, sediVisibili, state.documenti, state.giorni, state.spese]);
+  const totaliMeseCorrente = React.useMemo(
+    () => sommaTotali(
+      state.giorni.filter((item) => sediVisibili.includes(item.sedeId) && item.data >= dashboardMonthStart && item.data <= today),
+      state.spese.filter((item) => sediVisibili.includes(item.sedeId) && item.data >= dashboardMonthStart && item.data <= today),
+    ),
+    [dashboardMonthStart, sediVisibili, state.giorni, state.spese, today],
+  );
+
+  const situazioneIeri = React.useMemo(
+    () => creaRighePeriodo(state, sediVisibili, yesterday, yesterday, true)[0],
+    [sediVisibili, state, yesterday],
+  );
+
+  const righeAnnoCorrente = React.useMemo<RigaMeseCassa[]>(() =>
+    Array.from({ length: currentMonthIndex + 1 }, (_, monthIndex) => {
+      const dal = monthStartKey(currentYear, monthIndex);
+      const al = monthIndex === currentMonthIndex ? today : monthEndKey(currentYear, monthIndex);
+      const righeMese = creaRighePeriodo(state, sediVisibili, dal, al, false);
+      const totali = sommaTotali(
+        state.giorni.filter((item) => sediVisibili.includes(item.sedeId) && item.data >= dal && item.data <= al),
+        state.spese.filter((item) => sediVisibili.includes(item.sedeId) && item.data >= dal && item.data <= al),
+      );
+      return {
+        key: `${currentYear}-${String(monthIndex + 1).padStart(2, "0")}`,
+        label: monthLabel(currentYear, monthIndex),
+        dal,
+        al,
+        totali,
+        giorniConDati: righeMese.length,
+      };
+    }),
+    [currentMonthIndex, currentYear, sediVisibili, state, today],
+  );
+
+  const righePeriodo = React.useMemo(
+    () => creaRighePeriodo(state, sediVisibili, periodoDal, periodoAl, false),
+    [periodoAl, periodoDal, sediVisibili, state],
+  );
 
   const elencoChiusure = React.useMemo(() => {
     const keys = new Set<string>();
@@ -1058,6 +1177,23 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         </div>
         </div>
       </div>
+
+      <CassaDashboard
+        scopeLabel={scopeLabel}
+        today={today}
+        yesterday={yesterday}
+        monthStart={dashboardMonthStart}
+        monthRows={righeMeseCorrente}
+        monthTotals={totaliMeseCorrente}
+        previousDay={situazioneIeri}
+        yearRows={righeAnnoCorrente}
+        expanded={dettaglioMeseAperto}
+        onToggleExpanded={() => setDettaglioMeseAperto((current) => !current)}
+        onSelectDay={(data) => {
+          setGiorno(data);
+          setMobileCapture(null);
+        }}
+      />
 
       <div className="grid gap-3 rounded-md border border-border bg-white p-3 sm:p-4 lg:grid-cols-[220px_1fr_1fr_220px]">
         <Field label="Giorno chiusura">
@@ -1238,6 +1374,269 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         onClose={() => setMobileCapture(null)}
         onRefresh={() => void aggiornaDaDb()}
       />
+    </div>
+  );
+}
+
+function CassaDashboard({
+  scopeLabel,
+  today,
+  yesterday,
+  monthStart,
+  monthRows,
+  monthTotals,
+  previousDay,
+  yearRows,
+  expanded,
+  onToggleExpanded,
+  onSelectDay,
+}: {
+  scopeLabel: string;
+  today: string;
+  yesterday: string;
+  monthStart: string;
+  monthRows: RigaPeriodoCassa[];
+  monthTotals: TotaliCassa;
+  previousDay?: RigaPeriodoCassa;
+  yearRows: RigaMeseCassa[];
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  onSelectDay: (data: string) => void;
+}) {
+  const incassiMese = incassiDaTotali(monthTotals);
+  const previousDayTotals = previousDay?.totali ?? sommaTotali([], []);
+  const previousDayHasData = Boolean(
+    previousDay &&
+    (previousDay.chiusureCount > 0 || previousDay.speseCount > 0 || previousDay.documentiCount > 0),
+  );
+  const giorniConDati = monthRows.filter(
+    (row) => row.chiusureCount > 0 || row.speseCount > 0 || row.documentiCount > 0,
+  ).length;
+
+  return (
+    <section className="overflow-hidden rounded-md border border-border bg-white">
+      <div className="flex flex-col gap-3 border-b border-border px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <BarChart3 className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Dashboard cassa</h2>
+            <p className="text-sm text-muted-foreground">
+              Situazione del mese corrente, confronto con ieri e andamento annuale.
+            </p>
+          </div>
+        </div>
+        <Badge variant="secondary" className="w-fit">{scopeLabel}</Badge>
+      </div>
+
+      <div className="grid gap-4 p-4 xl:grid-cols-[1.3fr_0.7fr]">
+        <div className="rounded-md border border-primary/20 bg-primary/5 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-primary">Mese corrente</p>
+              <h3 className="mt-1 text-xl font-semibold text-foreground">
+                {formatDate(monthStart)} - {formatDate(today)}
+              </h3>
+            </div>
+            <div className="text-left sm:text-right">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Saldo mese</p>
+              <p className="mt-1 text-3xl font-bold text-foreground">{valuta.format(monthTotals.saldo)}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <DashboardMetric label="Incassi" value={valuta.format(incassiMese)} detail="Contanti, POS e assegni" tone="income" />
+            <DashboardMetric label="Spese" value={valuta.format(monthTotals.spese)} detail="Uscite registrate" tone="expense" />
+            <DashboardMetric label="Fondo cassa" value={valuta.format(monthTotals.fondoCassa)} detail="Totale lasciato" tone="neutral" />
+            <DashboardMetric label="Giorni con dati" value={`${giorniConDati}`} detail={`${monthRows.length} giorni nel mese`} tone="neutral" />
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-muted/20 p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white text-primary">
+              <CalendarRange className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Giorno precedente</p>
+              <h3 className="mt-1 text-lg font-semibold text-foreground">{formatDate(yesterday)}</h3>
+              <Badge variant={previousDayHasData ? "secondary" : "outline"} className="mt-2">
+                {previousDayHasData ? "Dati presenti" : "Nessun dato"}
+              </Badge>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <DashboardMetric label="Incassi" value={valuta.format(incassiDaTotali(previousDayTotals))} tone="income" compact />
+            <DashboardMetric label="Spese" value={valuta.format(previousDayTotals.spese)} tone="expense" compact />
+            <DashboardMetric label="Fondo" value={valuta.format(previousDayTotals.fondoCassa)} tone="neutral" compact />
+            <DashboardMetric label="Saldo" value={valuta.format(previousDayTotals.saldo)} tone="neutral" compact />
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-border px-4 py-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-foreground">Mese giorno per giorno</h3>
+            <p className="text-sm text-muted-foreground">
+              Espandi per controllare tutte le chiusure del mese corrente.
+            </p>
+          </div>
+          <Button type="button" variant="outline" onClick={onToggleExpanded} className="w-full gap-2 bg-white sm:w-auto">
+            <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
+            {expanded ? "Nascondi dettaglio" : "Espandi dettaglio"}
+          </Button>
+        </div>
+
+        {expanded && (
+          <CassaMonthRows
+            rows={monthRows}
+            onSelectDay={onSelectDay}
+          />
+        )}
+      </div>
+
+      <CassaYearTrend rows={yearRows} />
+    </section>
+  );
+}
+
+function DashboardMetric({
+  label,
+  value,
+  detail,
+  tone,
+  compact,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  tone: "income" | "expense" | "neutral";
+  compact?: boolean;
+}) {
+  const toneClass =
+    tone === "income"
+      ? "text-emerald-700"
+      : tone === "expense"
+        ? "text-red-700"
+        : "text-foreground";
+
+  return (
+    <div className={`rounded-md border border-border bg-white ${compact ? "p-3" : "p-4"}`}>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={`mt-1 font-semibold ${compact ? "text-base" : "text-xl"} ${toneClass}`}>{value}</p>
+      {detail && <p className="mt-1 text-xs text-muted-foreground">{detail}</p>}
+    </div>
+  );
+}
+
+function CassaMonthRows({
+  rows,
+  onSelectDay,
+}: {
+  rows: RigaPeriodoCassa[];
+  onSelectDay: (data: string) => void;
+}) {
+  const sortedRows = rows.slice().reverse();
+
+  return (
+    <div className="mt-4 overflow-x-auto rounded-md border border-border">
+      <table className="w-full min-w-[820px] text-sm">
+        <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+          <tr>
+            <th className="px-4 py-3 text-left">Data</th>
+            <th className="px-4 py-3 text-right">Incassi</th>
+            <th className="px-4 py-3 text-right">Spese</th>
+            <th className="px-4 py-3 text-right">Fondo</th>
+            <th className="px-4 py-3 text-right">Saldo</th>
+            <th className="px-4 py-3 text-left">Stato</th>
+            <th className="px-4 py-3 text-right">Azione</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border bg-white">
+          {sortedRows.map((row) => {
+            const hasData = row.chiusureCount > 0 || row.speseCount > 0 || row.documentiCount > 0;
+            return (
+              <tr key={row.data} className={hasData ? "bg-white" : "bg-muted/10"}>
+                <td className="px-4 py-3 font-medium text-foreground">{formatDate(row.data)}</td>
+                <td className="px-4 py-3 text-right">{valuta.format(incassiDaTotali(row.totali))}</td>
+                <td className="px-4 py-3 text-right text-red-700">{valuta.format(row.totali.spese)}</td>
+                <td className="px-4 py-3 text-right">{valuta.format(row.totali.fondoCassa)}</td>
+                <td className="px-4 py-3 text-right font-semibold text-foreground">{valuta.format(row.totali.saldo)}</td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant={hasData ? "secondary" : "outline"}>
+                      {hasData ? "Dati presenti" : "Vuoto"}
+                    </Badge>
+                    {row.documentiCount > 0 && <Badge variant="outline">{row.documentiCount} allegati</Badge>}
+                    {row.speseCount > 0 && <Badge variant="outline">{row.speseCount} spese</Badge>}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => onSelectDay(row.data)}>
+                    Apri
+                  </Button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CassaYearTrend({ rows }: { rows: RigaMeseCassa[] }) {
+  const max = Math.max(
+    ...rows.flatMap((row) => [incassiDaTotali(row.totali), row.totali.spese]),
+    1,
+  );
+
+  return (
+    <div className="border-t border-border p-4">
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-primary">
+            <TrendingUp className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-foreground">Andamento anno corrente</h3>
+            <p className="text-sm text-muted-foreground">Riepilogo mese per mese di incassi, spese e saldo.</p>
+          </div>
+        </div>
+        <div className="flex gap-3 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-primary" /> Incassi</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> Spese</span>
+        </div>
+      </div>
+
+      <div className="flex min-h-56 gap-3 overflow-x-auto pb-1">
+        {rows.map((row) => {
+          const incassi = incassiDaTotali(row.totali);
+          return (
+            <div key={row.key} className="flex min-w-28 flex-1 flex-col justify-end gap-2">
+              <div className="flex h-32 items-end justify-center gap-2 rounded-md border border-border bg-muted/20 p-2">
+                <div
+                  className="w-6 rounded-sm bg-primary"
+                  style={{ height: `${Math.max(5, (incassi / max) * 100)}%` }}
+                  title={`Incassi ${valuta.format(incassi)}`}
+                />
+                <div
+                  className="w-6 rounded-sm bg-red-500"
+                  style={{ height: `${Math.max(5, (row.totali.spese / max) * 100)}%` }}
+                  title={`Spese ${valuta.format(row.totali.spese)}`}
+                />
+              </div>
+              <div className="rounded-md border border-border bg-white p-2 text-center">
+                <p className="text-xs font-semibold uppercase text-foreground">{row.label}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{row.giorniConDati} giorni</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">{valuta.format(row.totali.saldo)}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
