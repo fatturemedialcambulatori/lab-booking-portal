@@ -149,6 +149,7 @@ type AssegnazioneRisorsaGiorno = {
   medicoId: string;
   risorsaId: string;
   strumentoId?: string;
+  strumentiIds?: string[];
   dalle: string;
   alle: string;
   note?: string;
@@ -937,13 +938,29 @@ const isAssegnazioneRisorsaGiorno = (value: unknown): value is AssegnazioneRisor
     typeof item.medicoId === "string" &&
     typeof item.risorsaId === "string" &&
     (item.strumentoId === undefined || typeof item.strumentoId === "string") &&
+    (item.strumentiIds === undefined || (Array.isArray(item.strumentiIds) && item.strumentiIds.every((id) => typeof id === "string"))) &&
     /^\d{2}:\d{2}$/.test(item.dalle ?? "") &&
     /^\d{2}:\d{2}$/.test(item.alle ?? "")
   );
 };
 
+const strumentiIdsAssegnazione = (
+  assegnazione: Pick<AssegnazioneRisorsaGiorno, "strumentoId" | "strumentiIds">,
+) =>
+  Array.from(
+    new Set([
+      ...(Array.isArray(assegnazione.strumentiIds) ? assegnazione.strumentiIds : []),
+      ...(assegnazione.strumentoId ? [assegnazione.strumentoId] : []),
+    ].filter(Boolean)),
+  );
+
 const normalizzaAssegnazioniRisorse = (value: unknown): AssegnazioneRisorsaGiorno[] =>
-  Array.isArray(value) ? value.filter(isAssegnazioneRisorsaGiorno) : [];
+  Array.isArray(value)
+    ? value.filter(isAssegnazioneRisorsaGiorno).map((assegnazione) => ({
+        ...assegnazione,
+        strumentiIds: strumentiIdsAssegnazione(assegnazione),
+      }))
+    : [];
 
 const isStatoPrenotazione = (value: unknown): value is StatoPrenotazione =>
   value === "confermata" || value === "accettata" || value === "completata" || value === "annullata";
@@ -1379,7 +1396,9 @@ const trovaConflittoAssegnazioneRisorsa = (
 
     if (assegnazione.risorsaId === candidata.risorsaId) return "ambulatorio";
     if (assegnazione.medicoId === candidata.medicoId) return "medico";
-    if (candidata.strumentoId && assegnazione.strumentoId === candidata.strumentoId) return "strumento";
+    const strumentiCandidata = strumentiIdsAssegnazione(candidata);
+    const strumentiEsistente = new Set([...strumentiIdsAssegnazione(assegnazione), assegnazione.risorsaId]);
+    if (strumentiCandidata.some((strumentoId) => strumentiEsistente.has(strumentoId))) return "strumento";
   }
 
   return null;
@@ -1949,7 +1968,7 @@ export function AdminBookingCalendar({
       risorsaId: string,
       dalle: string,
       alle: string,
-      strumentoId = "",
+      strumentiIds: string[] = [],
       note = "",
     ) => {
       if (!medicoId || !risorsaId) return;
@@ -1968,7 +1987,8 @@ export function AdminBookingCalendar({
         sedeId,
         medicoId,
         risorsaId,
-        strumentoId: strumentoId || undefined,
+        strumentoId: strumentiIds[0],
+        strumentiIds,
         dalle,
         alle,
         note,
@@ -4655,7 +4675,7 @@ export function AdminAmbulatorioOrganization({
       risorsaId: string,
       dalle: string,
       alle: string,
-      strumentoId = "",
+      strumentiIds: string[] = [],
       note = "",
     ) => {
       if (!medicoId || !risorsaId) return;
@@ -4674,7 +4694,8 @@ export function AdminAmbulatorioOrganization({
         sedeId,
         medicoId,
         risorsaId,
-        strumentoId: strumentoId || undefined,
+        strumentoId: strumentiIds[0],
+        strumentiIds,
         dalle,
         alle,
         note,
@@ -4846,7 +4867,7 @@ function ResourceOrganizationPanel({
     risorsaId: string,
     dalle: string,
     alle: string,
-    strumentoId?: string,
+    strumentiIds?: string[],
     note?: string,
   ) => void;
   onUpdateAssignment: (id: string, patch: Partial<AssegnazioneRisorsaGiorno>) => void;
@@ -4882,13 +4903,11 @@ type OrganizerDraft = {
   sedeId: SedeOperativa;
   risorsaId: string;
   medicoId: string;
-  strumentoId: string;
+  strumentiIds: string[];
   dalle: string;
   alle: string;
   note: string;
 };
-
-const NESSUNO_STRUMENTO_VALUE = "__nessuno_strumento__";
 
 function SedeResourceOrganizer({
   date,
@@ -4912,7 +4931,7 @@ function SedeResourceOrganizer({
     risorsaId: string,
     dalle: string,
     alle: string,
-    strumentoId?: string,
+    strumentiIds?: string[],
     note?: string,
   ) => void;
   onUpdateAssignment: (id: string, patch: Partial<AssegnazioneRisorsaGiorno>) => void;
@@ -4931,7 +4950,6 @@ function SedeResourceOrganizer({
     () => doctorsSede.filter((doctor) => medicoLavoraNelGiorno(doctor, date, sedeId)),
     [date, doctorsSede, sedeId],
   );
-  const doctorsWorkingIds = React.useMemo(() => new Set(doctorsWorking.map((doctor) => doctor.id)), [doctorsWorking]);
   const resourcesSede = React.useMemo(
     () => resources.filter((resource) => resource.sedeId === sedeId),
     [resources, sedeId],
@@ -4959,17 +4977,78 @@ function SedeResourceOrganizer({
   const [draft, setDraft] = React.useState<OrganizerDraft | null>(null);
   const totalHeight = agendaSlots.length * SLOT_HEIGHT;
   const gridTemplateColumns = `76px repeat(${Math.max(ambulatori.length, 1)}, minmax(220px, 1fr))`;
+
+  const assegnazioneSiSovrappone = React.useCallback(
+    (assignment: AssegnazioneRisorsaGiorno, start: number, end: number, ignoraId?: string) =>
+      assignment.id !== ignoraId &&
+      fasceSiSovrappongono(assignment.dalle, assignment.alle, formattaOraMinuti(start), formattaOraMinuti(end)),
+    [],
+  );
+
+  const medicoGiaAssegnato = React.useCallback(
+    (doctorId: string, start: number, end: number, ignoraId?: string) =>
+      assignmentsSede.some(
+        (assignment) =>
+          assignment.medicoId === doctorId && assegnazioneSiSovrappone(assignment, start, end, ignoraId),
+      ),
+    [assegnazioneSiSovrappone, assignmentsSede],
+  );
+
+  const mediciDisponibiliPerIntervallo = React.useCallback(
+    (start: number, end: number, ignoraId?: string) =>
+      doctorsWorking.filter(
+        (doctor) =>
+          medicoDisponibilePerIntervallo(doctor, date, sedeId, start, end) &&
+          !medicoGiaAssegnato(doctor.id, start, end, ignoraId),
+      ),
+    [date, doctorsWorking, medicoGiaAssegnato, sedeId],
+  );
+
   const mediciDisponibiliPerSlot = React.useCallback(
-    (slot: number) =>
-      doctorsWorking.filter((doctor) => medicoDisponibilePerIntervallo(doctor, date, sedeId, slot, slot + SLOT_MINUTES)),
-    [date, doctorsWorking, sedeId],
+    (slot: number) => mediciDisponibiliPerIntervallo(slot, slot + SLOT_MINUTES),
+    [mediciDisponibiliPerIntervallo],
+  );
+
+  const strumentoGiaAssegnato = React.useCallback(
+    (strumentoId: string, start: number, end: number, ignoraId?: string) =>
+      assignmentsSede.some(
+        (assignment) =>
+          [...strumentiIdsAssegnazione(assignment), assignment.risorsaId].includes(strumentoId) &&
+          assegnazioneSiSovrappone(assignment, start, end, ignoraId),
+      ),
+    [assegnazioneSiSovrappone, assignmentsSede],
   );
 
   const aggiornaDraft = (patch: Partial<OrganizerDraft>) => {
     setDraft((corrente) => (corrente ? { ...corrente, ...patch } : corrente));
   };
 
+  const toggleStrumentoDraft = (strumentoId: string) => {
+    setDraft((corrente) => {
+      if (!corrente) return corrente;
+      const nextIds = corrente.strumentiIds.includes(strumentoId)
+        ? corrente.strumentiIds.filter((id) => id !== strumentoId)
+        : [...corrente.strumentiIds, strumentoId];
+      return { ...corrente, strumentiIds: nextIds };
+    });
+  };
+
   const apriNuovaAssegnazione = (risorsaId: string, slot: number) => {
+    const fineSlot = slot + SLOT_MINUTES;
+    const ambulatorioOccupato = assignmentsSede.some(
+      (assignment) =>
+        assignment.risorsaId === risorsaId && assegnazioneSiSovrappone(assignment, slot, fineSlot),
+    );
+
+    if (ambulatorioOccupato) {
+      toast({
+        title: "Ambulatorio occupato",
+        description: `${formattaOraMinuti(slot)} e gia coperto da una fascia assegnata.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     const mediciSlot = mediciDisponibiliPerSlot(slot);
     const medicoSuggerito = mediciSlot[0];
 
@@ -4992,7 +5071,7 @@ function SedeResourceOrganizer({
       sedeId,
       risorsaId,
       medicoId: medicoSuggerito.id,
-      strumentoId: "",
+      strumentiIds: [],
       dalle: formattaOraMinuti(slot),
       alle: formattaOraMinuti(fine),
       note: "",
@@ -5002,8 +5081,12 @@ function SedeResourceOrganizer({
   const apriModificaAssegnazione = (assignment: AssegnazioneRisorsaGiorno) => {
     const risorsaIsAmbulatorio = ambulatoriIds.has(assignment.risorsaId);
     const strumentoLegacy = !risorsaIsAmbulatorio && strumenti.some((strumento) => strumento.id === assignment.risorsaId)
-      ? assignment.risorsaId
-      : "";
+      ? [assignment.risorsaId]
+      : [];
+    const strumentiAssegnati = Array.from(new Set([
+      ...strumentiIdsAssegnazione(assignment),
+      ...strumentoLegacy,
+    ]));
     const risorsaId = risorsaIsAmbulatorio ? assignment.risorsaId : ambulatori[0]?.id ?? "";
 
     if (!risorsaId) {
@@ -5020,7 +5103,7 @@ function SedeResourceOrganizer({
       sedeId: assignment.sedeId,
       risorsaId,
       medicoId: assignment.medicoId,
-      strumentoId: assignment.strumentoId ?? strumentoLegacy,
+      strumentiIds: strumentiAssegnati,
       dalle: assignment.dalle,
       alle: assignment.alle,
       note: assignment.note ?? "",
@@ -5066,7 +5149,8 @@ function SedeResourceOrganizer({
       sedeId,
       medicoId: draft.medicoId,
       risorsaId: draft.risorsaId,
-      strumentoId: draft.strumentoId || undefined,
+      strumentoId: draft.strumentiIds[0],
+      strumentiIds: draft.strumentiIds,
       dalle: draft.dalle,
       alle: draft.alle,
       note: draft.note,
@@ -5086,13 +5170,14 @@ function SedeResourceOrganizer({
       onUpdateAssignment(draft.id, {
         medicoId: draft.medicoId,
         risorsaId: draft.risorsaId,
-        strumentoId: draft.strumentoId || undefined,
+        strumentoId: draft.strumentiIds[0],
+        strumentiIds: draft.strumentiIds,
         dalle: draft.dalle,
         alle: draft.alle,
         note: draft.note,
       });
     } else {
-      onCreateAssignment(sedeId, draft.medicoId, draft.risorsaId, draft.dalle, draft.alle, draft.strumentoId, draft.note);
+      onCreateAssignment(sedeId, draft.medicoId, draft.risorsaId, draft.dalle, draft.alle, draft.strumentiIds, draft.note);
     }
 
     setDraft(null);
@@ -5104,10 +5189,26 @@ function SedeResourceOrganizer({
     setDraft(null);
   };
 
+  const draftStart = draft ? minutiDaOra(draft.dalle) : ORA_INIZIO * 60;
+  const draftEnd = draft ? minutiDaOra(draft.alle) : draftStart + SLOT_MINUTES;
+  const mediciSelezionabili = draft
+    ? mediciDisponibiliPerIntervallo(draftStart, draftEnd, draft.id)
+    : [];
+  const mediciSelezionabiliIds = new Set(mediciSelezionabili.map((doctor) => doctor.id));
+  const mediciDialogo = mediciSelezionabili;
+  const strumentiDialogo = draft
+    ? strumenti.map((strumento) => ({
+        strumento,
+        selezionato: draft.strumentiIds.includes(strumento.id),
+        occupato: strumentoGiaAssegnato(strumento.id, draftStart, draftEnd, draft.id),
+      }))
+    : [];
+  const strumentiSelezionatiOccupati = strumentiDialogo.filter((item) => item.selezionato && item.occupato);
   const doctorDraft = draft ? doctorsSede.find((doctor) => doctor.id === draft.medicoId) : null;
   const doctorDraftDisponibile = draft && doctorDraft
     ? medicoDisponibilePerIntervallo(doctorDraft, date, sedeId, minutiDaOra(draft.dalle), minutiDaOra(draft.alle))
     : false;
+  const doctorDraftLibero = draft ? mediciSelezionabiliIds.has(draft.medicoId) : false;
 
   return (
     <section className="rounded-md border border-border bg-white shadow-sm">
@@ -5229,7 +5330,9 @@ function SedeResourceOrganizer({
 
                     {assignmentsAmbulatorio.map((assignment) => {
                       const doctor = doctorsSede.find((item) => item.id === assignment.medicoId);
-                      const strumento = strumenti.find((item) => item.id === assignment.strumentoId);
+                      const strumentiAssignment = strumenti.filter((item) =>
+                        strumentiIdsAssegnazione(assignment).includes(item.id),
+                      );
                       const start = Math.max(minutiDaOra(assignment.dalle), ORA_INIZIO * 60);
                       const end = Math.min(minutiDaOra(assignment.alle), ORA_FINE * 60);
                       if (end <= ORA_INIZIO * 60 || start >= ORA_FINE * 60 || end <= start) return null;
@@ -5255,9 +5358,9 @@ function SedeResourceOrganizer({
                             </span>
                           </div>
                           <p className="truncate text-[11px] opacity-90">{doctor?.specialita ?? "-"}</p>
-                          {strumento && (
+                          {strumentiAssignment.length > 0 && (
                             <p className="truncate text-[11px] opacity-90">
-                              {labelTipoRisorsaSede(strumento.tipo)} · {strumento.nome}
+                              {strumentiAssignment.map((strumento) => strumento.nome).join(", ")}
                             </p>
                           )}
                           {assignment.note && <p className="truncate text-[11px] opacity-80">{assignment.note}</p>}
@@ -5341,14 +5444,17 @@ function SedeResourceOrganizer({
                     <SelectValue placeholder="Seleziona medico" />
                   </SelectTrigger>
                   <SelectContent>
-                    {doctorsSede.map((doctor) => {
-                      const lavoraOggi = doctorsWorkingIds.has(doctor.id);
-                      return (
-                        <SelectItem key={doctor.id} value={doctor.id} disabled={!lavoraOggi && doctor.id !== draft.medicoId}>
-                          {doctor.nome}{lavoraOggi ? "" : " · non disponibile oggi"}
+                    {mediciDialogo.length > 0 ? (
+                      mediciDialogo.map((doctor) => (
+                        <SelectItem key={doctor.id} value={doctor.id}>
+                          {doctor.nome}
                         </SelectItem>
-                      );
-                    })}
+                      ))
+                    ) : (
+                      <SelectItem value="nessun-medico-disponibile" disabled>
+                        Nessun medico libero in questa fascia
+                      </SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </Field>
@@ -5368,27 +5474,6 @@ function SedeResourceOrganizer({
                 />
               </Field>
 
-              <Field label="Strumento opzionale">
-                <Select
-                  value={draft.strumentoId || NESSUNO_STRUMENTO_VALUE}
-                  onValueChange={(value) =>
-                    aggiornaDraft({ strumentoId: value === NESSUNO_STRUMENTO_VALUE ? "" : value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Nessuno strumento" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NESSUNO_STRUMENTO_VALUE}>Solo medico</SelectItem>
-                    {strumenti.map((strumento) => (
-                      <SelectItem key={strumento.id} value={strumento.id}>
-                        {strumento.nome} · {labelTipoRisorsaSede(strumento.tipo)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-
               <Field label="Note">
                 <Input
                   value={draft.note}
@@ -5396,11 +5481,56 @@ function SedeResourceOrganizer({
                   placeholder="Note organizzative"
                 />
               </Field>
+
+              <div className="md:col-span-2">
+                <Field label="Strumenti">
+                  {strumentiDialogo.length > 0 ? (
+                    <div className="grid gap-2 rounded-md border border-border bg-muted/20 p-2 md:grid-cols-2">
+                      {strumentiDialogo.map(({ strumento, selezionato, occupato }) => (
+                        <label
+                          key={strumento.id}
+                          className={`flex items-center gap-3 rounded-md border px-3 py-2 text-sm transition-colors ${
+                            occupato && !selezionato
+                              ? "border-border bg-white/60 text-muted-foreground"
+                              : "border-border bg-white text-foreground hover:bg-muted"
+                          }`}
+                        >
+                          <Checkbox
+                            checked={selezionato}
+                            disabled={occupato && !selezionato}
+                            onCheckedChange={() => toggleStrumentoDraft(strumento.id)}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-semibold">{strumento.nome}</span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {labelTipoRisorsaSede(strumento.tipo)}{occupato ? " · occupato" : ""}
+                            </span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
+                      Nessuno strumento configurato per questa sede.
+                    </div>
+                  )}
+                </Field>
+              </div>
             </div>
 
             {doctorDraft && !doctorDraftDisponibile && (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 Il medico selezionato non risulta disponibile in questa fascia.
+              </div>
+            )}
+            {doctorDraft && doctorDraftDisponibile && !doctorDraftLibero && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Il medico selezionato e gia occupato in un altro ambulatorio in questa fascia.
+              </div>
+            )}
+            {strumentiSelezionatiOccupati.length > 0 && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Uno o piu strumenti selezionati sono gia occupati in questa fascia.
               </div>
             )}
 
@@ -5669,20 +5799,27 @@ function DayCalendar({
                 </button>
                 {assignmentsDoctor.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {assignmentsDoctor.slice(0, 3).map((assignment) => {
-                      const resource = resources.find((item) => item.id === assignment.risorsaId);
-                      if (!resource) return null;
-                      return (
-                        <span
-                          key={assignment.id}
+	                    {assignmentsDoctor.slice(0, 3).map((assignment) => {
+	                      const resource = resources.find((item) => item.id === assignment.risorsaId);
+	                      const strumentiAssegnati = resources.filter((item) =>
+	                        strumentiIdsAssegnazione(assignment).includes(item.id),
+	                      );
+	                      const risorseLabel = [
+	                        resource?.nome,
+	                        ...strumentiAssegnati.map((strumento) => strumento.nome),
+	                      ].filter(Boolean).join(" + ");
+	                      if (!risorseLabel) return null;
+	                      return (
+	                        <span
+	                          key={assignment.id}
                           className="inline-flex max-w-full items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800"
                         >
-                          <Building2 className="h-3 w-3 shrink-0" />
-                          <span className="truncate">
-                            {resource.nome} {assignment.dalle}-{assignment.alle}
-                          </span>
-                        </span>
-                      );
+	                          <Building2 className="h-3 w-3 shrink-0" />
+	                          <span className="truncate">
+	                            {risorseLabel} {assignment.dalle}-{assignment.alle}
+	                          </span>
+	                        </span>
+	                      );
                     })}
                     {assignmentsDoctor.length > 3 && (
                       <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
