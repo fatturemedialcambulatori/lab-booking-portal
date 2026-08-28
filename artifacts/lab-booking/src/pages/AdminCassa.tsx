@@ -1622,11 +1622,17 @@ function CassaYearTrend({
               type="button"
               onClick={() => onSelectMonth(row.key)}
               aria-pressed={selected}
-              className={`flex min-w-28 flex-1 flex-col justify-end gap-2 rounded-md text-left transition ${
-                selected ? "bg-primary/5 ring-2 ring-primary" : "hover:bg-muted/40"
+              className={`flex min-w-28 flex-1 flex-col justify-end gap-2 rounded-md border p-1 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 ${
+                selected
+                  ? "border-primary/35 bg-primary/5 shadow-sm"
+                  : "border-transparent hover:border-border hover:bg-muted/30"
               }`}
             >
-              <div className="flex h-32 items-end justify-center gap-2 rounded-md border border-border bg-muted/20 p-2">
+              <div
+                className={`flex h-32 items-end justify-center gap-2 rounded-md border p-2 ${
+                  selected ? "border-primary/20 bg-white" : "border-border bg-muted/20"
+                }`}
+              >
                 <div
                   className="w-6 rounded-sm bg-primary"
                   style={{ height: `${Math.max(5, (incassi / max) * 100)}%` }}
@@ -1638,8 +1644,19 @@ function CassaYearTrend({
                   title={`Spese ${valuta.format(row.totali.spese)}`}
                 />
               </div>
-              <div className="rounded-md border border-border bg-white p-2 text-center">
-                <p className="text-xs font-semibold uppercase text-foreground">{row.label}</p>
+              <div
+                className={`rounded-md border bg-white p-2 text-center ${
+                  selected ? "border-primary/20" : "border-border"
+                }`}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <p className="text-xs font-semibold uppercase text-foreground">{row.label}</p>
+                  {selected && (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-primary">
+                      Selezionato
+                    </span>
+                  )}
+                </div>
                 <p className="mt-1 text-xs text-muted-foreground">{row.giorniConDati} giorni</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">{valuta.format(row.totali.saldo)}</p>
               </div>
