@@ -1743,17 +1743,6 @@ function CassaSedePanel({
             type="button"
             variant="outline"
             size="sm"
-            onClick={onSaveChiusura}
-            disabled={!canSave}
-            className={saveButtonClassName(canSave)}
-          >
-            <Save className="h-4 w-4" />
-            Salva
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
             onClick={onRecoverDocumenti}
             disabled={recovering}
             className="gap-2 bg-white"
@@ -1990,6 +1979,22 @@ function CassaSedePanel({
           </div>
 
           <SpeseMiniChart spese={spese} />
+
+          <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-end">
+            <p className="text-sm text-muted-foreground sm:mr-auto">
+              Salva la chiusura dopo aver controllato incassi, allegati e spese.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onSaveChiusura}
+              disabled={!canSave}
+              className={saveButtonClassName(canSave, "w-full sm:w-auto")}
+            >
+              <Save className="h-4 w-4" />
+              Salva chiusura
+            </Button>
+          </div>
         </div>
       </div>
     </section>
