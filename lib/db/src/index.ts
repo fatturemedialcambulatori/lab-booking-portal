@@ -7,7 +7,12 @@ const { Pool } = pg;
 const rawDatabaseUrl = process.env.DATABASE_URL?.trim();
 const databaseUrl = rawDatabaseUrl?.replace(/^(['"])(.*)\1$/, "$2");
 const poolMax = Number(process.env.DATABASE_POOL_MAX ?? "1");
-const rejectUnauthorized = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== "false";
+const sslRejectUnauthorizedEnv =
+  process.env.DATABASE_SSL_REJECT_UNAUTHORIZED?.trim().toLowerCase();
+const rejectUnauthorized =
+  sslRejectUnauthorizedEnv === undefined
+    ? process.env.NODE_ENV === "production"
+    : sslRejectUnauthorizedEnv !== "false";
 
 const buildConnectionConfig = (
   connectionString: string,

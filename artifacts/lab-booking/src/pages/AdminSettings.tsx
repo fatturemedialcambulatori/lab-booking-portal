@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  ArrowLeft,
   CalendarDays,
   Check,
   ChevronsUpDown,
@@ -723,6 +724,7 @@ export function AdminSettings({
   const lastSavedPayloadKeyRef = React.useRef("");
   const currentPayloadKeyRef = React.useRef("");
   const [settingsTab, setSettingsTab] = React.useState<SettingsTabId>(initialTab);
+  const [settingsOverviewVisible, setSettingsOverviewVisible] = React.useState(!initialMedicoId);
   const [specialita, setSpecialita] = React.useState(SPECIALITA_INIZIALI);
   const [prestazioni, setPrestazioni] = React.useState(PRESTAZIONI_INIZIALI);
   const [prestazioniModificaAttiva, setPrestazioniModificaAttiva] = React.useState(false);
@@ -849,6 +851,7 @@ export function AdminSettings({
 
   React.useEffect(() => {
     setSettingsTab(initialTab);
+    setSettingsOverviewVisible(!initialMedicoId);
     if (initialMedicoId) setSelectedMedicoId(initialMedicoId);
   }, [focusKey, initialMedicoId, initialTab]);
 
@@ -2299,6 +2302,17 @@ export function AdminSettings({
       action: "Configura",
     },
   ];
+  const settingsTabTitles: Record<SettingsTabId, string> = {
+    specialita: "Specialita",
+    prestazioni: "Prestazioni",
+    convenzioni: "Convenzioni",
+    medici: "Medici e agende",
+    compensi: "Compensi medici",
+  };
+  const apriSchedaImpostazioni = React.useCallback((tab: SettingsTabId) => {
+    setSettingsTab(tab);
+    setSettingsOverviewVisible(false);
+  }, []);
 
   return (
     <div className="space-y-7">
@@ -2314,12 +2328,22 @@ export function AdminSettings({
         </Badge>
       </div>
 
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".json"
+        className="hidden"
+        onChange={gestisciImportConfigurazione}
+      />
+
+      {settingsOverviewVisible ? (
+        <>
       <div className="flex flex-col gap-3 rounded-md border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-950 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">i</span>
           <span className="font-medium">Prima imposta prestazioni, medici e disponibilita: l'agenda usa questi dati per generare gli slot.</span>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={() => setSettingsTab("medici")}>
+        <Button type="button" variant="outline" size="sm" onClick={() => apriSchedaImpostazioni("medici")}>
           Completa configurazione agende
         </Button>
       </div>
@@ -2332,9 +2356,9 @@ export function AdminSettings({
               <button
                 key={item.tab}
                 type="button"
-                onClick={() => setSettingsTab(item.tab)}
+                onClick={() => apriSchedaImpostazioni(item.tab)}
                 className={`flex items-center gap-4 rounded-md px-3 py-3 text-left transition-colors ${
-                  settingsTab === item.tab ? "bg-primary/10" : "hover:bg-slate-50"
+                  !settingsOverviewVisible && settingsTab === item.tab ? "bg-primary/10" : "hover:bg-slate-50"
                 }`}
               >
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border bg-slate-50 text-slate-600">
@@ -2382,7 +2406,7 @@ export function AdminSettings({
             <button
               key={item.title}
               type="button"
-              onClick={() => setSettingsTab(item.tab)}
+              onClick={() => apriSchedaImpostazioni(item.tab)}
               className="min-h-44 rounded-lg border border-border bg-white p-5 text-left shadow-sm transition-colors hover:border-primary/35 hover:bg-primary/5"
             >
               <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -2399,17 +2423,31 @@ export function AdminSettings({
         </div>
       </section>
 
-      <input
-        ref={importInputRef}
-        type="file"
-        accept=".json"
-        className="hidden"
-        onChange={gestisciImportConfigurazione}
-      />
+        </>
+      ) : (
+        <>
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Scheda impostazioni</p>
+              <h2 className="text-xl font-semibold text-foreground">{settingsTabTitles[settingsTab]}</h2>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setSettingsOverviewVisible(true)}
+              className="w-full gap-2 sm:w-auto"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Tutte le impostazioni
+            </Button>
+          </div>
 
       <Tabs
         value={settingsTab}
-        onValueChange={(value) => setSettingsTab(value as SettingsTabId)}
+        onValueChange={(value) => {
+          setSettingsTab(value as SettingsTabId);
+          setSettingsOverviewVisible(false);
+        }}
         className="space-y-4"
       >
         <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-lg border border-border bg-white p-1 shadow-sm">
@@ -4422,6 +4460,8 @@ export function AdminSettings({
         </TabsContent>
 
       </Tabs>
+        </>
+      )}
 
       <Dialog open={exportCompensiOpen} onOpenChange={setExportCompensiOpen}>
         <DialogContent className="max-w-xl">
