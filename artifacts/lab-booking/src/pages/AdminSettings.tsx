@@ -1,6 +1,7 @@
 import React from "react";
 import {
   ArrowLeft,
+  Building2,
   CalendarDays,
   Check,
   ChevronsUpDown,
@@ -119,6 +120,16 @@ type DatiFatturazioneMedico = {
 };
 
 type SedeMedicoId = "modena" | "sassuolo";
+type TipoRisorsaSede = "ambulatorio" | "ecografo" | "ecg";
+
+type RisorsaSede = {
+  id: string;
+  sedeId: SedeMedicoId;
+  tipo: TipoRisorsaSede;
+  nome: string;
+  attiva: boolean;
+  note: string;
+};
 
 type DisponibilitaPerSedeMedico = Record<SedeMedicoId, string[]>;
 
@@ -232,10 +243,11 @@ type AdminSettingsData = {
   medici: Medico[];
   listini: Listino[];
   conventionTemplates: ConventionTemplate[];
+  risorseSedi: RisorsaSede[];
 };
 
 type SettingsSaveState = "loading" | "dirty" | "saving" | "saved" | "error";
-type SettingsTabId = "specialita" | "prestazioni" | "convenzioni" | "medici" | "compensi";
+type SettingsTabId = "specialita" | "prestazioni" | "convenzioni" | "risorse" | "medici" | "compensi";
 
 export type SettingsSaveControl = {
   state: SettingsSaveState;
@@ -254,6 +266,37 @@ const GIORNI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
 const SEDI_MEDICO: Array<{ id: SedeMedicoId; label: string; sigla: string }> = [
   { id: "modena", label: "Modena", sigla: "MO" },
   { id: "sassuolo", label: "Sassuolo", sigla: "SASS" },
+];
+
+const TIPI_RISORSA_SEDE: Array<{ id: TipoRisorsaSede; label: string; plurale: string }> = [
+  { id: "ambulatorio", label: "Ambulatorio", plurale: "Ambulatori" },
+  { id: "ecografo", label: "Ecografo", plurale: "Ecografi" },
+  { id: "ecg", label: "ECG", plurale: "ECG" },
+];
+
+const creaRisorsaSedePreset = (
+  sedeId: SedeMedicoId,
+  tipo: TipoRisorsaSede,
+  indice: number,
+): RisorsaSede => {
+  const tipoLabel = TIPI_RISORSA_SEDE.find((item) => item.id === tipo)?.label ?? tipo;
+  return {
+    id: `${sedeId}-${tipo}-${indice}`,
+    sedeId,
+    tipo,
+    nome: `${tipoLabel} ${indice}`,
+    attiva: true,
+    note: "",
+  };
+};
+
+const RISORSE_SEDI_INIZIALI: RisorsaSede[] = [
+  ...Array.from({ length: 5 }, (_, index) => creaRisorsaSedePreset("modena", "ambulatorio", index + 1)),
+  ...Array.from({ length: 2 }, (_, index) => creaRisorsaSedePreset("modena", "ecografo", index + 1)),
+  creaRisorsaSedePreset("modena", "ecg", 1),
+  ...Array.from({ length: 2 }, (_, index) => creaRisorsaSedePreset("sassuolo", "ambulatorio", index + 1)),
+  creaRisorsaSedePreset("sassuolo", "ecografo", 1),
+  creaRisorsaSedePreset("sassuolo", "ecg", 1),
 ];
 
 const DEFAULT_FASCIA_DALLE = "09:00";
@@ -588,6 +631,35 @@ const slugId = (prefisso: string, valore: string, fallback = Date.now()) => {
   return `${prefisso}-${slug || fallback}`;
 };
 
+const isSedeMedicoId = (value: unknown): value is SedeMedicoId =>
+  value === "modena" || value === "sassuolo";
+
+const isTipoRisorsaSede = (value: unknown): value is TipoRisorsaSede =>
+  value === "ambulatorio" || value === "ecografo" || value === "ecg";
+
+const normalizzaRisorsaSede = (risorsa: Partial<RisorsaSede>, index = 0): RisorsaSede => {
+  const sedeId = isSedeMedicoId(risorsa.sedeId) ? risorsa.sedeId : "modena";
+  const tipo = isTipoRisorsaSede(risorsa.tipo) ? risorsa.tipo : "ambulatorio";
+  const tipoLabel = TIPI_RISORSA_SEDE.find((item) => item.id === tipo)?.label ?? "Risorsa";
+  const nome = typeof risorsa.nome === "string" && risorsa.nome.trim()
+    ? risorsa.nome.trim()
+    : `${tipoLabel} ${index + 1}`;
+
+  return {
+    id: typeof risorsa.id === "string" && risorsa.id.trim()
+      ? risorsa.id
+      : slugId("risorsa", `${sedeId}-${tipo}-${nome}`, index),
+    sedeId,
+    tipo,
+    nome,
+    attiva: risorsa.attiva !== false,
+    note: typeof risorsa.note === "string" ? risorsa.note : "",
+  };
+};
+
+const copiaRisorseSedi = (risorse: RisorsaSede[]) =>
+  risorse.map((risorsa, index) => normalizzaRisorsaSede(risorsa, index));
+
 const isAdminSettingsData = (value: unknown): value is AdminSettingsData => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const data = value as Partial<AdminSettingsData>;
@@ -732,6 +804,7 @@ export function AdminSettings({
   const [medici, setMedici] = React.useState(MEDICI_INIZIALI);
   const [listini, setListini] = React.useState(LISTINI_INIZIALI);
   const [conventionTemplates, setConventionTemplates] = React.useState(CONVENTION_TEMPLATES_INIZIALI);
+  const [risorseSedi, setRisorseSedi] = React.useState(RISORSE_SEDI_INIZIALI);
   const [selectedConventionTemplateId, setSelectedConventionTemplateId] = React.useState(CONVENTION_TEMPLATES_INIZIALI[0]?.id ?? "");
   const [ricercaPrestazioniConvenzione, setRicercaPrestazioniConvenzione] = React.useState("");
   const [settingsCanSave, setSettingsCanSave] = React.useState(false);
@@ -796,7 +869,8 @@ export function AdminSettings({
     medici,
     listini,
     conventionTemplates,
-  }), [conventionTemplates, listini, medici, prestazioni, specialita]);
+    risorseSedi,
+  }), [conventionTemplates, listini, medici, prestazioni, risorseSedi, specialita]);
 
   const settingsPayloadKey = React.useMemo(() => JSON.stringify(settingsPayload), [settingsPayload]);
 
@@ -827,7 +901,11 @@ export function AdminSettings({
           const prossimiTemplate = Array.isArray(data.conventionTemplates)
             ? data.conventionTemplates.map((template, index) => normalizzaConventionTemplate(template, index))
             : CONVENTION_TEMPLATES_INIZIALI;
+          const prossimeRisorse = Array.isArray(data.risorseSedi)
+            ? data.risorseSedi.map((risorsa, index) => normalizzaRisorsaSede(risorsa, index))
+            : RISORSE_SEDI_INIZIALI;
           setConventionTemplates(prossimiTemplate);
+          setRisorseSedi(prossimeRisorse);
           setSelectedConventionTemplateId(prossimiTemplate[0]?.id ?? "");
           setSelectedSpecialita(data.specialita[0]?.nome ?? data.prestazioni[0]?.specialita ?? "");
           setSelectedMedicoId(medicoRichiesto ?? prossimiMedici[0]?.id ?? "");
@@ -2134,6 +2212,7 @@ export function AdminSettings({
       medici: medici.map(normalizzaMedico),
       listini: listini.map((item) => ({ ...item })),
       conventionTemplates: copiaConventionTemplates(conventionTemplates),
+      risorseSedi: copiaRisorseSedi(risorseSedi),
     };
 
     scaricaBlob(
@@ -2205,17 +2284,21 @@ export function AdminSettings({
     const prossimiTemplate = Array.isArray(templateInput) && templateInput.length > 0
       ? templateInput.map((template, index) => normalizzaConventionTemplate(template, index))
       : copiaConventionTemplates(CONVENTION_TEMPLATES_INIZIALI);
+    const prossimeRisorse = Array.isArray(data.risorseSedi) && data.risorseSedi.length > 0
+      ? data.risorseSedi.map((risorsa, index) => normalizzaRisorsaSede(risorsa, index))
+      : copiaRisorseSedi(RISORSE_SEDI_INIZIALI);
 
     setSpecialita(prossimeSpecialita);
     setPrestazioni(prossimePrestazioni);
     setMedici(prossimiMedici);
     setListini(prossimiListini);
     setConventionTemplates(prossimiTemplate);
+    setRisorseSedi(prossimeRisorse);
     setSelectedConventionTemplateId(prossimiTemplate[0]?.id ?? "");
     setSelectedSpecialita(prossimeSpecialita[0]?.nome ?? prossimePrestazioni[0]?.specialita ?? "");
     setSelectedMedicoId(prossimiMedici[0]?.id ?? "");
     mostraNotifica(
-      `Import completato: ${prossimiMedici.length} medici, ${prossimePrestazioni.length} prestazioni, ${prossimiListini.length} listini, ${prossimiTemplate.length} convenzioni.`,
+      `Import completato: ${prossimiMedici.length} medici, ${prossimePrestazioni.length} prestazioni, ${prossimiListini.length} listini, ${prossimiTemplate.length} convenzioni, ${prossimeRisorse.length} risorse.`,
     );
   };
 
@@ -2249,6 +2332,67 @@ export function AdminSettings({
       : settingsSaveState === "saved"
         ? "w-fit border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
         : "w-fit border-amber-200 bg-amber-100 text-amber-700 hover:bg-amber-100";
+
+  const risorseSediOrdinate = React.useMemo(
+    () =>
+      copiaRisorseSedi(risorseSedi).sort((a, b) => {
+        const sedeDiff =
+          SEDI_MEDICO.findIndex((sedeItem) => sedeItem.id === a.sedeId) -
+          SEDI_MEDICO.findIndex((sedeItem) => sedeItem.id === b.sedeId);
+        if (sedeDiff !== 0) return sedeDiff;
+
+        const tipoDiff =
+          TIPI_RISORSA_SEDE.findIndex((tipo) => tipo.id === a.tipo) -
+          TIPI_RISORSA_SEDE.findIndex((tipo) => tipo.id === b.tipo);
+        if (tipoDiff !== 0) return tipoDiff;
+
+        return a.nome.localeCompare(b.nome, "it", { numeric: true });
+      }),
+    [risorseSedi],
+  );
+
+  const labelTipoRisorsa = (tipo: TipoRisorsaSede) =>
+    TIPI_RISORSA_SEDE.find((item) => item.id === tipo)?.label ?? tipo;
+
+  const contaRisorseSede = (sedeId: SedeMedicoId, tipo: TipoRisorsaSede) =>
+    risorseSedi.filter((risorsa) => risorsa.sedeId === sedeId && risorsa.tipo === tipo && risorsa.attiva).length;
+
+  const aggiungiRisorsaSede = (sedeId: SedeMedicoId, tipo: TipoRisorsaSede) => {
+    const numero = risorseSedi.filter((risorsa) => risorsa.sedeId === sedeId && risorsa.tipo === tipo).length + 1;
+    setRisorseSedi((correnti) => [
+      ...correnti,
+      {
+        id: creaIdAgenda("risorsa"),
+        sedeId,
+        tipo,
+        nome: `${labelTipoRisorsa(tipo)} ${numero}`,
+        attiva: true,
+        note: "",
+      },
+    ]);
+  };
+
+  const aggiornaRisorsaSede = <K extends keyof RisorsaSede>(
+    id: string,
+    campo: K,
+    valore: RisorsaSede[K],
+  ) => {
+    setRisorseSedi((correnti) =>
+      correnti.map((risorsa, index) =>
+        risorsa.id === id ? normalizzaRisorsaSede({ ...risorsa, [campo]: valore }, index) : risorsa,
+      ),
+    );
+  };
+
+  const eliminaRisorsaSede = (id: string) => {
+    setRisorseSedi((correnti) => correnti.filter((risorsa) => risorsa.id !== id));
+  };
+
+  const ripristinaRisorseSedi = () => {
+    setRisorseSedi(copiaRisorseSedi(RISORSE_SEDI_INIZIALI));
+    mostraNotifica("Preset risorse sedi ripristinato.");
+  };
+
   const settingsQuickLinks = [
     {
       tab: "prestazioni" as SettingsTabId,
@@ -2278,6 +2422,13 @@ export function AdminSettings({
       description: "Modelli base per aziende e societa sportive",
       count: `${conventionTemplates.length} modelli`,
     },
+    {
+      tab: "risorse" as SettingsTabId,
+      icon: <Building2 className="h-5 w-5" />,
+      title: "Risorse sedi",
+      description: "Ambulatori, ecografi ed ECG per Modena e Sassuolo",
+      count: `${risorseSedi.filter((risorsa) => risorsa.attiva).length} attive`,
+    },
   ];
   const settingsFeatureCards = [
     {
@@ -2306,6 +2457,7 @@ export function AdminSettings({
     specialita: "Specialita",
     prestazioni: "Prestazioni",
     convenzioni: "Convenzioni",
+    risorse: "Risorse sedi",
     medici: "Medici e agende",
     compensi: "Compensi medici",
   };
@@ -2462,6 +2614,10 @@ export function AdminSettings({
           <TabsTrigger value="convenzioni" className="gap-2">
             <FileText className="h-4 w-4" />
             Convenzioni
+          </TabsTrigger>
+          <TabsTrigger value="risorse" className="gap-2">
+            <Building2 className="h-4 w-4" />
+            Risorse
           </TabsTrigger>
           <TabsTrigger value="medici" className="gap-2">
             <CalendarDays className="h-4 w-4" />
@@ -3148,6 +3304,150 @@ export function AdminSettings({
                   Crea un modello convenzione per iniziare.
                 </div>
               )}
+            </div>
+          </SettingsPanel>
+        </TabsContent>
+
+        <TabsContent value="risorse" className="space-y-4">
+          <SettingsPanel
+            title="Risorse sedi"
+            description="Configura sale, ecografi ed ECG disponibili per ogni sede. L'agenda ambulatorio usa queste risorse per organizzare la giornata."
+            icon={<Building2 className="h-5 w-5" />}
+            actions={
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={ripristinaRisorseSedi}>
+                  Ripristina preset sedi
+                </Button>
+                <ImportExportActions onExport={esportaConfigurazione} onImportClick={apriImportConfigurazione} />
+              </div>
+            }
+          >
+            <div className="grid gap-4 xl:grid-cols-2">
+              {SEDI_MEDICO.map((sedeItem) => {
+                const risorseSede = risorseSediOrdinate.filter((risorsa) => risorsa.sedeId === sedeItem.id);
+                return (
+                  <section key={sedeItem.id} className="rounded-md border border-border bg-white p-4 shadow-sm">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h3 className="text-base font-semibold text-foreground">{sedeItem.label}</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Risorse utilizzabili nell'agenda della sede {sedeItem.sigla}.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {TIPI_RISORSA_SEDE.map((tipo) => (
+                          <Badge key={tipo.id} variant="secondary" className="whitespace-nowrap">
+                            {tipo.plurale}: {contaRisorseSede(sedeItem.id, tipo.id)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {TIPI_RISORSA_SEDE.map((tipo) => (
+                        <Button
+                          key={tipo.id}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => aggiungiRisorsaSede(sedeItem.id, tipo.id)}
+                          className="gap-2"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Aggiungi {tipo.label}
+                        </Button>
+                      ))}
+                    </div>
+
+                    {risorseSede.length > 0 ? (
+                      <div className="mt-4 overflow-x-auto rounded-md border border-border">
+                        <Table className="min-w-[760px]">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="min-w-[220px]">Nome</TableHead>
+                              <TableHead className="w-44">Tipo</TableHead>
+                              <TableHead className="w-36">Stato</TableHead>
+                              <TableHead className="min-w-[220px]">Note</TableHead>
+                              <TableHead className="w-16">Azioni</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {risorseSede.map((risorsa) => (
+                              <TableRow key={risorsa.id}>
+                                <TableCell>
+                                  <Input
+                                    value={risorsa.nome}
+                                    onChange={(event) =>
+                                      aggiornaRisorsaSede(risorsa.id, "nome", event.target.value)
+                                    }
+                                    placeholder="Nome risorsa"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Select
+                                    value={risorsa.tipo}
+                                    onValueChange={(value: TipoRisorsaSede) =>
+                                      aggiornaRisorsaSede(risorsa.id, "tipo", value)
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {TIPI_RISORSA_SEDE.map((tipo) => (
+                                        <SelectItem key={tipo.id} value={tipo.id}>
+                                          {tipo.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                                <TableCell>
+                                  <label className="flex h-10 items-center gap-2 rounded-md border border-border px-3 text-sm">
+                                    <Checkbox
+                                      checked={risorsa.attiva}
+                                      onCheckedChange={(checked) =>
+                                        aggiornaRisorsaSede(risorsa.id, "attiva", checked === true)
+                                      }
+                                    />
+                                    {risorsa.attiva ? "Attiva" : "Disattiva"}
+                                  </label>
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    value={risorsa.note}
+                                    onChange={(event) =>
+                                      aggiornaRisorsaSede(risorsa.id, "note", event.target.value)
+                                    }
+                                    placeholder="Es. piano terra, stanza 3"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => eliminaRisorsaSede(risorsa.id)}
+                                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                    title="Elimina risorsa"
+                                    aria-label={`Elimina ${risorsa.nome}`}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
+                        Nessuna risorsa configurata per questa sede.
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
             </div>
           </SettingsPanel>
         </TabsContent>

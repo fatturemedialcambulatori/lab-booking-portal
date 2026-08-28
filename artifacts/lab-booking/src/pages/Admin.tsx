@@ -112,7 +112,7 @@ type TabId =
   | "utenti";
 type OperationalAreaId = "laboratorio" | "ambulatorio";
 type AreaId = OperationalAreaId | "cassa";
-type SettingsTabId = "specialita" | "prestazioni" | "convenzioni" | "medici" | "compensi";
+type SettingsTabId = "specialita" | "prestazioni" | "convenzioni" | "risorse" | "medici" | "compensi";
 
 type SettingsTarget = {
   tab: SettingsTabId;
