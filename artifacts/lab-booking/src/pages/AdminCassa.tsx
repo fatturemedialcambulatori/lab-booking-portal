@@ -138,6 +138,16 @@ type RigaMeseCassa = {
   giorniConDati: number;
 };
 
+type RigaChiusuraCassa = {
+  key: string;
+  sedeId: SedeCassaId;
+  data: string;
+  totali: TotaliCassa;
+  speseCount: number;
+  documentiCount: number;
+  canSave: boolean;
+};
+
 const SEDI_CASSA: Array<{ id: SedeCassaId; label: string }> = [
   { id: "modena", label: "Modena" },
   { id: "sassuolo", label: "Sassuolo" },
@@ -428,8 +438,6 @@ const creaRighePeriodo = (
 export function AdminCassa({ scope }: { scope: CassaScope }) {
   const [state, setState] = React.useState<CassaState>(emptyState);
   const [giorno, setGiorno] = React.useState(todayKey);
-  const [periodoDal, setPeriodoDal] = React.useState(firstDayOfMonth);
-  const [periodoAl, setPeriodoAl] = React.useState(todayKey);
   const [saveState, setSaveState] = React.useState<SaveState>("loading");
   const [lastSavedAt, setLastSavedAt] = React.useState<string | null>(null);
   const [persistenzaAttiva, setPersistenzaAttiva] = React.useState(false);
@@ -439,6 +447,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
   const [openChiusure, setOpenChiusure] = React.useState<Set<string>>(() => new Set());
   const [pendingChiusure, setPendingChiusure] = React.useState<Set<string>>(() => new Set());
   const [dettaglioMeseAperto, setDettaglioMeseAperto] = React.useState(false);
+  const [selectedAnnoMese, setSelectedAnnoMese] = React.useState<string | null>(null);
   const saveTimerRef = React.useRef<number | null>(null);
   const queuedStateRef = React.useRef<CassaState | null>(null);
   const saveInFlightRef = React.useRef(false);
@@ -1020,12 +1029,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
     [currentMonthIndex, currentYear, sediVisibili, state, today],
   );
 
-  const righePeriodo = React.useMemo(
-    () => creaRighePeriodo(state, sediVisibili, periodoDal, periodoAl, false),
-    [periodoAl, periodoDal, sediVisibili, state],
-  );
-
-  const elencoChiusure = React.useMemo(() => {
+  const elencoChiusure = React.useMemo<RigaChiusuraCassa[]>(() => {
     const keys = new Set<string>();
     state.giorni.forEach((item) => {
       if (sediVisibili.includes(item.sedeId)) keys.add(`${item.sedeId}|${item.data}`);
@@ -1055,6 +1059,18 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
       })
       .sort((a, b) => `${b.data}${b.sedeId}`.localeCompare(`${a.data}${a.sedeId}`));
   }, [pendingChiusure, sediVisibili, state.documenti, state.giorni, state.spese]);
+
+  const selectedMonth = React.useMemo(
+    () => righeAnnoCorrente.find((row) => row.key === selectedAnnoMese) ?? null,
+    [righeAnnoCorrente, selectedAnnoMese],
+  );
+
+  const selectedMonthRows = React.useMemo(
+    () => selectedMonth
+      ? elencoChiusure.filter((row) => row.data >= selectedMonth.dal && row.data <= selectedMonth.al)
+      : [],
+    [elencoChiusure, selectedMonth],
+  );
 
   const chiusureDaMostrare = React.useMemo(
     () => sediVisibili.filter((sedeId) => {
@@ -1090,7 +1106,6 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
 
     state.documenti.forEach((documento) => {
       if (!sediVisibili.includes(documento.sedeId)) return;
-      if (documento.data < periodoDal || documento.data > periodoAl) return;
       const key = `${documento.sedeId}|${documento.data}`;
       if (dataKeys.has(key)) return;
       const current = grouped.get(key);
@@ -1103,7 +1118,7 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
     });
 
     return Array.from(grouped.values()).sort((a, b) => `${b.data}${b.sedeId}`.localeCompare(`${a.data}${a.sedeId}`));
-  }, [periodoAl, periodoDal, sediVisibili, state.documenti, state.giorni, state.spese]);
+  }, [sediVisibili, state.documenti, state.giorni, state.spese]);
 
   const statusLabel =
     saveState === "loading"
@@ -1128,6 +1143,13 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             : "Caricamento dati cassa.";
 
   const canManualSave = pendingChiusure.size > 0 || saveState === "error";
+
+  const apriChiusuraInModifica = React.useCallback((sedeId: SedeCassaId, data: string) => {
+    setGiorno(data);
+    setMobileCapture(null);
+    setKeyState(setOpenChiusure, chiusuraId(sedeId, data), "add");
+    mostraNotifica(`Chiusura ${sedeLabel(sedeId)} del ${formatDate(data)} aperta in modifica.`);
+  }, [mostraNotifica, setKeyState]);
 
   const captureUrl = React.useMemo(() => {
     if (!mobileCapture || typeof window === "undefined") return "";
@@ -1187,23 +1209,26 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         monthTotals={totaliMeseCorrente}
         previousDay={situazioneIeri}
         yearRows={righeAnnoCorrente}
+        selectedMonthKey={selectedAnnoMese}
+        selectedMonth={selectedMonth}
+        selectedMonthRows={selectedMonthRows}
+        activeData={giorno}
         expanded={dettaglioMeseAperto}
         onToggleExpanded={() => setDettaglioMeseAperto((current) => !current)}
+        onSelectMonth={setSelectedAnnoMese}
         onSelectDay={(data) => {
           setGiorno(data);
           setMobileCapture(null);
         }}
+        onEditClosure={apriChiusuraInModifica}
+        onSaveClosure={(sedeId, data) => confermaChiusure([chiusuraId(sedeId, data)])}
+        canRetrySave={saveState === "error"}
+        onDeleteClosure={(sedeId, data) => void eliminaChiusura(sedeId, data)}
       />
 
-      <div className="grid gap-3 rounded-md border border-border bg-white p-3 sm:p-4 lg:grid-cols-[220px_1fr_1fr_220px]">
+      <div className="grid gap-3 rounded-md border border-border bg-white p-3 sm:p-4 lg:grid-cols-[220px_1fr]">
         <Field label="Giorno chiusura">
           <Input type="date" value={giorno} onChange={(event) => setGiorno(event.target.value)} />
-        </Field>
-        <Field label="Riepilogo dal">
-          <Input type="date" value={periodoDal} onChange={(event) => setPeriodoDal(event.target.value)} />
-        </Field>
-        <Field label="Riepilogo al">
-          <Input type="date" value={periodoAl} onChange={(event) => setPeriodoAl(event.target.value)} />
         </Field>
         <div className="rounded-md border border-border bg-muted/30 p-3">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Vista</p>
@@ -1277,27 +1302,13 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
             <div>
               <h2 className="text-base font-semibold text-foreground">Chiusura gia salvata</h2>
               <p className="text-sm text-muted-foreground">
-                Per il {formatDate(giorno)} la scheda di inserimento e nascosta. Usa Modifica nell'elenco chiusure qui sotto.
+                Per il {formatDate(giorno)} la scheda di inserimento e nascosta finche non viene riaperta in modifica.
               </p>
             </div>
             <Badge variant="secondary">{scopeLabel}</Badge>
           </div>
         </section>
       )}
-
-      <ElencoChiusure
-        rows={elencoChiusure}
-        activeData={giorno}
-        onEdit={(sedeId, data) => {
-          setGiorno(data);
-          setMobileCapture(null);
-          setKeyState(setOpenChiusure, chiusuraId(sedeId, data), "add");
-          mostraNotifica(`Chiusura ${sedeLabel(sedeId)} del ${formatDate(data)} aperta in modifica.`);
-        }}
-        onSave={(sedeId, data) => confermaChiusure([chiusuraId(sedeId, data)])}
-        canRetrySave={saveState === "error"}
-        onDelete={(sedeId, data) => void eliminaChiusura(sedeId, data)}
-      />
 
       {allegatiSenzaChiusura.length > 0 && (
         <AllegatiSenzaChiusuraAlert
@@ -1313,59 +1324,6 @@ export function AdminCassa({ scope }: { scope: CassaScope }) {
         rows={cestinoVisibile}
         onRestore={(trashId) => void ripristinaChiusura(trashId)}
       />
-
-      <div className="rounded-md border border-border bg-white">
-        <div className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-foreground">Riepilogo giorno per giorno</h2>
-            <p className="text-sm text-muted-foreground">
-              Totali dal {formatDate(periodoDal)} al {formatDate(periodoAl)} per {scopeLabel.toLowerCase()}.
-            </p>
-          </div>
-          <Badge variant="secondary">{righePeriodo.length} giorni</Badge>
-        </div>
-        <RiepilogoPeriodoChart righe={righePeriodo} />
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-sm">
-            <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-4 py-3 text-left">Data</th>
-                <th className="px-4 py-3 text-right">Contanti</th>
-                <th className="px-4 py-3 text-right">Bancomat</th>
-                <th className="px-4 py-3 text-right">Assegni</th>
-                <th className="px-4 py-3 text-right">Fondo cassa</th>
-                <th className="px-4 py-3 text-right">Spese</th>
-                <th className="px-4 py-3 text-right">Saldo</th>
-                <th className="px-4 py-3 text-left">Documenti</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {righePeriodo.length > 0 ? (
-                righePeriodo.map((riga) => (
-                  <tr key={riga.data}>
-                    <td className="px-4 py-3 font-medium text-foreground">{formatDate(riga.data)}</td>
-                    <td className="px-4 py-3 text-right">{valuta.format(riga.totali.contanti)}</td>
-                    <td className="px-4 py-3 text-right">{valuta.format(riga.totali.bancomat)}</td>
-                    <td className="px-4 py-3 text-right">{valuta.format(riga.totali.assegni)}</td>
-                    <td className="px-4 py-3 text-right">{valuta.format(riga.totali.fondoCassa)}</td>
-                    <td className="px-4 py-3 text-right text-red-700">{valuta.format(riga.totali.spese)}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-foreground">{valuta.format(riga.totali.saldo)}</td>
-                    <td className="px-4 py-3">
-                      {riga.documenti.length > 0 ? `${riga.documenti.length} allegati` : "Nessun allegato"}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
-                    Nessuna chiusura nel periodo selezionato.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
 
       <MobileCaptureDialog
         capture={mobileCapture}
@@ -1387,9 +1345,18 @@ function CassaDashboard({
   monthTotals,
   previousDay,
   yearRows,
+  selectedMonthKey,
+  selectedMonth,
+  selectedMonthRows,
+  activeData,
   expanded,
   onToggleExpanded,
+  onSelectMonth,
   onSelectDay,
+  onEditClosure,
+  onSaveClosure,
+  canRetrySave,
+  onDeleteClosure,
 }: {
   scopeLabel: string;
   today: string;
@@ -1399,9 +1366,18 @@ function CassaDashboard({
   monthTotals: TotaliCassa;
   previousDay?: RigaPeriodoCassa;
   yearRows: RigaMeseCassa[];
+  selectedMonthKey: string | null;
+  selectedMonth: RigaMeseCassa | null;
+  selectedMonthRows: RigaChiusuraCassa[];
+  activeData: string;
   expanded: boolean;
   onToggleExpanded: () => void;
+  onSelectMonth: (key: string) => void;
   onSelectDay: (data: string) => void;
+  onEditClosure: (sedeId: SedeCassaId, data: string) => void;
+  onSaveClosure: (sedeId: SedeCassaId, data: string) => void;
+  canRetrySave: boolean;
+  onDeleteClosure: (sedeId: SedeCassaId, data: string) => void;
 }) {
   const incassiMese = incassiDaTotali(monthTotals);
   const previousDayTotals = previousDay?.totali ?? sommaTotali([], []);
@@ -1497,7 +1473,24 @@ function CassaDashboard({
         )}
       </div>
 
-      <CassaYearTrend rows={yearRows} />
+      <CassaYearTrend
+        rows={yearRows}
+        selectedMonthKey={selectedMonthKey}
+        onSelectMonth={onSelectMonth}
+      />
+
+      {selectedMonth && (
+        <CassaClosureRows
+          title={`Chiusure ${selectedMonth.label} ${selectedMonth.key.slice(0, 4)}`}
+          description={`${formatDate(selectedMonth.dal)} - ${formatDate(selectedMonth.al)}`}
+          rows={selectedMonthRows}
+          activeData={activeData}
+          onEdit={onEditClosure}
+          onSave={onSaveClosure}
+          canRetrySave={canRetrySave}
+          onDelete={onDeleteClosure}
+        />
+      )}
     </section>
   );
 }
@@ -1587,7 +1580,15 @@ function CassaMonthRows({
   );
 }
 
-function CassaYearTrend({ rows }: { rows: RigaMeseCassa[] }) {
+function CassaYearTrend({
+  rows,
+  selectedMonthKey,
+  onSelectMonth,
+}: {
+  rows: RigaMeseCassa[];
+  selectedMonthKey: string | null;
+  onSelectMonth: (key: string) => void;
+}) {
   const max = Math.max(
     ...rows.flatMap((row) => [incassiDaTotali(row.totali), row.totali.spese]),
     1,
@@ -1614,8 +1615,17 @@ function CassaYearTrend({ rows }: { rows: RigaMeseCassa[] }) {
       <div className="flex min-h-56 gap-3 overflow-x-auto pb-1">
         {rows.map((row) => {
           const incassi = incassiDaTotali(row.totali);
+          const selected = row.key === selectedMonthKey;
           return (
-            <div key={row.key} className="flex min-w-28 flex-1 flex-col justify-end gap-2">
+            <button
+              key={row.key}
+              type="button"
+              onClick={() => onSelectMonth(row.key)}
+              aria-pressed={selected}
+              className={`flex min-w-28 flex-1 flex-col justify-end gap-2 rounded-md text-left transition ${
+                selected ? "bg-primary/5 ring-2 ring-primary" : "hover:bg-muted/40"
+              }`}
+            >
               <div className="flex h-32 items-end justify-center gap-2 rounded-md border border-border bg-muted/20 p-2">
                 <div
                   className="w-6 rounded-sm bg-primary"
@@ -1633,7 +1643,7 @@ function CassaYearTrend({ rows }: { rows: RigaMeseCassa[] }) {
                 <p className="mt-1 text-xs text-muted-foreground">{row.giorniConDati} giorni</p>
                 <p className="mt-1 text-sm font-semibold text-foreground">{valuta.format(row.totali.saldo)}</p>
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -1969,7 +1979,9 @@ function CassaSedePanel({
   );
 }
 
-function ElencoChiusure({
+function CassaClosureRows({
+  title,
+  description,
   rows,
   activeData,
   onEdit,
@@ -1977,15 +1989,9 @@ function ElencoChiusure({
   canRetrySave,
   onDelete,
 }: {
-  rows: Array<{
-    key: string;
-    sedeId: SedeCassaId;
-    data: string;
-    totali: TotaliCassa;
-    speseCount: number;
-    documentiCount: number;
-    canSave: boolean;
-  }>;
+  title: string;
+  description: string;
+  rows: RigaChiusuraCassa[];
   activeData: string;
   onEdit: (sedeId: SedeCassaId, data: string) => void;
   onSave: (sedeId: SedeCassaId, data: string) => void;
@@ -1993,13 +1999,11 @@ function ElencoChiusure({
   onDelete: (sedeId: SedeCassaId, data: string) => void;
 }) {
   return (
-    <section className="rounded-md border border-border bg-white">
+    <div className="border-t border-border bg-white">
       <div className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold text-foreground">Elenco chiusure</h2>
-          <p className="text-sm text-muted-foreground">
-            Apri, salva o elimina una chiusura gia inserita.
-          </p>
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
+          <p className="text-sm text-muted-foreground">{description}</p>
         </div>
         <Badge variant="secondary">{rows.length} chiusure</Badge>
       </div>
@@ -2081,11 +2085,11 @@ function ElencoChiusure({
       ) : (
         <div className="p-4">
           <div className="rounded-md border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-            Nessuna chiusura salvata. Compila una sede e premi Salva per inserirla nell'elenco.
+            Nessuna chiusura salvata per il mese selezionato.
           </div>
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -2336,68 +2340,6 @@ function DailyTotalsChart({ totali }: { totali: TotaliCassa }) {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function RiepilogoPeriodoChart({
-  righe,
-}: {
-  righe: Array<{ data: string; totali: TotaliCassa; documenti: DocumentoCassa[] }>;
-}) {
-  const rows = righe.slice(0, 10).reverse();
-  const max = Math.max(
-    ...rows.flatMap((row) => [
-      row.totali.contanti + row.totali.bancomat + row.totali.assegni,
-      row.totali.spese,
-    ]),
-    1,
-  );
-
-  return (
-    <div className="border-b border-border p-3 sm:p-4">
-      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Andamento giornaliero</h3>
-          <p className="text-xs text-muted-foreground">Ultimi {rows.length} giorni nel filtro corrente.</p>
-        </div>
-        <div className="flex gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-primary" /> Incassi</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> Spese</span>
-        </div>
-      </div>
-
-      {rows.length > 0 ? (
-        <div className="flex min-h-40 gap-2 overflow-x-auto pb-1">
-          {rows.map((row) => {
-            const incassi = row.totali.contanti + row.totali.bancomat + row.totali.assegni;
-            return (
-              <div key={row.data} className="flex min-w-16 flex-1 flex-col items-center justify-end gap-2">
-                <div className="flex h-28 w-full items-end justify-center gap-1 rounded-md bg-muted/40 p-1.5">
-                  <div
-                    className="w-4 rounded-sm bg-primary"
-                    style={{ height: `${Math.max(4, (incassi / max) * 100)}%` }}
-                    title={`Incassi ${valuta.format(incassi)}`}
-                  />
-                  <div
-                    className="w-4 rounded-sm bg-red-500"
-                    style={{ height: `${Math.max(4, (row.totali.spese / max) * 100)}%` }}
-                    title={`Spese ${valuta.format(row.totali.spese)}`}
-                  />
-                </div>
-                <div className="text-center">
-                  <p className="text-[11px] font-medium text-muted-foreground">{formatDate(row.data).slice(0, 5)}</p>
-                  <p className="text-xs font-semibold text-foreground">{valuta.format(row.totali.saldo)}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-          Nessun dato giornaliero da rappresentare.
-        </div>
-      )}
     </div>
   );
 }
