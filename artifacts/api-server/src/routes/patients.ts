@@ -1,14 +1,39 @@
 import { Router, type Request, type RequestHandler, type Response } from "express";
-import { db, pool } from "@workspace/db";
-import { patientsTable } from "@workspace/db";
-import { and, eq, ilike, or, inArray, isNull } from "drizzle-orm";
+import {
+  adminSettingsTable,
+  bookingExamsTable,
+  bookingsTable,
+  db,
+  examsTable,
+  patientsTable,
+  pool,
+} from "@workspace/db";
+import { and, desc, eq, ilike, or, inArray, isNull, type SQL } from "drizzle-orm";
 import { CreatePatientBody, UpdatePatientBody } from "@workspace/api-zod";
 import { requireAnyPermission } from "../lib/auth";
 
 const router = Router();
 const MAX_BULK_ERRORS = 50;
+const AGENDA_APPOINTMENTS_KEY = "agenda-appointments";
 const RECORD_TYPES = ["privato", "azienda", "societa_sportiva"] as const;
 type RecordType = typeof RECORD_TYPES[number];
+type FormattedPatient = ReturnType<typeof formatPatient>;
+type AgendaAppointmentValue = Record<string, unknown>;
+type PatientHistoryVisit = {
+  id: string;
+  source: "ambulatorio" | "laboratorio";
+  date: string;
+  time: string;
+  title: string;
+  doctor: string | null;
+  sede: string | null;
+  status: string;
+  amount: number | null;
+  paid: boolean;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  notes: string | null;
+};
 
 const toDateStr = (v: string | Date | null): string =>
   !v ? "" : typeof v === "string" ? v.slice(0, 10) : v.toISOString().slice(0, 10);
@@ -311,6 +336,68 @@ function formatPatient(p: typeof patientsTable.$inferSelect) {
   };
 }
 
+const normalizeIdentityText = (value: unknown) =>
+  String(value ?? "")
+    .trim()
+    .toLocaleLowerCase("it-IT")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+
+const normalizePhoneIdentity = (value: unknown) =>
+  String(value ?? "").replace(/\D/g, "");
+
+const readTextField = (row: AgendaAppointmentValue, keys: string[]) => {
+  for (const key of keys) {
+    const value = String(row[key] ?? "").trim();
+    if (value) return value;
+  }
+  return "";
+};
+
+const readNumberField = (row: AgendaAppointmentValue, keys: string[]) => {
+  for (const key of keys) {
+    const value = readAmount(row[key]);
+    if (value > 0) return value;
+  }
+  return null;
+};
+
+const loadAgendaAppointments = async () => {
+  const [settings] = await db
+    .select()
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.key, AGENDA_APPOINTMENTS_KEY))
+    .limit(1);
+
+  return Array.isArray(settings?.value) ? (settings.value as AgendaAppointmentValue[]) : [];
+};
+
+const isAgendaAppointmentForPatient = (appointment: AgendaAppointmentValue, patient: FormattedPatient) => {
+  const appointmentPatientId = String(appointment["pazienteId"] ?? appointment["patientId"] ?? "").trim();
+  if (appointmentPatientId && appointmentPatientId === String(patient.id)) return true;
+
+  const patientEmail = normalizeIdentityText(patient.email);
+  const appointmentEmail = normalizeIdentityText(readTextField(appointment, ["pazienteEmail", "email", "patientEmail"]));
+  if (patientEmail && appointmentEmail && patientEmail === appointmentEmail) return true;
+
+  const patientPhone = normalizePhoneIdentity(patient.phone);
+  const appointmentPhone = normalizePhoneIdentity(readTextField(appointment, ["pazienteTelefono", "telefono", "phone", "patientPhone"]));
+  if (patientPhone && appointmentPhone && patientPhone === appointmentPhone) return true;
+
+  const patientName = normalizeIdentityText(`${patient.firstName} ${patient.lastName}`);
+  const appointmentName =
+    normalizeIdentityText(readTextField(appointment, ["paziente", "pazienteNome", "patientName"])) ||
+    normalizeIdentityText(`${readTextField(appointment, ["firstName"])} ${readTextField(appointment, ["lastName"])}`);
+  return Boolean(patientName && appointmentName && patientName === appointmentName);
+};
+
+const statusIsPaid = (status: string, billed: unknown) => {
+  if (billed === true) return true;
+  const normalized = normalizeIdentityText(status);
+  return ["fatturata", "pagata", "pagato", "incassata", "incassato"].includes(normalized);
+};
+
 router.use(requireAnyPermission([
   "anagrafiche",
   "laboratorio.accettazione",
@@ -373,6 +460,148 @@ router.get("/patients", async (req, res) => {
     res.json(rows.map(formatPatient));
   } catch (err) {
     req.log.error({ err }, "Failed to list patients");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/patients/:id/history", async (req, res) => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid patient ID" });
+    return;
+  }
+
+  try {
+    await ensurePatientRegistryColumns();
+    await syncExpiredConventions();
+
+    const [patientRow] = await db
+      .select()
+      .from(patientsTable)
+      .where(and(eq(patientsTable.id, id), isNull(patientsTable.deletedAt)))
+      .limit(1);
+
+    if (!patientRow) {
+      res.status(404).json({ error: "Patient not found" });
+      return;
+    }
+
+    const patient = formatPatient(patientRow);
+    const bookingMatches: SQL<unknown>[] = [];
+    if (patient.codiceFiscale) bookingMatches.push(eq(bookingsTable.codiceFiscale, patient.codiceFiscale));
+    if (patient.email) bookingMatches.push(eq(bookingsTable.email, patient.email));
+    if (patient.phone) bookingMatches.push(eq(bookingsTable.phone, patient.phone));
+    if (patient.firstName && patient.lastName && patient.dateOfBirth) {
+      const sameIdentity = and(
+        eq(bookingsTable.firstName, patient.firstName),
+        eq(bookingsTable.lastName, patient.lastName),
+        eq(bookingsTable.dateOfBirth, patient.dateOfBirth),
+      );
+      if (sameIdentity) bookingMatches.push(sameIdentity);
+    }
+
+    const labBookings = bookingMatches.length
+      ? await db
+          .select()
+          .from(bookingsTable)
+          .where(bookingMatches.length === 1 ? bookingMatches[0] : or(...bookingMatches))
+          .orderBy(desc(bookingsTable.date), bookingsTable.time)
+          .limit(200)
+      : [];
+
+    const bookingIds = labBookings.map((booking) => booking.id);
+    const examLinks = bookingIds.length
+      ? await db
+          .select({
+            bookingId: bookingExamsTable.bookingId,
+            descrizione: examsTable.descrizione,
+          })
+          .from(bookingExamsTable)
+          .leftJoin(examsTable, eq(bookingExamsTable.examId, examsTable.id))
+          .where(inArray(bookingExamsTable.bookingId, bookingIds))
+      : [];
+
+    const examsByBooking = new Map<number, string[]>();
+    for (const link of examLinks) {
+      if (!examsByBooking.has(link.bookingId)) examsByBooking.set(link.bookingId, []);
+      examsByBooking.get(link.bookingId)!.push(link.descrizione ?? "Esame");
+    }
+
+    const labVisits: PatientHistoryVisit[] = labBookings.map((booking) => {
+      const examNames = examsByBooking.get(booking.id) ?? [];
+      return {
+        id: `lab-${booking.id}`,
+        source: "laboratorio",
+        date: toDateStr(booking.date as string | Date),
+        time: booking.time,
+        title: examNames.length ? examNames.join(", ") : "Accettazione laboratorio",
+        doctor: null,
+        sede: null,
+        status: booking.status,
+        amount: null,
+        paid: false,
+        invoiceNumber: null,
+        invoiceDate: null,
+        notes: booking.notes,
+      };
+    });
+
+    const agendaAppointments = await loadAgendaAppointments();
+    const agendaVisits: PatientHistoryVisit[] = agendaAppointments
+      .filter((appointment) => isAgendaAppointmentForPatient(appointment, patient))
+      .map((appointment) => {
+        const status = readTextField(appointment, ["stato", "status"]) || "confermata";
+        const amount = readNumberField(appointment, ["importoFatturato", "importo", "prezzo", "amount"]);
+        return {
+          id: String(appointment["id"] ?? `agenda-${readTextField(appointment, ["data"])}-${readTextField(appointment, ["ora"])}`),
+          source: "ambulatorio",
+          date: readTextField(appointment, ["data", "date"]),
+          time: readTextField(appointment, ["ora", "time"]),
+          title: readTextField(appointment, ["prestazione", "prestazioneNome", "serviceName"]) || "Prestazione ambulatoriale",
+          doctor: readTextField(appointment, ["medicoNome", "medico", "doctorName"]) || null,
+          sede: readTextField(appointment, ["sede", "site"]) || null,
+          status,
+          amount,
+          paid: statusIsPaid(status, appointment["fatturata"] ?? appointment["pagata"]),
+          invoiceNumber: readTextField(appointment, ["numeroFattura", "invoiceNumber"]) || null,
+          invoiceDate: readTextField(appointment, ["dataFattura", "invoiceDate"]) || null,
+          notes: readTextField(appointment, ["notaPrenotazione", "note", "notes"]) || null,
+        };
+      });
+
+    const visits = [...agendaVisits, ...labVisits].sort((a, b) =>
+      `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`),
+    );
+    const payments = visits
+      .filter((visit) => visit.amount !== null && visit.amount > 0)
+      .map((visit) => ({
+        id: visit.id,
+        date: visit.invoiceDate || visit.date,
+        description: visit.title,
+        amount: visit.amount ?? 0,
+        status: visit.paid ? "Incassato/fatturato" : "Da verificare",
+        invoiceNumber: visit.invoiceNumber,
+        source: visit.source,
+      }));
+    const paidTotal = payments
+      .filter((payment) => payment.status === "Incassato/fatturato")
+      .reduce((sum, payment) => sum + payment.amount, 0);
+    const totalAmount = payments.reduce((sum, payment) => sum + payment.amount, 0);
+
+    res.json({
+      patient,
+      visits,
+      payments,
+      totals: {
+        visits: visits.length,
+        payments: payments.length,
+        totalAmount,
+        paidTotal,
+        openAmount: Math.max(0, totalAmount - paidTotal),
+      },
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to load patient history");
     res.status(500).json({ error: "Internal server error" });
   }
 });

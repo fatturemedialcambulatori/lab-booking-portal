@@ -37,6 +37,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Search,
@@ -60,6 +61,11 @@ import {
   FileText,
   Plus,
   X,
+  Clock3,
+  CreditCard,
+  MapPin,
+  ReceiptText,
+  Stethoscope,
 } from "lucide-react";
 import { parseFiscalCode } from "@/lib/fiscalCode";
 import { BulkImportDialog } from "@/components/BulkImportDialog";
@@ -129,6 +135,45 @@ type PatientForm = {
   billingCap: string;
   billingCity: string;
   billingProvincia: string;
+};
+
+type PatientHistoryVisit = {
+  id: string;
+  source: "ambulatorio" | "laboratorio";
+  date: string;
+  time: string;
+  title: string;
+  doctor: string | null;
+  sede: string | null;
+  status: string;
+  amount: number | null;
+  paid: boolean;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  notes: string | null;
+};
+
+type PatientPayment = {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  status: string;
+  invoiceNumber: string | null;
+  source: "ambulatorio" | "laboratorio";
+};
+
+type PatientHistoryResponse = {
+  patient: Patient;
+  visits: PatientHistoryVisit[];
+  payments: PatientPayment[];
+  totals: {
+    visits: number;
+    payments: number;
+    totalAmount: number;
+    paidTotal: number;
+    openAmount: number;
+  };
 };
 
 const emptyForm = (): PatientForm => ({
@@ -214,6 +259,42 @@ const parseImporto = (value: string | number | null | undefined) => {
   const normalized = String(value ?? "").replace(/\./g, "").replace(",", ".").trim();
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatDateHuman = (value?: string | null) => {
+  if (!value) return "-";
+  const parsed = new Date(`${value.slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(parsed);
+};
+
+const statusLabel = (value?: string | null) => {
+  const status = String(value ?? "").trim().toLowerCase();
+  const labels: Record<string, string> = {
+    confirmed: "Confermata",
+    pending: "In attesa",
+    accepted: "Accettata",
+    completed: "Completata",
+    cancelled: "Annullata",
+    confermata: "Confermata",
+    accettata: "Accettata",
+    completata: "Completata",
+    eseguita: "Eseguita",
+    annullata: "Annullata",
+  };
+  return labels[status] ?? value ?? "-";
+};
+
+const fetchPatientHistory = async (patientId: number): Promise<PatientHistoryResponse> => {
+  const response = await fetch(`/api/patients/${patientId}/history`);
+  if (!response.ok) {
+    throw new Error("Impossibile caricare la scheda paziente");
+  }
+  return response.json() as Promise<PatientHistoryResponse>;
 };
 
 const prezzoToDraft = (value: string | number | null | undefined) => {
@@ -477,6 +558,7 @@ export function AdminAnagrafiche() {
       queryClient.setQueryData<Patient[]>(queryKey, (current) =>
         current ? current.map((patient) => (patient.id === id ? updated : patient)).sort(byPatientName) : current
       );
+      setSchedaPatient((current) => current?.id === id ? updated : current);
       await queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
       setEditPatient(null);
     } catch {
@@ -492,6 +574,7 @@ export function AdminAnagrafiche() {
       queryClient.setQueryData<Patient[]>(queryKey, (current) =>
         current ? current.filter((patient) => patient.id !== id) : current
       );
+      setSchedaPatient((current) => current?.id === id ? null : current);
       await queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
       setDeleteConfirmId(null);
     } catch {
@@ -501,6 +584,19 @@ export function AdminAnagrafiche() {
 
   return (
     <div className="space-y-6">
+      {schedaPatient ? (
+        <PatientProfilePage
+          patient={schedaPatient}
+          conventionOptions={conventionOptions}
+          onBack={() => setSchedaPatient(null)}
+          onEdit={() => {
+            setEditPatient({ id: schedaPatient.id, form: patientToForm(schedaPatient) });
+            setFormError(null);
+          }}
+          onDelete={() => setDeleteConfirmId(schedaPatient.id)}
+        />
+      ) : (
+        <>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Anagrafiche</h1>
@@ -610,14 +706,7 @@ export function AdminAnagrafiche() {
                           <div className="min-w-0">
                             <button
                               type="button"
-                              onClick={() => {
-                                if (isOrganization) {
-                                  setSchedaPatient(p);
-                                  return;
-                                }
-                                setEditPatient({ id: p.id, form: patientToForm(p) });
-                                setFormError(null);
-                              }}
+                              onClick={() => setSchedaPatient(p)}
                               className="block truncate text-left font-semibold text-foreground hover:text-primary"
                             >
                               {patientDisplayName(p)}
@@ -670,11 +759,9 @@ export function AdminAnagrafiche() {
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-1.5">
-                          {isOrganization && (
-                            <Button size="icon" variant="ghost" onClick={() => setSchedaPatient(p)} title="Scheda">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          )}
+                          <Button size="icon" variant="ghost" onClick={() => setSchedaPatient(p)} title="Scheda">
+                            <Eye className="h-4 w-4" />
+                          </Button>
                           <Button
                             size="icon"
                             variant="ghost"
@@ -733,6 +820,8 @@ export function AdminAnagrafiche() {
           </div>
         </div>
       )}
+        </>
+      )}
 
       {/* ─── BULK IMPORT ─── */}
       {showBulkImport && (
@@ -772,18 +861,6 @@ export function AdminAnagrafiche() {
         />
       )}
 
-      {schedaPatient && (
-        <OrganizationProfileDialog
-          patient={schedaPatient}
-          onClose={() => setSchedaPatient(null)}
-          onEdit={() => {
-            setEditPatient({ id: schedaPatient.id, form: patientToForm(schedaPatient) });
-            setSchedaPatient(null);
-            setFormError(null);
-          }}
-        />
-      )}
-
       {/* ─── DELETE CONFIRM ─── */}
       <Dialog open={deleteConfirmId !== null} onOpenChange={(o) => !o && setDeleteConfirmId(null)}>
         <DialogContent className="max-w-sm">
@@ -801,6 +878,419 @@ export function AdminAnagrafiche() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function PatientProfilePage({
+  patient,
+  conventionOptions,
+  onBack,
+  onEdit,
+  onDelete,
+}: {
+  patient: Patient;
+  conventionOptions: Patient[];
+  onBack: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const [history, setHistory] = React.useState<PatientHistoryResponse | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+
+    fetchPatientHistory(patient.id)
+      .then((data) => {
+        if (active) setHistory(data);
+      })
+      .catch(() => {
+        if (active) {
+          setHistory(null);
+          setError("Non sono riuscito a caricare cronologia visite e pagamenti.");
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [patient.id]);
+
+  const isOrganization = Boolean(patient.recordType && patient.recordType !== "privato");
+  const linkedConventions = React.useMemo(
+    () => (patient.linkedConventionIds ?? [])
+      .map((id) => conventionOptions.find((convenzione) => convenzione.id === id))
+      .filter(Boolean) as Patient[],
+    [conventionOptions, patient.linkedConventionIds],
+  );
+  const visits = history?.visits ?? [];
+  const payments = history?.payments ?? [];
+  const completedVisits = visits.filter((visit) =>
+    ["completed", "completata", "eseguita", "accepted", "accettata"].includes(visit.status.toLowerCase()),
+  ).length;
+  const lastVisit = visits[0];
+  const totals = history?.totals ?? {
+    visits: visits.length,
+    payments: payments.length,
+    totalAmount: payments.reduce((sum, payment) => sum + payment.amount, 0),
+    paidTotal: payments
+      .filter((payment) => payment.status === "Incassato/fatturato")
+      .reduce((sum, payment) => sum + payment.amount, 0),
+    openAmount: 0,
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 border-b border-border pb-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-w-0 items-start gap-4">
+          <Button type="button" variant="outline" size="icon" onClick={onBack} title="Torna alle anagrafiche">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-primary/10 text-lg font-bold text-primary">
+            {patientInitials(patient)}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="truncate text-2xl font-bold tracking-tight text-foreground">{patientDisplayName(patient)}</h1>
+              <Badge variant={isOrganization ? "secondary" : "outline"}>{recordTypeLabel(patient.recordType)}</Badge>
+              {isOrganization && (
+                <Badge
+                  variant={patient.conventionActive ? "default" : "outline"}
+                  className={isConventionExpiring(patient) ? "border-amber-300 bg-amber-50 text-amber-900" : ""}
+                >
+                  {conventionLabel(patient)}
+                </Badge>
+              )}
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Scheda completa con dati anagrafici, storico visite e situazione pagamenti.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" onClick={onEdit} className="gap-2">
+            <Pencil className="h-4 w-4" />
+            Modifica
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onDelete}
+            className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="h-4 w-4" />
+            Elimina
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <PatientMetricCard icon={CalendarDays} label="Visite totali" value={String(totals.visits)} />
+        <PatientMetricCard icon={UserCheck} label="Visite concluse" value={String(completedVisits)} />
+        <PatientMetricCard icon={Euro} label="Pagamenti registrati" value={valuta.format(totals.totalAmount)} />
+        <PatientMetricCard
+          icon={Clock3}
+          label="Ultimo accesso"
+          value={lastVisit ? formatDateHuman(lastVisit.date) : "-"}
+          detail={lastVisit?.title}
+        />
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {error}
+        </div>
+      )}
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <section className="rounded-lg border border-border bg-white shadow-sm">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-lg font-semibold text-foreground">Dati paziente</h2>
+            <p className="text-sm text-muted-foreground">Anagrafica, recapiti e dati di fatturazione.</p>
+          </div>
+          <div className="grid gap-4 p-5">
+            <ProfileField label={isOrganization ? "Referente" : "Nome completo"} value={
+              isOrganization
+                ? patient.contactPerson || `${patient.firstName} ${patient.lastName}`.trim()
+                : `${patient.firstName} ${patient.lastName}`.trim()
+            } />
+            {isOrganization ? (
+              <>
+                <ProfileField label="P.IVA / Codice fiscale" value={patient.vatNumber} />
+                <ProfileField label="Tipologia" value={recordTypeLabel(patient.recordType)} />
+              </>
+            ) : (
+              <>
+                <ProfileField label="Data di nascita" value={formatDateHuman(patient.dateOfBirth)} />
+                <ProfileField label="Codice fiscale" value={patient.codiceFiscale} />
+                <ProfileField label="Sesso" value={patient.gender} />
+              </>
+            )}
+            <ProfileField icon={Mail} label="Email" value={patient.email} />
+            <ProfileField icon={Phone} label="Telefono" value={patient.phone} />
+            <ProfileField
+              icon={MapPin}
+              label="Fatturazione"
+              value={[
+                patient.billingAddress,
+                [patient.billingCap, patient.billingCity, patient.billingProvincia].filter(Boolean).join(" "),
+              ].filter(Boolean).join(" - ")}
+            />
+            {patient.notes && <ProfileField label="Note" value={patient.notes} multiline />}
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Lista pagamenti</h2>
+              <p className="text-sm text-muted-foreground">Importi ricavati dalle prenotazioni fatturate o valorizzate.</p>
+            </div>
+            <Badge variant="secondary">{valuta.format(totals.paidTotal)} incassati</Badge>
+          </div>
+          {loading ? (
+            <div className="space-y-3 p-5">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <Skeleton key={index} className="h-14 w-full rounded-md" />
+              ))}
+            </div>
+          ) : payments.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="px-5 py-3 text-left">Data</th>
+                    <th className="px-5 py-3 text-left">Voce</th>
+                    <th className="px-5 py-3 text-left">Stato</th>
+                    <th className="px-5 py-3 text-right">Importo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {payments.map((payment) => (
+                    <tr key={payment.id}>
+                      <td className="whitespace-nowrap px-5 py-3">{formatDateHuman(payment.date)}</td>
+                      <td className="px-5 py-3">
+                        <div className="font-medium text-foreground">{payment.description}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {payment.invoiceNumber ? `Fattura ${payment.invoiceNumber}` : payment.source === "laboratorio" ? "Laboratorio" : "Ambulatorio"}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3">
+                        <Badge variant={payment.status === "Incassato/fatturato" ? "secondary" : "outline"}>
+                          {payment.status}
+                        </Badge>
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-3 text-right font-semibold">{valuta.format(payment.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyProfileState icon={CreditCard} title="Nessun pagamento registrato" text="Quando una visita avra un importo o una fattura comparira qui." />
+          )}
+        </section>
+      </div>
+
+      {(isOrganization || linkedConventions.length > 0) && (
+        <section className="rounded-lg border border-border bg-white shadow-sm">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-lg font-semibold text-foreground">Convenzioni</h2>
+            <p className="text-sm text-muted-foreground">
+              {isOrganization ? "Listino convenzionato collegato a questa anagrafica." : "Convenzioni associate al paziente."}
+            </p>
+          </div>
+          {isOrganization ? (
+            <div className="space-y-4 p-5">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={patient.conventionActive ? "default" : "outline"}>{conventionLabel(patient)}</Badge>
+                <Badge variant="outline">{(patient.conventionServices ?? []).length} prestazioni</Badge>
+              </div>
+              {patient.conventionText && (
+                <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">{patient.conventionText}</p>
+              )}
+              {(patient.conventionServices ?? []).length > 0 ? (
+                <div className="overflow-x-auto rounded-md border border-border">
+                  <table className="w-full min-w-[680px] text-sm">
+                    <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Prestazione</th>
+                        <th className="px-4 py-3 text-left">Specialita</th>
+                        <th className="px-4 py-3 text-right">Durata</th>
+                        <th className="px-4 py-3 text-right">Convenzione</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {(patient.conventionServices ?? []).map((servizio) => (
+                        <tr key={servizio.id}>
+                          <td className="px-4 py-3 font-medium text-foreground">{servizio.nome}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{servizio.specialita || "-"}</td>
+                          <td className="px-4 py-3 text-right">{Number(servizio.durata ?? 0)} min</td>
+                          <td className="px-4 py-3 text-right font-semibold">{conventionPriceLabel(servizio)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
+                  Nessuna prestazione convenzionata inserita.
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2 p-5">
+              {linkedConventions.map((convenzione) => (
+                <Badge key={convenzione.id} variant="secondary" className="gap-1.5">
+                  <Link2 className="h-3 w-3" />
+                  {patientDisplayName(convenzione)}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      <section className="rounded-lg border border-border bg-white shadow-sm">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Cronologia visite</h2>
+            <p className="text-sm text-muted-foreground">Ambulatorio e laboratorio in ordine cronologico.</p>
+          </div>
+          <Badge variant="secondary">{visits.length} movimenti</Badge>
+        </div>
+        {loading ? (
+          <div className="space-y-3 p-5">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <Skeleton key={index} className="h-16 w-full rounded-md" />
+            ))}
+          </div>
+        ) : visits.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-5 py-3 text-left">Data</th>
+                  <th className="px-5 py-3 text-left">Area</th>
+                  <th className="px-5 py-3 text-left">Prestazione / esame</th>
+                  <th className="px-5 py-3 text-left">Medico / sede</th>
+                  <th className="px-5 py-3 text-left">Stato</th>
+                  <th className="px-5 py-3 text-right">Importo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {visits.map((visit) => (
+                  <tr key={`${visit.source}-${visit.id}`}>
+                    <td className="whitespace-nowrap px-5 py-3">
+                      <div className="font-medium text-foreground">{formatDateHuman(visit.date)}</div>
+                      <div className="text-xs text-muted-foreground">{visit.time || "-"}</div>
+                    </td>
+                    <td className="px-5 py-3">
+                      <Badge variant={visit.source === "ambulatorio" ? "secondary" : "outline"} className="gap-1.5">
+                        {visit.source === "ambulatorio" ? <Stethoscope className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
+                        {visit.source === "ambulatorio" ? "Ambulatorio" : "Laboratorio"}
+                      </Badge>
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="font-medium text-foreground">{visit.title}</div>
+                      {visit.notes && <div className="mt-1 text-xs text-muted-foreground">{visit.notes}</div>}
+                    </td>
+                    <td className="px-5 py-3 text-muted-foreground">
+                      <div>{visit.doctor || "-"}</div>
+                      <div className="text-xs">{visit.sede || "-"}</div>
+                    </td>
+                    <td className="px-5 py-3">
+                      <Badge variant={visit.status.toLowerCase().includes("annull") || visit.status === "cancelled" ? "outline" : "secondary"}>
+                        {statusLabel(visit.status)}
+                      </Badge>
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-3 text-right font-semibold">
+                      {visit.amount !== null ? valuta.format(visit.amount) : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyProfileState icon={ReceiptText} title="Nessuna visita trovata" text="Le prenotazioni collegate a questa anagrafica appariranno in questa cronologia." />
+        )}
+      </section>
+    </div>
+  );
+}
+
+function PatientMetricCard({
+  icon: Icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: typeof CalendarDays;
+  label: string;
+  value: string;
+  detail?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-white p-4 shadow-sm">
+      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+        <Icon className="h-4 w-4" />
+      </div>
+      <p className="text-xs font-semibold uppercase text-muted-foreground">{label}</p>
+      <p className="mt-1 truncate text-2xl font-bold text-foreground">{value}</p>
+      {detail && <p className="mt-1 truncate text-xs text-muted-foreground">{detail}</p>}
+    </div>
+  );
+}
+
+function ProfileField({
+  icon: Icon,
+  label,
+  value,
+  multiline = false,
+}: {
+  icon?: typeof Mail;
+  label: string;
+  value?: string | null;
+  multiline?: boolean;
+}) {
+  const displayValue = value && String(value).trim() ? String(value).trim() : "-";
+  return (
+    <div className={multiline ? "rounded-md bg-muted/30 p-3" : "flex items-start justify-between gap-4 border-b border-border/60 pb-3 last:border-0 last:pb-0"}>
+      <dt className="flex items-center gap-2 text-sm text-muted-foreground">
+        {Icon && <Icon className="h-4 w-4" />}
+        {label}
+      </dt>
+      <dd className={multiline ? "mt-2 whitespace-pre-wrap text-sm font-medium text-foreground" : "max-w-[60%] break-words text-right text-sm font-medium text-foreground"}>
+        {displayValue}
+      </dd>
+    </div>
+  );
+}
+
+function EmptyProfileState({
+  icon: Icon,
+  title,
+  text,
+}: {
+  icon: typeof CreditCard;
+  title: string;
+  text: string;
+}) {
+  return (
+    <div className="p-8 text-center text-muted-foreground">
+      <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-md bg-muted text-muted-foreground">
+        <Icon className="h-5 w-5" />
+      </div>
+      <p className="font-medium text-foreground">{title}</p>
+      <p className="mt-1 text-sm">{text}</p>
     </div>
   );
 }
@@ -1399,150 +1889,6 @@ function PatientFormDialog({
             {saving ? "Salvataggio..." : "Salva"}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function OrganizationProfileDialog({
-  patient,
-  onClose,
-  onEdit,
-}: {
-  patient: Patient;
-  onClose: () => void;
-  onEdit: () => void;
-}) {
-  const servizi = patient.conventionServices ?? [];
-
-  return (
-    <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {patient.recordType === "societa_sportiva" ? (
-              <Trophy className="h-5 w-5 text-primary" />
-            ) : (
-              <Building2 className="h-5 w-5 text-primary" />
-            )}
-            Scheda {recordTypeLabel(patient.recordType).toLowerCase()}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-5">
-          <div className="rounded-md border border-border bg-muted/20 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-foreground">{patientDisplayName(patient)}</h2>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Badge variant="secondary">{recordTypeLabel(patient.recordType)}</Badge>
-                  <Badge
-                    variant={patient.conventionActive ? "default" : "outline"}
-                    className={isConventionExpiring(patient) ? "border-amber-300 bg-amber-50 text-amber-900" : ""}
-                  >
-                    {conventionLabel(patient)}
-                  </Badge>
-                  <Badge variant="outline">{servizi.length} prestazioni convenzionate</Badge>
-                </div>
-              </div>
-              <Button type="button" onClick={onEdit} className="gap-2">
-                <Pencil className="h-4 w-4" />
-                Modifica scheda
-              </Button>
-            </div>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-md border border-border bg-white p-4">
-              <div className="mb-3 flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-primary" />
-                <h3 className="font-semibold text-foreground">Dati anagrafici</h3>
-              </div>
-              <dl className="grid gap-2 text-sm">
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">P.IVA / C.F.</dt>
-                  <dd className="text-right font-medium">{patient.vatNumber || "-"}</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">Referente</dt>
-                  <dd className="text-right font-medium">
-                    {patient.contactPerson || `${patient.firstName} ${patient.lastName}`.trim() || "-"}
-                  </dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">Email</dt>
-                  <dd className="text-right font-medium">{patient.email || "-"}</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">Telefono</dt>
-                  <dd className="text-right font-medium">{patient.phone || "-"}</dd>
-                </div>
-              </dl>
-            </div>
-
-            <div className="rounded-md border border-border bg-white p-4">
-              <div className="mb-3 flex items-center gap-2">
-                <FileText className="h-4 w-4 text-primary" />
-                <h3 className="font-semibold text-foreground">Convenzione</h3>
-              </div>
-              <dl className="grid gap-2 text-sm">
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">Stato</dt>
-                  <dd className="text-right font-medium">{conventionLabel(patient)}</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="text-muted-foreground">Scadenza</dt>
-                  <dd className="text-right font-medium">{patient.conventionExpiresAt || "-"}</dd>
-                </div>
-              </dl>
-              {patient.conventionText && (
-                <p className="mt-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
-                  {patient.conventionText}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-md border border-border bg-white">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <div>
-                <h3 className="font-semibold text-foreground">Prestazioni e prezzi convenzionati</h3>
-                <p className="text-sm text-muted-foreground">Listino specifico della convenzione.</p>
-              </div>
-              <Badge variant="secondary">{servizi.length} voci</Badge>
-            </div>
-            {servizi.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[680px] text-sm">
-                  <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th className="px-4 py-3 text-left">Prestazione</th>
-                      <th className="px-4 py-3 text-left">Specialita</th>
-                      <th className="px-4 py-3 text-right">Durata</th>
-                      <th className="px-4 py-3 text-right">Convenzione</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {servizi.map((servizio) => (
-                      <tr key={servizio.id}>
-                        <td className="px-4 py-3 font-medium text-foreground">{servizio.nome}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{servizio.specialita || "-"}</td>
-                        <td className="px-4 py-3 text-right">{Number(servizio.durata ?? 0)} min</td>
-                        <td className="px-4 py-3 text-right font-semibold text-foreground">
-                          {conventionPriceLabel(servizio)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="p-6 text-center text-sm text-muted-foreground">
-                Nessuna prestazione convenzionata. Premi Modifica scheda per aggiungerle.
-              </div>
-            )}
-          </div>
-        </div>
       </DialogContent>
     </Dialog>
   );
