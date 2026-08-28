@@ -11,6 +11,7 @@ import {
 import { and, desc, eq, ilike, or, inArray, isNull, type SQL } from "drizzle-orm";
 import { CreatePatientBody, UpdatePatientBody } from "@workspace/api-zod";
 import { requireAnyPermission } from "../lib/auth";
+import { ensureBookingPaymentColumns, normalizePaymentStatus } from "../lib/bookingPayments";
 
 const router = Router();
 const MAX_BULK_ERRORS = 50;
@@ -473,6 +474,7 @@ router.get("/patients/:id/history", async (req, res) => {
 
   try {
     await ensurePatientRegistryColumns();
+    await ensureBookingPaymentColumns();
     await syncExpiredConventions();
 
     const [patientRow] = await db
@@ -515,33 +517,38 @@ router.get("/patients/:id/history", async (req, res) => {
           .select({
             bookingId: bookingExamsTable.bookingId,
             descrizione: examsTable.descrizione,
+            importo: examsTable.importo,
           })
           .from(bookingExamsTable)
           .leftJoin(examsTable, eq(bookingExamsTable.examId, examsTable.id))
           .where(inArray(bookingExamsTable.bookingId, bookingIds))
       : [];
 
-    const examsByBooking = new Map<number, string[]>();
+    const examsByBooking = new Map<number, Array<{ descrizione: string; importo: string | null }>>();
     for (const link of examLinks) {
       if (!examsByBooking.has(link.bookingId)) examsByBooking.set(link.bookingId, []);
-      examsByBooking.get(link.bookingId)!.push(link.descrizione ?? "Esame");
+      examsByBooking.get(link.bookingId)!.push({
+        descrizione: link.descrizione ?? "Esame",
+        importo: link.importo,
+      });
     }
 
     const labVisits: PatientHistoryVisit[] = labBookings.map((booking) => {
-      const examNames = examsByBooking.get(booking.id) ?? [];
+      const exams = examsByBooking.get(booking.id) ?? [];
+      const paymentStatus = normalizePaymentStatus(booking.paymentStatus);
       return {
         id: `lab-${booking.id}`,
         source: "laboratorio",
         date: toDateStr(booking.date as string | Date),
         time: booking.time,
-        title: examNames.length ? examNames.join(", ") : "Accettazione laboratorio",
+        title: exams.length ? exams.map((exam) => exam.descrizione).join(", ") : "Accettazione laboratorio",
         doctor: null,
         sede: null,
         status: booking.status,
-        amount: null,
-        paid: false,
+        amount: exams.reduce((sum, exam) => sum + readAmount(exam.importo), 0),
+        paid: paymentStatus === "paid",
         invoiceNumber: null,
-        invoiceDate: null,
+        invoiceDate: booking.paidAt ? booking.paidAt.toISOString() : null,
         notes: booking.notes,
       };
     });
@@ -552,6 +559,9 @@ router.get("/patients/:id/history", async (req, res) => {
       .map((appointment) => {
         const status = readTextField(appointment, ["stato", "status"]) || "confermata";
         const amount = readNumberField(appointment, ["importoFatturato", "importo", "prezzo", "amount"]);
+        const paymentStatus = normalizePaymentStatus(
+          appointment["paymentStatus"] ?? appointment["statoPagamento"] ?? appointment["pagata"] ?? appointment["pagato"],
+        );
         return {
           id: String(appointment["id"] ?? `agenda-${readTextField(appointment, ["data"])}-${readTextField(appointment, ["ora"])}`),
           source: "ambulatorio",
@@ -562,9 +572,9 @@ router.get("/patients/:id/history", async (req, res) => {
           sede: readTextField(appointment, ["sede", "site"]) || null,
           status,
           amount,
-          paid: statusIsPaid(status, appointment["fatturata"] ?? appointment["pagata"]),
+          paid: paymentStatus === "paid" || statusIsPaid(status, appointment["fatturata"] ?? appointment["pagata"]),
           invoiceNumber: readTextField(appointment, ["numeroFattura", "invoiceNumber"]) || null,
-          invoiceDate: readTextField(appointment, ["dataFattura", "invoiceDate"]) || null,
+          invoiceDate: readTextField(appointment, ["paidAt", "dataFattura", "invoiceDate"]) || null,
           notes: readTextField(appointment, ["notaPrenotazione", "note", "notes"]) || null,
         };
       });
@@ -579,12 +589,12 @@ router.get("/patients/:id/history", async (req, res) => {
         date: visit.invoiceDate || visit.date,
         description: visit.title,
         amount: visit.amount ?? 0,
-        status: visit.paid ? "Incassato/fatturato" : "Da verificare",
+        status: visit.paid ? "Pagato" : "Non pagato",
         invoiceNumber: visit.invoiceNumber,
         source: visit.source,
       }));
     const paidTotal = payments
-      .filter((payment) => payment.status === "Incassato/fatturato")
+      .filter((payment) => payment.status === "Pagato")
       .reduce((sum, payment) => sum + payment.amount, 0);
     const totalAmount = payments.reduce((sum, payment) => sum + payment.amount, 0);
 

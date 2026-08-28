@@ -11,6 +11,7 @@ import referenceRangesRouter from "./referenceRanges";
 import adminSettingsRouter from "./adminSettings";
 import infortunisticaRouter from "./infortunistica";
 import cassaRouter from "./cassa";
+import paymentsRouter from "./payments";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(ocrRouter);
 router.use(adminSettingsRouter);
 router.use(infortunisticaRouter);
 router.use(cassaRouter);
+router.use(paymentsRouter);
 
 export default router;

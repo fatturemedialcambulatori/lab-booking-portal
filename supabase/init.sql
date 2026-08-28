@@ -65,6 +65,8 @@ create table if not exists public.bookings (
   phone text not null,
   notes text,
   status text not null default 'confirmed',
+  payment_status text not null default 'unpaid',
+  paid_at timestamp,
   created_at timestamp not null default now()
 );
 
@@ -171,6 +173,10 @@ alter table public.exam_components enable row level security;
 alter table public.exam_reference_ranges enable row level security;
 alter table public.admin_settings enable row level security;
 alter table public.infortunistica_certificati_files enable row level security;
+
+alter table public.bookings
+  add column if not exists payment_status text not null default 'unpaid',
+  add column if not exists paid_at timestamp;
 
 revoke all on all tables in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;

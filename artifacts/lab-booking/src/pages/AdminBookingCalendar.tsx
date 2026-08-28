@@ -121,6 +121,7 @@ type ListinoSettings = {
   medicoId: string;
   prestazioneId?: string;
   durata: number;
+  prezzo?: number | string;
 };
 
 type AdminSettingsData = {
@@ -160,6 +161,7 @@ type PrenotazioneAgenda = {
   pazienteEmail?: string;
   pazienteTelefono?: string;
   prestazione: string;
+  prestazioneId?: string;
   labExamIds?: number[];
   labBookingId?: number | null;
   note?: string;
@@ -167,6 +169,12 @@ type PrenotazioneAgenda = {
   ora: string;
   durata: number;
   stato: StatoPrenotazione;
+  paymentStatus?: "unpaid" | "paid";
+  statoPagamento?: "unpaid" | "paid";
+  paidAt?: string | null;
+  pagata?: boolean;
+  importoFatturato?: number | string;
+  fatturata?: boolean;
   overbooking?: boolean;
   waitlistItemId?: string;
 };
@@ -2336,6 +2344,7 @@ export function AdminBookingCalendar({
         pazienteEmail,
         pazienteTelefono,
         prestazione,
+        prestazioneId: appuntamento.prestazioneId || undefined,
         labExamIds: appuntamento.labExamIds,
         labBookingId,
         note: appuntamento.notaPrenotazione.trim() || undefined,
@@ -2343,6 +2352,13 @@ export function AdminBookingCalendar({
         ora: appuntamento.ora,
         durata: Math.max(5, Number(appuntamento.durata) || DEFAULT_DURATA_SLOT),
         stato: "confermata",
+        paymentStatus: "unpaid",
+        statoPagamento: "unpaid",
+        pagata: false,
+        importoFatturato: settingsAgenda?.listini?.find(
+          (item) => item.medicoId === appuntamento.medicoId && item.prestazioneId === appuntamento.prestazioneId,
+        )?.prezzo ?? 0,
+        fatturata: false,
         overbooking: appuntamento.overbooking,
         waitlistItemId: appuntamento.waitlistItemId,
       };

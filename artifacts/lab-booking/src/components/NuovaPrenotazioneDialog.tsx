@@ -381,6 +381,7 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
           pazienteEmail: patientData.email,
           pazienteTelefono: patientData.phone,
           prestazione: selectedPrestazione.nome,
+          prestazioneId: selectedPrestazione.id,
           labExamIds: selectedExamIds,
           labBookingId,
           note: [
@@ -391,6 +392,11 @@ export function NuovaPrenotazioneDialog({ open, onClose, defaultDate }: Props) {
           ora: selectedTime,
           durata: Math.max(5, Number(durataPrestazione) || selectedPrestazione.durata || 30),
           stato: "accettata",
+          paymentStatus: "unpaid",
+          statoPagamento: "unpaid",
+          pagata: false,
+          importoFatturato: prestazioneTotal,
+          fatturata: false,
           overbooking: false,
         };
 

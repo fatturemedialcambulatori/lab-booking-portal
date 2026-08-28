@@ -16,6 +16,8 @@ export const bookingsTable = pgTable("bookings", {
   phone: text("phone").notNull(),
   notes: text("notes"),
   status: text("status").notNull().default("confirmed"),
+  paymentStatus: text("payment_status").notNull().default("unpaid"),
+  paidAt: timestamp("paid_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

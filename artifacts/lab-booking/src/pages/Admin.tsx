@@ -15,6 +15,7 @@ import {
   KeyRound,
   Users,
   Save,
+  ReceiptText,
   WalletCards,
   type LucideIcon,
 } from "lucide-react";
@@ -27,6 +28,7 @@ import { AdminSettings, type SettingsSaveControl } from "./AdminSettings";
 import { AdminUsers } from "./AdminUsers";
 import { AdminInfortunistica } from "./AdminInfortunistica";
 import { AdminCassa } from "./AdminCassa";
+import { AdminPagamenti } from "./AdminPagamenti";
 import {
   type PermissionId,
 } from "@/lib/adminAccess";
@@ -103,6 +105,7 @@ type TabId =
   | "anagrafiche"
   | "infortunistica"
   | "cassa-totale"
+  | "cassa-pagamenti"
   | "cassa-modena"
   | "cassa-sassuolo"
   | "impostazioni"
@@ -147,6 +150,7 @@ const SETTINGS_ITEM: MenuItem = { id: "impostazioni", label: "Impostazioni", Ico
 const UTENTI_ITEM: MenuItem = { id: "utenti", label: "Utenti", Icon: KeyRound };
 const CASSA_ITEMS: MenuItem[] = [
   { id: "cassa-totale", label: "Totale sedi", Icon: WalletCards },
+  { id: "cassa-pagamenti", label: "Pagamenti", Icon: ReceiptText },
   { id: "cassa-modena", label: "Modena", Icon: WalletCards },
   { id: "cassa-sassuolo", label: "Sassuolo", Icon: WalletCards },
 ];
@@ -160,6 +164,7 @@ const adminPathForTarget = (area: AreaId, tab: TabId) => {
   if (tab === "utenti") return "/admin/utenti";
 
   if (area === "cassa") {
+    if (tab === "cassa-pagamenti") return "/admin/cassa/pagamenti";
     if (tab === "cassa-modena") return "/admin/cassa/modena";
     if (tab === "cassa-sassuolo") return "/admin/cassa/sassuolo";
     return "/admin/cassa/totale";
@@ -186,6 +191,7 @@ const routeTargetFromPath = (path: string): { area: AreaId; tab: TabId } | null 
   if (section === "utenti") return { area: "laboratorio", tab: "utenti" };
 
   if (section === "cassa") {
+    if (rawTab === "pagamenti") return { area: "cassa", tab: "cassa-pagamenti" };
     if (rawTab === "modena") return { area: "cassa", tab: "cassa-modena" };
     if (rawTab === "sassuolo") return { area: "cassa", tab: "cassa-sassuolo" };
     return { area: "cassa", tab: "cassa-totale" };
@@ -231,6 +237,7 @@ const permessoVoce = (area: AreaId, tab: TabId): PermissionId | null => {
     if (tab === "cassa-totale") return "cassa";
     if (tab === "cassa-modena") return "cassa.modena";
     if (tab === "cassa-sassuolo") return "cassa.sassuolo";
+    if (tab === "cassa-pagamenti") return null;
   }
   if (area === "laboratorio") {
     if (tab === "accettazione") return "laboratorio.accettazione";
@@ -283,6 +290,17 @@ function AdminDashboard({
     [permissions],
   );
 
+  const canAccessTarget = React.useCallback(
+    (area: AreaId, tab: TabId) => {
+      if (area === "cassa" && tab === "cassa-pagamenti") {
+        return can("cassa") || can("cassa.modena") || can("cassa.sassuolo");
+      }
+      const permission = permessoVoce(area, tab);
+      return permission ? can(permission) : false;
+    },
+    [can],
+  );
+
   const setActiveTarget = React.useCallback(
     (area: AreaId, tab: TabId, options?: { replace?: boolean }) => {
       setActiveArea(area);
@@ -300,11 +318,10 @@ function AdminDashboard({
       MENU_GROUPS.map((group) => ({
         ...group,
         items: group.items.filter((item) => {
-          const permission = permessoVoce(group.id, item.id);
-          return permission ? can(permission) : false;
+          return canAccessTarget(group.id, item.id);
         }),
       })).filter((group) => group.items.length > 0),
-    [can],
+    [canAccessTarget],
   );
 
   const firstAllowedTarget = React.useMemo(() => {
@@ -325,15 +342,10 @@ function AdminDashboard({
   }, [location]);
 
   React.useEffect(() => {
-    const permission = permessoVoce(activeArea, activeTab);
-    if (permission && can(permission)) return;
-    if (!permission && activeTab === "anagrafiche" && can("anagrafiche")) return;
-    if (!permission && activeTab === "infortunistica" && can("infortunistica")) return;
-    if (!permission && activeTab === "impostazioni" && can("impostazioni")) return;
-    if (!permission && activeTab === "utenti" && can("utenti")) return;
+    if (canAccessTarget(activeArea, activeTab)) return;
     if (!firstAllowedTarget) return;
     setActiveTarget(firstAllowedTarget.area, firstAllowedTarget.tab, { replace: true });
-  }, [activeArea, activeTab, can, firstAllowedTarget, setActiveTarget]);
+  }, [activeArea, activeTab, canAccessTarget, firstAllowedTarget, setActiveTarget]);
 
   React.useEffect(() => {
     const routeTarget = routeTargetFromPath(location);
@@ -375,6 +387,11 @@ function AdminDashboard({
   const showSettingsSave = activeTab === "impostazioni";
   const settingsSaveEnabled = Boolean(settingsSaveControl?.canSave);
   const isReadOnlyLaboratoryListino = activeArea === "laboratorio" && role === "segreteria";
+  const pagamentiScope = can("cassa")
+    ? "tutte"
+    : can("cassa.modena")
+      ? "modena"
+      : "sassuolo";
   const settingsSaving = settingsSaveControl?.state === "saving";
   const settingsSaveButtonClass = settingsSaveEnabled
     ? "gap-2 border-slate-950 bg-slate-950 text-white hover:bg-slate-900 hover:text-white"
@@ -621,6 +638,8 @@ function AdminDashboard({
             )}
 
             {activeTab === "cassa-totale" && <AdminCassa scope="tutte" />}
+
+            {activeTab === "cassa-pagamenti" && <AdminPagamenti scope={pagamentiScope} />}
 
             {activeTab === "cassa-modena" && <AdminCassa scope="modena" />}
 

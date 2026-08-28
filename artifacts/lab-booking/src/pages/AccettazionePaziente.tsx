@@ -40,6 +40,7 @@ import {
   FileDown,
   Pencil,
   Stethoscope,
+  Euro,
 } from "lucide-react";
 import { format as formatDate, addDays, subDays } from "date-fns";
 import { NuovaPrenotazioneDialog } from "@/components/NuovaPrenotazioneDialog";
@@ -48,6 +49,7 @@ import { RefertazioneDialog } from "@/components/RefertazioneDialog";
 import { printReferto, PrintPatient, PrintExamWithResult } from "@/lib/printDocs";
 
 type BookingStatus = "confirmed" | "pending" | "accepted" | "completed" | "cancelled";
+type PaymentStatus = "unpaid" | "paid";
 type AreaAccettazione = "laboratorio" | "ambulatorio";
 type AgendaAppointmentStatus = "confermata" | "accettata" | "completata" | "annullata";
 
@@ -68,6 +70,13 @@ type AgendaAppointment = {
   ora: string;
   durata: number;
   stato: AgendaAppointmentStatus;
+  paymentStatus?: PaymentStatus;
+  statoPagamento?: PaymentStatus;
+  paidAt?: string | null;
+  pagata?: boolean;
+  importoFatturato?: number | string;
+  prezzo?: number | string;
+  prestazioneId?: string;
   overbooking?: boolean;
 };
 
@@ -87,6 +96,8 @@ type Visit = {
   examIds: number[];
   examNames: string[];
   status: BookingStatus;
+  paymentStatus: PaymentStatus;
+  amountDue?: number;
   refertiCount: number;
   expectedRefertiCount: number;
   sourceArea?: "laboratorio" | "ambulatorio";
@@ -106,6 +117,13 @@ function StatusBadge({ status }: { status: string }) {
     default:
       return <Badge variant="secondary">In attesa</Badge>;
   }
+}
+
+function PaymentBadge({ status }: { status: PaymentStatus }) {
+  if (status === "paid") {
+    return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100 gap-1"><Euro className="h-3 w-3" />Pagato</Badge>;
+  }
+  return <Badge className="bg-rose-100 text-rose-700 border-rose-200 hover:bg-rose-100 gap-1"><Euro className="h-3 w-3" />Non pagato</Badge>;
 }
 
 function DateLabel({ date }: { date: string }) {
@@ -142,6 +160,9 @@ const mapBookingStatusToAgendaStatus = (status: BookingStatus): AgendaAppointmen
   if (status === "cancelled") return "annullata";
   return "confermata";
 };
+
+const normalizePaymentStatus = (value: unknown): PaymentStatus =>
+  value === "paid" || value === "pagato" || value === true ? "paid" : "unpaid";
 
 const isAgendaAppointment = (value: unknown): value is AgendaAppointment => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -185,6 +206,7 @@ export function AccettazionePaziente({
   const [search, setSearch] = React.useState("");
   const [filter, setFilter] = React.useState<FilterId>("all");
   const [loadingVisitKey, setLoadingVisitKey] = React.useState<string | null>(null);
+  const [loadingPaymentVisitKey, setLoadingPaymentVisitKey] = React.useState<string | null>(null);
   const [showNuovaPrenotazione, setShowNuovaPrenotazione] = React.useState(false);
   const [billingVisit, setBillingVisit] = React.useState<Visit | null>(null);
   const [todoVisit, setTodoVisit] = React.useState<Visit | null>(null);
@@ -332,6 +354,8 @@ export function AccettazionePaziente({
           examIds: appointment.labExamIds ?? [],
           examNames: [appointment.prestazione],
           status: mapAgendaStatusToBookingStatus(appointment.stato),
+          paymentStatus: normalizePaymentStatus(appointment.paymentStatus ?? appointment.statoPagamento ?? appointment.pagata),
+          amountDue: Number(appointment.importoFatturato ?? appointment.prezzo ?? 0) || 0,
           refertiCount: 0,
           expectedRefertiCount: 0,
           sourceArea: "ambulatorio",
@@ -344,6 +368,7 @@ export function AccettazionePaziente({
       id: number; date: string; time: string; firstName: string; lastName: string;
       dateOfBirth: string; codiceFiscale?: string | null; email: string; phone: string; notes?: string | null;
       examIds: number[]; examNames: string[]; status: string; refertiCount?: number; sourceArea?: "laboratorio" | "ambulatorio";
+      paymentStatus?: PaymentStatus; paidAt?: string | null; amountDue?: number;
     }>)]
       .sort((a, b) => a.time.localeCompare(b.time))
       .map((b) => ({
@@ -362,6 +387,8 @@ export function AccettazionePaziente({
         examIds: b.examIds,
         examNames: b.examNames,
         status: b.status as BookingStatus,
+        paymentStatus: normalizePaymentStatus((b as any).paymentStatus),
+        amountDue: Number((b as any).amountDue ?? 0) || 0,
         refertiCount: b.refertiCount ?? 0,
         expectedRefertiCount: (b as any).expectedRefertiCount ?? b.examIds.length,
         sourceArea: b.sourceArea ?? (b.notes?.startsWith("Agenda ambulatorio:") ? "ambulatorio" : "laboratorio"),
@@ -394,6 +421,11 @@ export function AccettazionePaziente({
     cancelled: visits.filter((v) => v.status === "cancelled").length,
   }), [visits]);
 
+  const unpaidCompletedCount = React.useMemo(
+    () => visits.filter((v) => v.status === "completed" && v.paymentStatus === "unpaid").length,
+    [visits],
+  );
+
   const updateVisitStatus = async (visit: Visit, newStatus: BookingStatus) => {
     setLoadingVisitKey(visit.key);
     try {
@@ -401,6 +433,16 @@ export function AccettazionePaziente({
         const updatedAppointment = {
           ...visit.agendaAppointment,
           stato: mapBookingStatusToAgendaStatus(newStatus),
+          paymentStatus: normalizePaymentStatus(
+            visit.agendaAppointment.paymentStatus ??
+              visit.agendaAppointment.statoPagamento ??
+              visit.agendaAppointment.pagata,
+          ),
+          statoPagamento: normalizePaymentStatus(
+            visit.agendaAppointment.statoPagamento ??
+              visit.agendaAppointment.paymentStatus ??
+              visit.agendaAppointment.pagata,
+          ),
         };
         const response = await fetch("/api/agenda-appointments", {
           method: "POST",
@@ -418,6 +460,43 @@ export function AccettazionePaziente({
       }
     } finally {
       setLoadingVisitKey(null);
+    }
+  };
+
+  const updateVisitPaymentStatus = async (visit: Visit, paymentStatus: PaymentStatus) => {
+    setLoadingPaymentVisitKey(visit.key);
+    try {
+      const response = await fetch("/api/payments-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: visit.kind === "agenda" ? "agenda" : "laboratorio",
+          id: visit.id,
+          paymentStatus,
+        }),
+      });
+      if (!response.ok) throw new Error("Aggiornamento pagamento non riuscito");
+
+      if (visit.kind === "agenda" && visit.agendaAppointment) {
+        const paidAt = paymentStatus === "paid" ? new Date().toISOString() : null;
+        setAgendaAppointments((current) =>
+          current.map((appointment) =>
+            appointment.id === visit.agendaAppointment?.id
+              ? {
+                  ...appointment,
+                  paymentStatus,
+                  statoPagamento: paymentStatus,
+                  pagata: paymentStatus === "paid",
+                  paidAt,
+                }
+              : appointment,
+          ),
+        );
+      } else {
+        await refetch();
+      }
+    } finally {
+      setLoadingPaymentVisitKey(null);
     }
   };
 
@@ -478,7 +557,7 @@ export function AccettazionePaziente({
             { label: "Da accettare", value: counts.confirmed, color: "text-amber-600", bg: "bg-amber-50 border-amber-200" },
             { label: "Accettati", value: counts.accepted, color: "text-blue-600", bg: "bg-blue-50 border-blue-200" },
             { label: "Completati", value: counts.completed, color: "text-green-600", bg: "bg-green-50 border-green-200" },
-            { label: "Annullati", value: counts.cancelled, color: "text-red-500", bg: "bg-red-50 border-red-200" },
+            { label: "Da saldare", value: unpaidCompletedCount, color: "text-rose-600", bg: "bg-rose-50 border-rose-200" },
           ].map((s) => (
             <div key={s.label} className={`rounded-lg border px-4 py-3 ${s.bg}`}>
               <p className="text-xs text-muted-foreground mb-0.5">{s.label}</p>
@@ -556,6 +635,7 @@ export function AccettazionePaziente({
               role={role}
               isLoading={loadingVisitKey === visit.key}
               onUpdateStatus={updateVisitStatus}
+              onUpdatePaymentStatus={updateVisitPaymentStatus}
               onEditBilling={() => setBillingVisit(visit)}
               showBilling={role === "segreteria"}
               onOpenTodo={
@@ -566,6 +646,7 @@ export function AccettazionePaziente({
               onPrintReferto={!isAmbulatorio && visit.status === "completed" ? () => handlePrintReferto(visit) : undefined}
               onEditReferto={!isAmbulatorio && role === "laboratorio" && visit.status === "completed" ? () => setRefertaVisit(visit) : undefined}
               canComplete={isAmbulatorio ? true : visit.refertiCount >= visit.expectedRefertiCount && visit.examIds.length > 0}
+              paymentLoading={loadingPaymentVisitKey === visit.key}
             />
           ))}
         </div>
@@ -718,7 +799,9 @@ function VisitCard({
   visit,
   role,
   isLoading,
+  paymentLoading,
   onUpdateStatus,
+  onUpdatePaymentStatus,
   onEditBilling,
   showBilling = true,
   onOpenTodo,
@@ -729,7 +812,9 @@ function VisitCard({
   visit: Visit;
   role?: string;
   isLoading: boolean;
+  paymentLoading?: boolean;
   onUpdateStatus: (visit: Visit, status: BookingStatus) => void;
+  onUpdatePaymentStatus: (visit: Visit, status: PaymentStatus) => void;
   onEditBilling: () => void;
   showBilling?: boolean;
   onOpenTodo?: () => void;
@@ -776,6 +861,7 @@ function VisitCard({
                   {visit.firstName} {visit.lastName}
                 </button>
                 <StatusBadge status={visit.status} />
+                <PaymentBadge status={visit.paymentStatus} />
                 {role === "laboratorio" && visit.sourceArea === "ambulatorio" && (
                   <Badge className="bg-violet-100 text-violet-700 border-violet-200 hover:bg-violet-100">
                     Da ambulatorio
@@ -884,6 +970,26 @@ function VisitCard({
                   <CheckCircle2 className="h-4 w-4" />
                   {isAmbulatorioVisit ? "Prestazione eseguita" : "Esami eseguiti"}
                 </span>
+                {role === "segreteria" && (
+                  <Button
+                    size="sm"
+                    variant={visit.paymentStatus === "paid" ? "outline" : "default"}
+                    className={`gap-1.5 h-7 text-xs ${
+                      visit.paymentStatus === "paid"
+                        ? "text-muted-foreground"
+                        : "bg-emerald-600 text-white hover:bg-emerald-700"
+                    }`}
+                    disabled={paymentLoading}
+                    onClick={() => onUpdatePaymentStatus(visit, visit.paymentStatus === "paid" ? "unpaid" : "paid")}
+                  >
+                    <Euro className="h-3.5 w-3.5" />
+                    {paymentLoading
+                      ? "Aggiorno..."
+                      : visit.paymentStatus === "paid"
+                        ? "Rimetti non pagato"
+                        : "Segna pagato"}
+                  </Button>
+                )}
                 {role === "laboratorio" && onEditReferto && (
                   <Button
                     size="sm"

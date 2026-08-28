@@ -4,6 +4,12 @@ import { bookingsTable, bookingExamsTable, examsTable, patientsTable, refertiTab
 import { eq, desc, inArray, or, and, isNotNull, sql } from "drizzle-orm";
 import { CreateBookingBody, GetBookingParams } from "@workspace/api-zod";
 import { requireAnyPermission } from "../lib/auth";
+import {
+  ensureBookingPaymentColumns,
+  isPaymentStatus,
+  normalizePaymentStatus,
+  type PaymentStatusValue,
+} from "../lib/bookingPayments";
 
 const router = Router();
 const VALID_BOOKING_STATUSES = ["confirmed", "pending", "accepted", "completed", "cancelled"] as const;
@@ -13,6 +19,9 @@ const requireBookingAccess = requireAnyPermission([
   "ambulatorio.accettazione",
   "laboratorio.agenda",
   "ambulatorio.agenda",
+]);
+const requireBookingPaymentAccess = requireAnyPermission([
+  "cassa",
 ]);
 const PUBLIC_BOOKING_WINDOW_MS = 15 * 60 * 1000;
 const PUBLIC_BOOKING_MAX_PER_WINDOW = Number(process.env["PUBLIC_BOOKING_MAX_PER_WINDOW"] ?? 12);
@@ -51,6 +60,7 @@ const isContainerExamType = (tipo: unknown) =>
   typeof tipo === "string" && CONTAINER_EXAM_TYPES.has(tipo);
 
 async function persistBookingStatus(id: number, status: BookingStatusValue) {
+  await ensureBookingPaymentColumns();
   const existing = await db
     .select()
     .from(bookingsTable)
@@ -66,7 +76,31 @@ async function persistBookingStatus(id: number, status: BookingStatusValue) {
   return formatBooking(id);
 }
 
+async function persistBookingPaymentStatus(id: number, paymentStatus: PaymentStatusValue) {
+  await ensureBookingPaymentColumns();
+  const existing = await db
+    .select()
+    .from(bookingsTable)
+    .where(eq(bookingsTable.id, id))
+    .limit(1);
+
+  if (existing.length === 0) {
+    return null;
+  }
+
+  await db
+    .update(bookingsTable)
+    .set({
+      paymentStatus,
+      paidAt: paymentStatus === "paid" ? new Date() : null,
+    })
+    .where(eq(bookingsTable.id, id));
+
+  return formatBooking(id);
+}
+
 async function formatBooking(bookingId: number) {
+  await ensureBookingPaymentColumns();
   const booking = await db
     .select()
     .from(bookingsTable)
@@ -75,12 +109,13 @@ async function formatBooking(bookingId: number) {
   if (!booking[0]) return null;
 
   const examLinks = await db
-    .select({ examId: bookingExamsTable.examId, descrizione: examsTable.descrizione })
+    .select({ examId: bookingExamsTable.examId, descrizione: examsTable.descrizione, importo: examsTable.importo })
     .from(bookingExamsTable)
     .leftJoin(examsTable, eq(bookingExamsTable.examId, examsTable.id))
     .where(eq(bookingExamsTable.bookingId, bookingId));
 
   const b = booking[0];
+  const amountDue = examLinks.reduce((sum, e) => sum + (Number(e.importo) || 0), 0);
   return {
     id: b.id,
     examIds: examLinks.map((e) => e.examId),
@@ -96,12 +131,16 @@ async function formatBooking(bookingId: number) {
     phone: b.phone,
     notes: b.notes,
     status: b.status,
+    paymentStatus: normalizePaymentStatus(b.paymentStatus),
+    paidAt: b.paidAt ? b.paidAt.toISOString() : null,
+    amountDue,
     createdAt: b.createdAt.toISOString(),
   };
 }
 
 router.get("/bookings", requireBookingAccess, async (req, res) => {
   try {
+    await ensureBookingPaymentColumns();
     const bookings = await db
       .select()
       .from(bookingsTable)
@@ -118,15 +157,21 @@ router.get("/bookings", requireBookingAccess, async (req, res) => {
         examId: bookingExamsTable.examId,
         descrizione: examsTable.descrizione,
         tipo: examsTable.tipo,
+        importo: examsTable.importo,
       })
       .from(bookingExamsTable)
       .leftJoin(examsTable, eq(bookingExamsTable.examId, examsTable.id))
       .where(inArray(bookingExamsTable.bookingId, bookingIds));
 
-    const examsByBooking = new Map<number, { examId: number; descrizione: string; tipo: string }[]>();
+    const examsByBooking = new Map<number, { examId: number; descrizione: string; tipo: string; importo: string | null }[]>();
     for (const link of examLinks) {
       if (!examsByBooking.has(link.bookingId)) examsByBooking.set(link.bookingId, []);
-      examsByBooking.get(link.bookingId)!.push({ examId: link.examId, descrizione: link.descrizione ?? "Esame", tipo: link.tipo ?? "singolo" });
+      examsByBooking.get(link.bookingId)!.push({
+        examId: link.examId,
+        descrizione: link.descrizione ?? "Esame",
+        tipo: link.tipo ?? "singolo",
+        importo: link.importo,
+      });
     }
 
     const packageExamIds = examLinks.filter((e) => isContainerExamType(e.tipo)).map((e) => e.examId);
@@ -168,6 +213,9 @@ router.get("/bookings", requireBookingAccess, async (req, res) => {
         phone: b.phone,
         notes: b.notes,
         status: b.status,
+        paymentStatus: normalizePaymentStatus(b.paymentStatus),
+        paidAt: b.paidAt ? b.paidAt.toISOString() : null,
+        amountDue: exams.reduce((sum, e) => sum + (Number(e.importo) || 0), 0),
         createdAt: b.createdAt.toISOString(),
         refertiCount: refertiByBooking.get(b.id) ?? 0,
         expectedRefertiCount,
@@ -190,6 +238,7 @@ router.post("/bookings", publicBookingRateLimit, async (req, res) => {
   const data = parsed.data;
 
   try {
+    await ensureBookingPaymentColumns();
     const exams = await db
       .select()
       .from(examsTable)
@@ -216,6 +265,7 @@ router.post("/bookings", publicBookingRateLimit, async (req, res) => {
         phone: data.phone,
         notes: data.notes ?? null,
         status: "confirmed",
+        paymentStatus: "unpaid",
       })
       .returning();
 
@@ -316,6 +366,52 @@ router.post("/bookings-status", requireBookingAccess, async (req, res) => {
     return res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to update booking status");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/bookings/:id/payment-status", requireBookingPaymentAccess, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: "Invalid booking ID" });
+  }
+
+  const { paymentStatus } = req.body as { paymentStatus?: unknown };
+  if (!isPaymentStatus(paymentStatus)) {
+    return res.status(400).json({ error: "Invalid payment status" });
+  }
+
+  try {
+    const result = await persistBookingPaymentStatus(id, paymentStatus);
+    if (!result) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+    return res.json(result);
+  } catch (err) {
+    req.log.error({ err }, "Failed to update booking payment status");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/bookings-payment-status", requireBookingPaymentAccess, async (req, res) => {
+  const { id: rawId, paymentStatus } = req.body as { id?: unknown; paymentStatus?: unknown };
+  const id = Number(rawId);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: "Invalid booking ID" });
+  }
+
+  if (!isPaymentStatus(paymentStatus)) {
+    return res.status(400).json({ error: "Invalid payment status" });
+  }
+
+  try {
+    const result = await persistBookingPaymentStatus(id, paymentStatus);
+    if (!result) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+    return res.json(result);
+  } catch (err) {
+    req.log.error({ err }, "Failed to update booking payment status");
     return res.status(500).json({ error: "Internal server error" });
   }
 });
