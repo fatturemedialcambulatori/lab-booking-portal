@@ -38,7 +38,7 @@ pnpm dev:frontend
 
 URL locali predefiniti:
 
-- Backend: `http://127.0.0.1:5000`
+- Backend: `http://127.0.0.1:5100`
 - Frontend: `http://localhost:3000`
 
 ## Variabili
@@ -46,6 +46,7 @@ URL locali predefiniti:
 Backend:
 
 - `DATABASE_URL`
+- `HOST`
 - `DATABASE_POOL_MAX`
 - `DATABASE_SSL_REJECT_UNAUTHORIZED`
 - `SUPABASE_URL`
