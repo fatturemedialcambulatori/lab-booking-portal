@@ -6,8 +6,11 @@ tmp
 out-tsc
 .next/
 frontend/.next/
-/public/
 backend/public/
+backend/local-imports/
+backend/**/node_modules/
+frontend/**/node_modules/
+/public/
 *.tsbuildinfo
 .expo
 .expo-shared
@@ -52,6 +55,8 @@ Thumbs.db
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
-# Replit
+# Legacy local caches
 .cache/
 .local/
+artifacts/
+attached_assets/

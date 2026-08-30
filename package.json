@@ -9,8 +9,8 @@
     "dev:backend": "pnpm --filter @medicaldesk/backend run dev",
     "dev:frontend": "pnpm --filter @medicaldesk/frontend run dev",
     "build": "pnpm run typecheck && pnpm --filter @medicaldesk/backend --filter @medicaldesk/frontend run build",
-    "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter @medicaldesk/backend --filter @medicaldesk/frontend --filter @workspace/scripts --if-present run typecheck"
+    "typecheck:packages": "tsc --build",
+    "typecheck": "pnpm run typecheck:packages && pnpm -r --filter @medicaldesk/backend --filter @medicaldesk/frontend --filter @medicaldesk/scripts --if-present run typecheck"
   },
   "private": true,
   "devDependencies": {

@@ -28,31 +28,23 @@
 minimumReleaseAge: 1440
 
 minimumReleaseAgeExclude:
-  # Exclude @replit scoped packages from the minimum release age check.
-  # These are published by Replit and trusted — the supply-chain attack vector
-  # this setting guards against does not apply to our own packages.
-  - '@replit/*'
+  # Keep this list narrow and temporary when an urgent package update is needed.
   - stripe-replit-sync
 
 packages:
   - backend
   - frontend
-  - artifacts/*
-  - lib/*
-  - lib/integrations/*
-  - scripts
+  - backend/api-spec
+  - backend/packages/*
+  - backend/scripts
+  - frontend/packages/*
 
 catalog:
   '@tailwindcss/postcss': ^4.1.14
-  '@replit/vite-plugin-cartographer': ^0.5.21
-  '@replit/vite-plugin-dev-banner': ^0.1.1
-  '@replit/vite-plugin-runtime-error-modal': ^0.0.6
-  '@tailwindcss/vite': ^4.1.14
   '@tanstack/react-query': ^5.90.21
   '@types/node': ^25.3.3
   '@types/react': ^19.2.0
   '@types/react-dom': ^19.2.0
-  '@vitejs/plugin-react': ^5.0.4
   class-variance-authority: ^0.7.1
   clsx: ^2.1.1
   drizzle-orm: ^0.45.2
@@ -66,7 +58,6 @@ catalog:
   tailwind-merge: ^3.3.1
   tailwindcss: ^4.1.14
   tsx: ^4.21.0
-  vite: ^7.3.2
   wouter: ^3.3.5
   zod: ^3.25.76
 
@@ -80,7 +71,7 @@ onlyBuiltDependencies:
 
 overrides:
   # Keep macOS native packages available for local development; exclude the
-  # remaining platforms to preserve the lean Replit/Linux install profile.
+  # remaining platforms to preserve a lean install profile.
   "esbuild>@esbuild/freebsd-arm64": "-"
   "esbuild>@esbuild/freebsd-x64": "-"
   "esbuild>@esbuild/linux-arm": "-"

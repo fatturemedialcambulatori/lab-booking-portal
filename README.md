@@ -5,9 +5,13 @@ Gestionale medico interno per M Medical, organizzato per due sedi operative: Mod
 ## Struttura
 
 - `backend/`: API Express in Node.js/TypeScript. E il confine di sicurezza: legge `DATABASE_URL`, Supabase, sessioni, ruoli, upload, log e integrazioni future.
+- `backend/packages/db`: schema e accesso Postgres/Supabase via Drizzle.
+- `backend/packages/api-zod`: validazioni generate dagli schemi OpenAPI.
+- `backend/api-spec`: specifica OpenAPI e generazione client/validator.
+- `backend/scripts`: script operativi e migrazioni locali.
+- `backend/supabase`: SQL di inizializzazione/migrazione.
 - `frontend/`: frontend Next.js App Router. Consuma solo API backend e usa solo variabili pubbliche `NEXT_PUBLIC_*`.
-- `lib/`: librerie workspace condivise, inclusi schema DB, client API generato e validazioni.
-- `supabase/`: script SQL di inizializzazione/migrazione.
+- `frontend/packages/api-client-react`: client React Query generato dalle API backend.
 
 ## Ambiente locale
 

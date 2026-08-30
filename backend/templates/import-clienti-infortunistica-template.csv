@@ -1,0 +1,4 @@
+nome;codiceFiscale;telefono;email;indirizzo;luogoNascita;dataNascita;compagnia;numeroSinistro;dataSinistro;referente;statoPratica;tipoCertificato;emissioneCertificato;prognosiGiorni;scadenzaCertificato;statoCertificato;noteCertificato
+Mario Rossi;RSSMRA80A01F257X;3331234567;mario.rossi@email.it;Via Emilia 120, Modena;Modena;1980-01-01;UnipolSai;US-2026-1044;2026-07-02;Avv. Bianchi;aperta;Primo certificato PS;2026-07-02;7;2026-07-09;caricato;Certificato iniziale dopo sinistro
+Mario Rossi;RSSMRA80A01F257X;3331234567;mario.rossi@email.it;Via Emilia 120, Modena;Modena;1980-01-01;UnipolSai;US-2026-1044;2026-07-02;Avv. Bianchi;aperta;Prosecuzione malattia;2026-07-10;5;2026-07-15;da-caricare;Da richiedere al cliente
+Laura Ferri;FRRLRU78C44I462Q;3499988776;laura.ferri@email.it;Via Radici 18, Sassuolo;Sassuolo;1978-03-04;Allianz;ALZ-7712;2026-07-08;Avv. Costa;aperta;;;;;;
