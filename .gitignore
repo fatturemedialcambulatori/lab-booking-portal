@@ -4,8 +4,10 @@
 dist
 tmp
 out-tsc
+.next/
+frontend/.next/
 /public/
-artifacts/api-server/public/
+backend/public/
 *.tsbuildinfo
 .expo
 .expo-shared

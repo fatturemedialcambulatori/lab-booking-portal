@@ -1,0 +1,78 @@
+# Deployment
+
+Vercel deployment is intentionally not finalized in this restructuring step.
+The local production shape is now `backend/` for the API and `frontend/` for the
+Next.js app.
+
+Historical notes below refer to the old artifact-based deployment and should be
+revisited before a new production release.
+
+Frontend account-management changes should include a small project-root change
+when the Vercel project is configured with this directory as its root.
+
+Frontend infortunistica changes also need this root marker updated for Vercel's
+affected-project detection.
+
+Latest infortunistica editability changes are reflected here so Vercel rebuilds
+the API-root project when the frontend admin bundle changes.
+
+Latest infortunistica certificate export and menu placement changes are also
+reflected here for Vercel affected-project detection.
+
+Latest doctor price-list searchable dropdown changes are reflected here so the
+API-root Vercel project rebuilds with the updated frontend bundle.
+
+Latest Supabase Storage certificate upload routes and frontend integration are
+reflected here for the same Vercel affected-project detection.
+
+Latest lawyer-only infortunistica account access changes are reflected here so
+the API-root deployment rebuilds the admin frontend.
+
+Latest active-only infortunistica practice filtering and delete-practice actions
+are reflected here for Vercel affected-project detection.
+
+Latest patient registry cache invalidation fixes are reflected here so new
+patients appear immediately after saving in the admin frontend.
+
+Latest infortunistica printable procura alle liti PDF generation is reflected
+here for Vercel affected-project detection.
+
+Latest API JSON body limit update prevents admin settings saves from failing
+when doctor price lists grow beyond the default Express payload size.
+
+Latest CSV import compatibility and admin-settings error-detail changes are
+reflected here for Vercel affected-project detection.
+
+Latest patient bulk import diagnostics and chunked upload changes are reflected
+here for Vercel affected-project detection.
+
+Latest patient bulk import route update switches the frontend to the single
+segment /api/patients-bulk endpoint for Vercel routing compatibility.
+
+Latest patient bulk import performance update batches duplicate checks and
+inserts to avoid Vercel function timeouts on large CSV files.
+
+Latest patient list performance update limits /api/patients responses and moves
+Anagrafiche search to server-side filtering for large imported datasets.
+
+Latest Anagrafiche update adds client pagination controls over the limited
+server-side patient list.
+
+Latest CRM fixes add single-segment infortunistica certificate file endpoints
+and draft-based prestazioni edit unlock/save controls.
+
+Latest infortunistica upload fix moves certificate file transfer to a query-id
+single-segment endpoint for Vercel routing.
+
+Latest agenda UI update changes the admin agenda to a day-by-doctor scheduler
+with mini calendar, agenda filters, and doctor columns.
+
+Latest settings update adds explicit edit/save flows for doctor details, doctor
+agenda time ranges, agenda exceptions, and doctor price list rows.
+
+Latest agenda settings update loads doctors, specializations, services, and
+availability slots from admin settings instead of hardcoded demo doctors, and
+adds the available-hours agenda view.
+
+Latest agenda interaction update opens doctor profiles from agenda doctor clicks
+and filters "Lavorano oggi" by configured availability.

@@ -1,0 +1,1187 @@
+import express, { Router, type RequestHandler } from "express";
+import { eq } from "drizzle-orm";
+import { adminSettingsTable, db } from "@workspace/db";
+import { hasPermission, requireAnyPermission } from "../lib/auth";
+
+const router = Router();
+
+const STATE_KEY = "cassa-state";
+const DEFAULT_BUCKET = "certificati-infortunistica";
+const MAX_FILE_BYTES = 50 * 1024 * 1024;
+const CASSA_DOCUMENT_TYPES = ["fatturato", "pos"] as const;
+const CASSA_TRASH_LIMIT = 80;
+const STORAGE_ALLOWED_MIME_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+];
+
+type CassaDocument = {
+  id: string;
+  data: string;
+  sedeId: string;
+  tipo: string;
+  bucket: string;
+  storagePath: string;
+  fileName: string;
+  fileUrl?: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+};
+
+type CassaState = {
+  giorni?: unknown[];
+  spese?: unknown[];
+  documenti?: CassaDocument[];
+  cestino?: unknown[];
+};
+
+type CassaRecord = Record<string, unknown>;
+type CassaDeletedClosure = {
+  id: string;
+  deletedAt: string;
+  sedeId: string;
+  data: string;
+  giorni: CassaRecord[];
+  spese: CassaRecord[];
+  documenti: CassaDocument[];
+};
+
+const cleanEnv = (value: string | undefined) => value?.trim().replace(/^(['"])(.*)\1$/, "$2");
+
+const deriveSupabaseUrl = () => {
+  const explicitUrl = cleanEnv(process.env.SUPABASE_URL);
+  if (explicitUrl) return explicitUrl.replace(/\/$/, "");
+
+  const databaseUrl = cleanEnv(process.env.DATABASE_URL);
+  const projectRef = databaseUrl?.match(/postgres\.([a-z0-9]+):/i)?.[1];
+  return projectRef ? `https://${projectRef}.supabase.co` : "";
+};
+
+const getStorageConfig = () => {
+  const supabaseUrl = deriveSupabaseUrl();
+  const serviceRoleKey = cleanEnv(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const bucket = cleanEnv(process.env.SUPABASE_STORAGE_BUCKET) || DEFAULT_BUCKET;
+
+  if (!supabaseUrl || !serviceRoleKey) return null;
+  return { supabaseUrl, serviceRoleKey, bucket };
+};
+
+const storageHeaders = (serviceRoleKey: string, extra?: Record<string, string>) => ({
+  apikey: serviceRoleKey,
+  Authorization: `Bearer ${serviceRoleKey}`,
+  ...extra,
+});
+
+const sanitizeSegment = (value: string, fallback: string) => {
+  const cleaned = decodeURIComponent(value || "")
+    .normalize("NFKD")
+    .replace(/[^\w.\-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 90);
+
+  return cleaned || fallback;
+};
+
+const readHeader = (value: string | string[] | undefined, fallback = "") =>
+  Array.isArray(value) ? value[0] ?? fallback : value ?? fallback;
+
+const readQueryValue = (value: unknown, fallback = ""): string => {
+  if (Array.isArray(value)) return readQueryValue(value[0], fallback);
+  return typeof value === "string" ? value : fallback;
+};
+
+const readBodyString = (value: unknown, fallback = "") =>
+  typeof value === "string" && value.trim() ? value.trim() : fallback;
+
+const readBodyNumber = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const readUnknownString = (value: unknown, fallback = "") =>
+  typeof value === "string" && value.trim() ? value.trim() : fallback;
+
+const readUnknownNumber = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeSedeId = (value: string) => value.trim().toLocaleLowerCase("it-IT");
+
+const canAccessCassaSede = (req: Parameters<RequestHandler>[0], sedeId: string) => {
+  const normalized = normalizeSedeId(sedeId);
+  if (hasPermission(req, "cassa")) return true;
+  if (normalized === "modena") return hasPermission(req, "cassa.modena");
+  if (normalized === "sassuolo") return hasPermission(req, "cassa.sassuolo");
+  return false;
+};
+
+const rejectCassaSede = (req: Parameters<RequestHandler>[0], res: Parameters<RequestHandler>[1], sedeId: string) => {
+  if (canAccessCassaSede(req, sedeId)) return false;
+  res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+  return true;
+};
+
+const inferContentType = (fileName: string, providedType: string) => {
+  if (providedType && providedType !== "application/octet-stream") return providedType;
+
+  const lowerName = fileName.toLowerCase();
+  if (lowerName.endsWith(".pdf")) return "application/pdf";
+  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg";
+  if (lowerName.endsWith(".png")) return "image/png";
+
+  return "application/octet-stream";
+};
+
+const isAllowedStorageContentType = (contentType: string) =>
+  STORAGE_ALLOWED_MIME_TYPES.includes(contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "");
+
+const splitBuffer = (buffer: Buffer, separator: Buffer) => {
+  const chunks: Buffer[] = [];
+  let position = 0;
+  let index = buffer.indexOf(separator, position);
+
+  while (index !== -1) {
+    chunks.push(buffer.subarray(position, index));
+    position = index + separator.length;
+    index = buffer.indexOf(separator, position);
+  }
+
+  chunks.push(buffer.subarray(position));
+  return chunks;
+};
+
+const parseDisposition = (value: string | undefined) => {
+  const result: Record<string, string> = {};
+  if (!value) return result;
+
+  value.split(";").forEach((part) => {
+    const [rawKey, ...rawValue] = part.trim().split("=");
+    if (!rawKey || rawValue.length === 0) return;
+    result[rawKey.toLowerCase()] = rawValue.join("=").trim().replace(/^"|"$/g, "");
+  });
+
+  return result;
+};
+
+const parseMultipartUpload = (body: Buffer, contentType: string) => {
+  const boundary = contentType.match(/boundary=([^;]+)/i)?.[1]?.replace(/^"|"$/g, "");
+  if (!boundary) return null;
+
+  const fields: Record<string, string> = {};
+  const files: Array<{ body: Buffer; fileName: string; contentType: string }> = [];
+
+  splitBuffer(body, Buffer.from(`--${boundary}`)).forEach((rawPart) => {
+    let part = rawPart;
+    if (part.subarray(0, 2).toString() === "\r\n") part = part.subarray(2);
+    if (part.subarray(0, 2).toString() === "--" || part.length === 0) return;
+
+    const headerEnd = part.indexOf(Buffer.from("\r\n\r\n"));
+    if (headerEnd === -1) return;
+
+    const headerLines = part.subarray(0, headerEnd).toString("utf8").split("\r\n");
+    const headers = new Map<string, string>();
+    headerLines.forEach((line) => {
+      const separator = line.indexOf(":");
+      if (separator === -1) return;
+      headers.set(line.slice(0, separator).trim().toLowerCase(), line.slice(separator + 1).trim());
+    });
+
+    let partBody = part.subarray(headerEnd + 4);
+    if (partBody.subarray(-2).toString() === "\r\n") partBody = partBody.subarray(0, -2);
+
+    const disposition = parseDisposition(headers.get("content-disposition"));
+    const name = disposition.name;
+    if (!name) return;
+
+    if (disposition.filename) {
+      files.push({
+        body: partBody,
+        fileName: disposition.filename,
+        contentType: headers.get("content-type") ?? "application/octet-stream",
+      });
+      return;
+    }
+
+    fields[name] = partBody.toString("utf8");
+  });
+
+  const file = files[0];
+  if (!file) return null;
+  return {
+    body: file.body,
+    fileName: file.fileName,
+    contentType: file.contentType,
+    fields,
+  };
+};
+
+const isCassaDocument = (value: unknown): value is CassaDocument => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Partial<CassaDocument>;
+  return (
+    typeof item.id === "string" &&
+    typeof item.data === "string" &&
+    typeof item.sedeId === "string" &&
+    typeof item.tipo === "string" &&
+    typeof item.bucket === "string" &&
+    typeof item.storagePath === "string" &&
+    typeof item.fileName === "string" &&
+    typeof item.contentType === "string" &&
+    typeof item.sizeBytes === "number" &&
+    typeof item.uploadedAt === "string"
+  );
+};
+
+const isCassaRecord = (value: unknown): value is CassaRecord =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const readRecordString = (record: CassaRecord, key: string) => {
+  const value = record[key];
+  return typeof value === "string" ? value : "";
+};
+
+const cassaRecordKey = (record: CassaRecord, index: number, kind: string) => {
+  const id = readRecordString(record, "id");
+  if (id) return id;
+
+  const sedeId = readRecordString(record, "sedeId");
+  const data = readRecordString(record, "data");
+  if (sedeId && data) return `${kind}-${sedeId}-${data}`;
+
+  return `${kind}-${index}`;
+};
+
+const mergeCassaRecords = (current: unknown[] | undefined, incoming: unknown[] | undefined, kind: string) => {
+  const currentRecords = Array.isArray(current) ? current.filter(isCassaRecord) : [];
+  const incomingRecords = Array.isArray(incoming) ? incoming.filter(isCassaRecord) : [];
+  const incomingKeys = new Set(incomingRecords.map((record, index) => cassaRecordKey(record, index, kind)));
+
+  return [
+    ...currentRecords.filter((record, index) => !incomingKeys.has(cassaRecordKey(record, index, kind))),
+    ...incomingRecords,
+  ];
+};
+
+const matchesSedeData = (record: CassaRecord, sedeId: string, data: string) =>
+  readRecordString(record, "sedeId") === sedeId && readRecordString(record, "data") === data;
+
+const normalizeDeletedClosures = (value: unknown): CassaDeletedClosure[] => {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const item = entry as Partial<CassaDeletedClosure>;
+    if (
+      typeof item.id !== "string" ||
+      typeof item.deletedAt !== "string" ||
+      typeof item.sedeId !== "string" ||
+      typeof item.data !== "string"
+    ) {
+      return [];
+    }
+
+    return [{
+      id: item.id,
+      deletedAt: item.deletedAt,
+      sedeId: item.sedeId,
+      data: item.data,
+      giorni: Array.isArray(item.giorni) ? item.giorni.filter(isCassaRecord) : [],
+      spese: Array.isArray(item.spese) ? item.spese.filter(isCassaRecord) : [],
+      documenti: Array.isArray(item.documenti) ? item.documenti.filter(isCassaDocument) : [],
+    }];
+  });
+};
+
+const mergeDeletedClosures = (current: unknown, incoming: unknown) => {
+  const currentItems = normalizeDeletedClosures(current);
+  const incomingItems = normalizeDeletedClosures(incoming);
+  const incomingIds = new Set(incomingItems.map((item) => item.id));
+
+  return [
+    ...currentItems.filter((item) => !incomingIds.has(item.id)),
+    ...incomingItems,
+  ].slice(-CASSA_TRASH_LIMIT);
+};
+
+const withFileUrl = (document: CassaDocument): CassaDocument => ({
+  ...document,
+  fileUrl: document.fileUrl ?? `/api/cassa-file-download?id=${encodeURIComponent(document.id)}`,
+});
+
+const filterCassaStateForRequest = (req: Parameters<RequestHandler>[0], state: CassaState): CassaState => {
+  if (hasPermission(req, "cassa")) return state;
+
+  const canReadRecord = (record: CassaRecord) => canAccessCassaSede(req, readRecordString(record, "sedeId"));
+  const canReadDocument = (document: CassaDocument) => canAccessCassaSede(req, document.sedeId);
+
+  return {
+    ...state,
+    giorni: Array.isArray(state.giorni) ? state.giorni.filter(isCassaRecord).filter(canReadRecord) : [],
+    spese: Array.isArray(state.spese) ? state.spese.filter(isCassaRecord).filter(canReadRecord) : [],
+    documenti: Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument).filter(canReadDocument) : [],
+    cestino: normalizeDeletedClosures(state.cestino).filter((item) => canAccessCassaSede(req, item.sedeId)),
+  };
+};
+
+const cassaStateHasOnlyAllowedSedi = (req: Parameters<RequestHandler>[0], state: CassaState) => {
+  const records = [
+    ...(Array.isArray(state.giorni) ? state.giorni.filter(isCassaRecord) : []),
+    ...(Array.isArray(state.spese) ? state.spese.filter(isCassaRecord) : []),
+  ];
+  const documents = Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument) : [];
+  const deleted = normalizeDeletedClosures(state.cestino);
+
+  return (
+    records.every((record) => canAccessCassaSede(req, readRecordString(record, "sedeId"))) &&
+    documents.every((document) => canAccessCassaSede(req, document.sedeId)) &&
+    deleted.every((item) => canAccessCassaSede(req, item.sedeId))
+  );
+};
+
+const decodeBase64File = (value: string, fallbackContentType: string) => {
+  const match = value.match(/^data:([^;]+);base64,(.+)$/);
+  if (match) {
+    return {
+      contentType: match[1] || fallbackContentType,
+      body: Buffer.from(match[2] || "", "base64"),
+    };
+  }
+
+  return {
+    contentType: fallbackContentType,
+    body: Buffer.from(value, "base64"),
+  };
+};
+
+const loadCassaState = async (): Promise<CassaState> => {
+  const [settings] = await db
+    .select()
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.key, STATE_KEY))
+    .limit(1);
+
+  return settings?.value && typeof settings.value === "object" && !Array.isArray(settings.value)
+    ? (settings.value as CassaState)
+    : { giorni: [], spese: [], documenti: [], cestino: [] };
+};
+
+const saveCassaState = async (state: CassaState): Promise<CassaState> => {
+  const now = new Date();
+  const [settings] = await db
+    .insert(adminSettingsTable)
+    .values({
+      key: STATE_KEY,
+      value: state,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: adminSettingsTable.key,
+      set: {
+        value: state,
+        updatedAt: now,
+      },
+    })
+    .returning();
+
+  return settings.value as CassaState;
+};
+
+const ensureStorageBucket = async (config: NonNullable<ReturnType<typeof getStorageConfig>>) => {
+  const bucketResponse = await fetch(
+    `${config.supabaseUrl}/storage/v1/bucket/${encodeURIComponent(config.bucket)}`,
+    {
+      headers: storageHeaders(config.serviceRoleKey),
+    },
+  );
+
+  if (bucketResponse.ok) return;
+  if (bucketResponse.status !== 404) {
+    const message = await bucketResponse.text();
+    throw new Error(`Bucket check failed (${bucketResponse.status}): ${message}`);
+  }
+
+  const createResponse = await fetch(`${config.supabaseUrl}/storage/v1/bucket`, {
+    method: "POST",
+    headers: storageHeaders(config.serviceRoleKey, { "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      id: config.bucket,
+      name: config.bucket,
+      public: false,
+      file_size_limit: MAX_FILE_BYTES,
+      allowed_mime_types: STORAGE_ALLOWED_MIME_TYPES,
+    }),
+  });
+
+  if (!createResponse.ok && createResponse.status !== 400 && createResponse.status !== 409) {
+    const message = await createResponse.text();
+    throw new Error(`Bucket create failed (${createResponse.status}): ${message}`);
+  }
+};
+
+const buildDocument = ({
+  documentId,
+  sedeId,
+  data,
+  tipo,
+  bucket,
+  storagePath,
+  fileName,
+  contentType,
+  sizeBytes,
+  uploadedAt,
+}: {
+  documentId: string;
+  sedeId: string;
+  data: string;
+  tipo: string;
+  bucket: string;
+  storagePath: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt?: string;
+}): CassaDocument => ({
+  id: documentId,
+  data,
+  sedeId,
+  tipo,
+  bucket,
+  storagePath,
+  fileName,
+  fileUrl: `/api/cassa-file-download?id=${encodeURIComponent(documentId)}`,
+  contentType,
+  sizeBytes,
+  uploadedAt: uploadedAt ?? new Date().toISOString(),
+});
+
+const saveCassaDocument = async (document: CassaDocument) => {
+  const state = await loadCassaState();
+  const documenti = [
+    ...(Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument) : [])
+      .filter((item) => item.id !== document.id),
+    document,
+  ];
+
+  await saveCassaState({ ...state, documenti });
+  return withFileUrl(document);
+};
+
+type StorageObject = {
+  name?: string;
+  created_at?: string;
+  updated_at?: string;
+  metadata?: Record<string, unknown>;
+};
+
+const listStorageObjects = async (
+  config: NonNullable<ReturnType<typeof getStorageConfig>>,
+  prefix: string,
+): Promise<StorageObject[]> => {
+  const response = await fetch(
+    `${config.supabaseUrl}/storage/v1/object/list/${encodeURIComponent(config.bucket)}`,
+    {
+      method: "POST",
+      headers: storageHeaders(config.serviceRoleKey, { "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        prefix,
+        limit: 100,
+        offset: 0,
+        sortBy: { column: "updated_at", order: "desc" },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Storage list failed (${response.status}): ${message}`);
+  }
+
+  const data: unknown = await response.json();
+  return Array.isArray(data) ? data.filter((item): item is StorageObject => Boolean(item && typeof item === "object")) : [];
+};
+
+const recoverCassaDocumentsFromStorage = async (sedeId: string, data: string) => {
+  const config = getStorageConfig();
+  if (!config) {
+    throw new Error("Supabase Storage non configurato");
+  }
+
+  await ensureStorageBucket(config);
+
+  const recovered: CassaDocument[] = [];
+
+  for (const tipo of CASSA_DOCUMENT_TYPES) {
+    const prefix = ["cassa", sedeId, data, tipo].join("/");
+    const objects = await listStorageObjects(config, prefix);
+    const file = objects
+      .filter((item) => readUnknownString(item.name))
+      .sort((a, b) =>
+        readUnknownString(b.updated_at, readUnknownString(b.created_at))
+          .localeCompare(readUnknownString(a.updated_at, readUnknownString(a.created_at))),
+      )[0];
+
+    if (!file?.name) continue;
+
+    const storagePath = `${prefix}/${file.name}`;
+    const fileName = sanitizeSegment(file.name.replace(/^\d+-/, ""), "documento");
+    const metadata = file.metadata ?? {};
+    const contentType = inferContentType(fileName, readUnknownString(metadata["mimetype"], "application/octet-stream"));
+    const sizeBytes = readUnknownNumber(metadata["size"], 0);
+
+    recovered.push(buildDocument({
+      documentId: [sedeId, data, tipo].join("-"),
+      sedeId,
+      data,
+      tipo,
+      bucket: config.bucket,
+      storagePath,
+      fileName,
+      contentType,
+      sizeBytes,
+      uploadedAt: readUnknownString(file.updated_at, readUnknownString(file.created_at, new Date().toISOString())),
+    }));
+  }
+
+  return recovered;
+};
+
+const mergeCassaState = async (incoming: CassaState) => {
+  const current = await loadCassaState();
+  const currentDocuments = Array.isArray(current.documenti) ? current.documenti.filter(isCassaDocument) : [];
+  const incomingDocuments = Array.isArray(incoming.documenti) ? incoming.documenti.filter(isCassaDocument) : [];
+  const incomingIds = new Set(incomingDocuments.map((document) => document.id));
+
+  return {
+    ...incoming,
+    giorni: mergeCassaRecords(current.giorni, incoming.giorni, "giorno"),
+    spese: mergeCassaRecords(current.spese, incoming.spese, "spesa"),
+    documenti: [
+      ...currentDocuments.filter((document) => !incomingIds.has(document.id)),
+      ...incomingDocuments,
+    ],
+    cestino: mergeDeletedClosures(current.cestino, incoming.cestino),
+  };
+};
+
+const withPublicDocumentUrls = (state: CassaState): CassaState => ({
+  ...state,
+  documenti: Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument).map(withFileUrl) : [],
+  cestino: normalizeDeletedClosures(state.cestino).map((item) => ({
+    ...item,
+    documenti: item.documenti.map(withFileUrl),
+  })),
+});
+
+router.use(requireAnyPermission(["cassa", "cassa.modena", "cassa.sassuolo"]));
+
+router.get("/cassa-state", async (req, res) => {
+  try {
+    res.json(withPublicDocumentUrls(filterCassaStateForRequest(req, await loadCassaState())));
+  } catch (err) {
+    req.log.error({ err }, "Failed to load cassa state");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.put("/cassa-state", async (req, res) => {
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    res.status(400).json({ error: "Dati cassa non validi" });
+    return;
+  }
+
+  if (!cassaStateHasOnlyAllowedSedi(req, req.body as CassaState)) {
+    res.status(403).json({ error: "Permesso insufficiente per una o piu sedi" });
+    return;
+  }
+
+  try {
+    res.json(withPublicDocumentUrls(filterCassaStateForRequest(
+      req,
+      await saveCassaState(await mergeCassaState(req.body as CassaState)),
+    )));
+  } catch (err) {
+    req.log.error({ err }, "Failed to save cassa state");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+const uploadCassaFileJson: RequestHandler = async (req, res) => {
+  const config = getStorageConfig();
+  if (!config) {
+    res.status(503).json({
+      error: "Supabase Storage non configurato",
+      details: "Storage documenti non configurato nel backend.",
+    });
+    return;
+  }
+
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    res.status(400).json({ error: "Upload documento cassa non valido" });
+    return;
+  }
+
+  const documentId = sanitizeSegment(
+    readBodyString(req.body.documentId) || readHeader(req.params.documentId),
+    "documento",
+  );
+  const sedeId = sanitizeSegment(readBodyString(req.body.sedeId, "sede"), "sede");
+  const data = sanitizeSegment(readBodyString(req.body.data, new Date().toISOString().slice(0, 10)), "data");
+  const tipo = sanitizeSegment(readBodyString(req.body.tipo, "documento"), "documento");
+  const fileName = sanitizeSegment(readBodyString(req.body.fileName, "documento.pdf"), "documento.pdf");
+  const fallbackContentType = inferContentType(
+    fileName,
+    readBodyString(req.body.contentType, "application/octet-stream"),
+  );
+  const fileBase64 = readBodyString(req.body.fileBase64, "");
+  const reportedSize = readBodyNumber(req.body.sizeBytes, 0);
+
+  if (!fileBase64) {
+    res.status(400).json({ error: "File mancante" });
+    return;
+  }
+
+  if (reportedSize > MAX_FILE_BYTES) {
+    res.status(413).json({ error: "File troppo grande. Il piano Free consente massimo 50 MB per file." });
+    return;
+  }
+
+  const decodedFile = decodeBase64File(fileBase64, fallbackContentType);
+  if (decodedFile.body.length === 0) {
+    res.status(400).json({ error: "File mancante" });
+    return;
+  }
+
+  if (decodedFile.body.length > MAX_FILE_BYTES) {
+    res.status(413).json({ error: "File troppo grande. Il piano Free consente massimo 50 MB per file." });
+    return;
+  }
+
+  const contentType = inferContentType(fileName, decodedFile.contentType);
+  if (rejectCassaSede(req, res, sedeId)) return;
+  if (!isAllowedStorageContentType(contentType)) {
+    res.status(400).json({ error: "Tipo file non consentito. Usa PDF, JPG o PNG." });
+    return;
+  }
+
+  const storagePath = ["cassa", sedeId, data, tipo, `${Date.now()}-${fileName}`].join("/");
+
+  try {
+    await ensureStorageBucket(config);
+
+    const uploadResponse = await fetch(
+      `${config.supabaseUrl}/storage/v1/object/${config.bucket}/${encodeURI(storagePath)}`,
+      {
+        method: "POST",
+        headers: storageHeaders(config.serviceRoleKey, {
+          "Content-Type": contentType,
+          "Cache-Control": "3600",
+          "x-upsert": "true",
+        }),
+        body: decodedFile.body,
+      },
+    );
+
+    if (!uploadResponse.ok) {
+      const message = await uploadResponse.text();
+      req.log.error({ status: uploadResponse.status, message }, "Supabase Storage cassa JSON upload failed");
+      res.status(502).json({ error: "Upload Supabase Storage non riuscito" });
+      return;
+    }
+
+    const document = buildDocument({
+      documentId,
+      data,
+      sedeId,
+      tipo,
+      bucket: config.bucket,
+      storagePath,
+      fileName,
+      contentType,
+      sizeBytes: decodedFile.body.length,
+    });
+
+    res.json(await saveCassaDocument(document));
+  } catch (err) {
+    req.log.error({ err }, "Failed to upload cassa JSON document");
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+router.post("/cassa-file-upload", uploadCassaFileJson);
+router.post("/cassa-file-uploads/:documentId", uploadCassaFileJson);
+
+router.post("/cassa-file-delete", async (req, res) => {
+  const documentId = sanitizeSegment(readBodyString(req.body?.documentId), "documento");
+
+  try {
+    const state = await loadCassaState();
+    const existingDocument = (Array.isArray(state.documenti) ? state.documenti : [])
+      .filter(isCassaDocument)
+      .find((document) => document.id === documentId);
+    if (existingDocument && rejectCassaSede(req, res, existingDocument.sedeId)) return;
+
+    const documenti = (Array.isArray(state.documenti) ? state.documenti : [])
+      .filter(isCassaDocument)
+      .filter((document) => document.id !== documentId);
+
+    await saveCassaState({ ...state, documenti });
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete cassa document");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/cassa-spesa-delete", async (req, res) => {
+  const spesaId = sanitizeSegment(readBodyString(req.body?.spesaId), "spesa");
+
+  try {
+    const state = await loadCassaState();
+    const existingSpesa = (Array.isArray(state.spese) ? state.spese : [])
+      .filter(isCassaRecord)
+      .find((spesa) => readRecordString(spesa, "id") === spesaId);
+    if (existingSpesa && rejectCassaSede(req, res, readRecordString(existingSpesa, "sedeId"))) return;
+
+    const spese = (Array.isArray(state.spese) ? state.spese : [])
+      .filter(isCassaRecord)
+      .filter((spesa) => readRecordString(spesa, "id") !== spesaId);
+
+    res.json(withPublicDocumentUrls(filterCassaStateForRequest(req, await saveCassaState({ ...state, spese }))));
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete cassa expense");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/cassa-chiusura-delete", async (req, res) => {
+  const sedeId = sanitizeSegment(readBodyString(req.body?.sedeId), "sede");
+  const data = sanitizeSegment(readBodyString(req.body?.data), "data");
+  if (rejectCassaSede(req, res, sedeId)) return;
+
+  try {
+    const state = await loadCassaState();
+    const currentGiorni = (Array.isArray(state.giorni) ? state.giorni : []).filter(isCassaRecord);
+    const currentSpese = (Array.isArray(state.spese) ? state.spese : []).filter(isCassaRecord);
+    const currentDocumenti = (Array.isArray(state.documenti) ? state.documenti : []).filter(isCassaDocument);
+    const deletedGiorni = currentGiorni.filter((giorno) => matchesSedeData(giorno, sedeId, data));
+    const deletedSpese = currentSpese.filter((spesa) => matchesSedeData(spesa, sedeId, data));
+    const deletedDocumenti = currentDocumenti.filter((documento) => documento.sedeId === sedeId && documento.data === data);
+    const hasDeletedContent = deletedGiorni.length > 0 || deletedSpese.length > 0 || deletedDocumenti.length > 0;
+    const cestino = hasDeletedContent
+      ? [
+          ...normalizeDeletedClosures(state.cestino),
+          {
+            id: `cestino-${sedeId}-${data}-${Date.now()}`,
+            deletedAt: new Date().toISOString(),
+            sedeId,
+            data,
+            giorni: deletedGiorni,
+            spese: deletedSpese,
+            documenti: deletedDocumenti,
+          },
+        ].slice(-CASSA_TRASH_LIMIT)
+      : normalizeDeletedClosures(state.cestino);
+
+    res.json(withPublicDocumentUrls(filterCassaStateForRequest(req, await saveCassaState({
+      ...state,
+      giorni: currentGiorni.filter((giorno) => !matchesSedeData(giorno, sedeId, data)),
+      spese: currentSpese.filter((spesa) => !matchesSedeData(spesa, sedeId, data)),
+      documenti: currentDocumenti.filter((documento) => !(documento.sedeId === sedeId && documento.data === data)),
+      cestino,
+    }))));
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete cassa closure");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/cassa-chiusura-restore", async (req, res) => {
+  const trashId = sanitizeSegment(readBodyString(req.body?.trashId), "cestino");
+
+  try {
+    const state = await loadCassaState();
+    const cestino = normalizeDeletedClosures(state.cestino);
+    const closure = cestino.find((item) => item.id === trashId);
+    if (!closure) {
+      res.status(404).json({ error: "Chiusura eliminata non trovata" });
+      return;
+    }
+
+    const currentGiorni = (Array.isArray(state.giorni) ? state.giorni : []).filter(isCassaRecord);
+    const currentSpese = (Array.isArray(state.spese) ? state.spese : []).filter(isCassaRecord);
+    const currentDocumenti = (Array.isArray(state.documenti) ? state.documenti : []).filter(isCassaDocument);
+    const restoredDocumentIds = new Set(closure.documenti.map((documento) => documento.id));
+    if (rejectCassaSede(req, res, closure.sedeId)) return;
+
+    res.json(withPublicDocumentUrls(filterCassaStateForRequest(req, await saveCassaState({
+      ...state,
+      giorni: [
+        ...currentGiorni.filter((giorno) => !matchesSedeData(giorno, closure.sedeId, closure.data)),
+        ...closure.giorni,
+      ],
+      spese: [
+        ...currentSpese.filter((spesa) => !matchesSedeData(spesa, closure.sedeId, closure.data)),
+        ...closure.spese,
+      ],
+      documenti: [
+        ...currentDocumenti.filter((documento) => !restoredDocumentIds.has(documento.id)),
+        ...closure.documenti,
+      ],
+      cestino: cestino.filter((item) => item.id !== trashId),
+    }))));
+  } catch (err) {
+    req.log.error({ err }, "Failed to restore cassa closure");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/cassa-documents-recover", async (req, res) => {
+  const sedeId = sanitizeSegment(readBodyString(req.body?.sedeId), "sede");
+  const data = sanitizeSegment(readBodyString(req.body?.data), new Date().toISOString().slice(0, 10));
+  if (rejectCassaSede(req, res, sedeId)) return;
+
+  try {
+    const recovered = await recoverCassaDocumentsFromStorage(sedeId, data);
+    if (recovered.length === 0) {
+      res.json({
+        recovered: 0,
+        state: withPublicDocumentUrls(filterCassaStateForRequest(req, await loadCassaState())),
+      });
+      return;
+    }
+
+    const recoveredIds = new Set(recovered.map((documento) => documento.id));
+    const state = await loadCassaState();
+    const documenti = [
+      ...(Array.isArray(state.documenti) ? state.documenti.filter(isCassaDocument) : [])
+        .filter((documento) => !recoveredIds.has(documento.id)),
+      ...recovered,
+    ];
+    const saved = await saveCassaState({ ...state, documenti });
+
+    res.json({
+      recovered: recovered.length,
+      state: withPublicDocumentUrls(filterCassaStateForRequest(req, saved)),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to recover cassa documents");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+const uploadCassaFile: RequestHandler = async (req, res) => {
+  const config = getStorageConfig();
+  if (!config) {
+    res.status(503).json({
+      error: "Supabase Storage non configurato",
+      details: "Storage documenti non configurato nel backend.",
+    });
+    return;
+  }
+
+  const requestContentType = readHeader(req.headers["content-type"], "application/octet-stream");
+  const multipartUpload = Buffer.isBuffer(req.body)
+    ? parseMultipartUpload(req.body, requestContentType)
+    : null;
+  const body = multipartUpload?.body ?? (Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0));
+  if (body.length === 0) {
+    res.status(400).json({ error: "File mancante" });
+    return;
+  }
+
+  if (body.length > MAX_FILE_BYTES) {
+    res.status(413).json({ error: "File troppo grande. Il piano Free consente massimo 50 MB per file." });
+    return;
+  }
+
+  const documentId = sanitizeSegment(readHeader(req.params.documentId), "documento");
+  const sedeId = sanitizeSegment(
+    multipartUpload?.fields.sedeId ?? readHeader(req.headers["x-sede-id"], "sede"),
+    "sede",
+  );
+  const data = sanitizeSegment(
+    multipartUpload?.fields.data ?? readHeader(req.headers["x-data"], new Date().toISOString().slice(0, 10)),
+    "data",
+  );
+  const tipo = sanitizeSegment(
+    multipartUpload?.fields.tipo ?? readHeader(req.headers["x-document-type"], "documento"),
+    "documento",
+  );
+  const fileName = sanitizeSegment(
+    multipartUpload?.fileName ?? readHeader(req.headers["x-file-name"], "documento.pdf"),
+    "documento.pdf",
+  );
+  const contentType = inferContentType(
+    fileName,
+    multipartUpload?.contentType ?? readHeader(req.headers["content-type"], "application/octet-stream"),
+  );
+  if (rejectCassaSede(req, res, sedeId)) return;
+  if (!isAllowedStorageContentType(contentType)) {
+    res.status(400).json({ error: "Tipo file non consentito. Usa PDF, JPG o PNG." });
+    return;
+  }
+  const storagePath = ["cassa", sedeId, data, tipo, `${Date.now()}-${fileName}`].join("/");
+
+  try {
+    await ensureStorageBucket(config);
+
+    const uploadResponse = await fetch(
+      `${config.supabaseUrl}/storage/v1/object/${config.bucket}/${encodeURI(storagePath)}`,
+      {
+        method: "POST",
+        headers: storageHeaders(config.serviceRoleKey, {
+          "Content-Type": contentType,
+          "Cache-Control": "3600",
+          "x-upsert": "true",
+        }),
+        body,
+      },
+    );
+
+    if (!uploadResponse.ok) {
+      const message = await uploadResponse.text();
+      req.log.error({ status: uploadResponse.status, message }, "Supabase Storage cassa upload failed");
+      res.status(502).json({ error: "Upload Supabase Storage non riuscito" });
+      return;
+    }
+
+    const document = buildDocument({
+      documentId,
+      data,
+      sedeId,
+      tipo,
+      bucket: config.bucket,
+      storagePath,
+      fileName,
+      contentType,
+      sizeBytes: body.length,
+    });
+
+    res.json(await saveCassaDocument(document));
+  } catch (err) {
+    req.log.error({ err }, "Failed to upload cassa document");
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+const signCassaFileUpload: RequestHandler = async (req, res) => {
+  const config = getStorageConfig();
+  if (!config) {
+    res.status(503).json({
+      error: "Supabase Storage non configurato",
+      details: "Storage documenti non configurato nel backend.",
+    });
+    return;
+  }
+
+  try {
+    await ensureStorageBucket(config);
+
+    const documentId = sanitizeSegment(
+      readBodyString(req.body?.documentId) || readHeader(req.params.documentId),
+      "documento",
+    );
+    const sedeId = sanitizeSegment(readBodyString(req.body?.sedeId, "sede"), "sede");
+    const data = sanitizeSegment(readBodyString(req.body?.data, new Date().toISOString().slice(0, 10)), "data");
+    const tipo = sanitizeSegment(readBodyString(req.body?.tipo, "documento"), "documento");
+    const fileName = sanitizeSegment(readBodyString(req.body?.fileName, "documento.jpg"), "documento.jpg");
+    const contentType = inferContentType(fileName, readBodyString(req.body?.contentType, "application/octet-stream"));
+    const sizeBytes = Number.isFinite(Number(req.body?.sizeBytes)) ? Number(req.body.sizeBytes) : 0;
+    if (rejectCassaSede(req, res, sedeId)) return;
+
+    if (sizeBytes > MAX_FILE_BYTES) {
+      res.status(413).json({ error: "File troppo grande. Il piano Free consente massimo 50 MB per file." });
+      return;
+    }
+    if (!isAllowedStorageContentType(contentType)) {
+      res.status(400).json({ error: "Tipo file non consentito. Usa PDF, JPG o PNG." });
+      return;
+    }
+
+    const storagePath = ["cassa", sedeId, data, tipo, `${Date.now()}-${fileName}`].join("/");
+    const signResponse = await fetch(
+      `${config.supabaseUrl}/storage/v1/object/upload/sign/${config.bucket}/${encodeURI(storagePath)}`,
+      {
+        method: "POST",
+        headers: storageHeaders(config.serviceRoleKey, {
+          "Content-Type": "application/json",
+          "x-upsert": "true",
+        }),
+        body: JSON.stringify({}),
+      },
+    );
+
+    if (!signResponse.ok) {
+      const message = await signResponse.text();
+      req.log.error({ status: signResponse.status, message }, "Supabase Storage cassa signed URL failed");
+      res.status(502).json({ error: "Creazione link upload Supabase non riuscita" });
+      return;
+    }
+
+    const signData = await signResponse.json() as { url?: string; signedUrl?: string; signedURL?: string };
+    const signedUrl = signData.signedUrl ?? signData.signedURL ??
+      (signData.url?.startsWith("http") ? signData.url : signData.url ? `${config.supabaseUrl}/storage/v1${signData.url}` : "");
+
+    if (!signedUrl) {
+      res.status(502).json({ error: "Supabase non ha restituito un link di upload valido" });
+      return;
+    }
+
+    res.json({
+      signedUrl,
+      document: buildDocument({
+        documentId,
+        data,
+        sedeId,
+        tipo,
+        bucket: config.bucket,
+        storagePath,
+        fileName,
+        contentType,
+        sizeBytes,
+      }),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to create cassa signed upload URL");
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+router.post("/cassa-file-sign", signCassaFileUpload);
+router.post("/cassa-files/:documentId/sign", signCassaFileUpload);
+
+const completeCassaFileUpload: RequestHandler = async (req, res) => {
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    res.status(400).json({ error: "Documento cassa non valido" });
+    return;
+  }
+
+  const candidate = req.body as Partial<CassaDocument>;
+  const documentId = sanitizeSegment(readBodyString(candidate.id) || readHeader(req.params.documentId), "documento");
+  const config = getStorageConfig();
+  if (!config) {
+    res.status(503).json({
+      error: "Supabase Storage non configurato",
+      details: "Storage documenti non configurato nel backend.",
+    });
+    return;
+  }
+  if (
+    candidate.id !== documentId ||
+    !candidate.data ||
+    !candidate.sedeId ||
+    !candidate.tipo ||
+    !candidate.bucket ||
+    !candidate.storagePath ||
+    !candidate.fileName ||
+    !candidate.contentType ||
+    typeof candidate.sizeBytes !== "number" ||
+    !candidate.uploadedAt
+  ) {
+    res.status(400).json({ error: "Documento cassa non valido" });
+    return;
+  }
+  if (rejectCassaSede(req, res, candidate.sedeId)) return;
+  if (candidate.bucket !== config.bucket) {
+    res.status(400).json({ error: "Bucket documento non valido" });
+    return;
+  }
+  if (!isAllowedStorageContentType(candidate.contentType)) {
+    res.status(400).json({ error: "Tipo file non consentito. Usa PDF, JPG o PNG." });
+    return;
+  }
+  if (candidate.sizeBytes > MAX_FILE_BYTES) {
+    res.status(413).json({ error: "File troppo grande. Il piano Free consente massimo 50 MB per file." });
+    return;
+  }
+  const expectedPrefix = ["cassa", candidate.sedeId, candidate.data, candidate.tipo].join("/") + "/";
+  if (!candidate.storagePath.startsWith(expectedPrefix) || candidate.storagePath.includes("..")) {
+    res.status(400).json({ error: "Percorso documento non valido" });
+    return;
+  }
+
+  try {
+    res.json(await saveCassaDocument({
+      id: documentId,
+      data: candidate.data,
+      sedeId: candidate.sedeId,
+      tipo: candidate.tipo,
+      bucket: candidate.bucket,
+      storagePath: candidate.storagePath,
+      fileName: candidate.fileName,
+      fileUrl: `/api/cassa-file-download?id=${encodeURIComponent(documentId)}`,
+      contentType: candidate.contentType,
+      sizeBytes: candidate.sizeBytes,
+      uploadedAt: candidate.uploadedAt,
+    }));
+  } catch (err) {
+    req.log.error({ err }, "Failed to complete cassa document upload");
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+router.post("/cassa-file-complete", completeCassaFileUpload);
+router.post("/cassa-files/:documentId/complete", completeCassaFileUpload);
+
+const downloadCassaFile: RequestHandler = async (req, res) => {
+  const config = getStorageConfig();
+  if (!config) {
+    res.status(503).json({
+      error: "Supabase Storage non configurato",
+      details: "Storage documenti non configurato nel backend.",
+    });
+    return;
+  }
+
+  try {
+    const documentId = sanitizeSegment(
+      readHeader(req.params.documentId) || readQueryValue(req.query["id"]),
+      "documento",
+    );
+    const state = await loadCassaState();
+    const activeDocuments = (Array.isArray(state.documenti) ? state.documenti : []).filter(isCassaDocument);
+    const trashDocuments = normalizeDeletedClosures(state.cestino).flatMap((item) => item.documenti);
+    const document = [...activeDocuments, ...trashDocuments]
+      .find((item) => item.id === documentId);
+
+    if (!document) {
+      res.status(404).json({ error: "Documento cassa non trovato" });
+      return;
+    }
+    if (rejectCassaSede(req, res, document.sedeId)) return;
+
+    const downloadResponse = await fetch(
+      `${config.supabaseUrl}/storage/v1/object/${document.bucket}/${encodeURI(document.storagePath)}`,
+      {
+        headers: storageHeaders(config.serviceRoleKey),
+      },
+    );
+
+    if (!downloadResponse.ok || !downloadResponse.body) {
+      const message = await downloadResponse.text();
+      req.log.error({ status: downloadResponse.status, message }, "Supabase Storage cassa download failed");
+      res.status(502).json({ error: "Download Supabase Storage non riuscito" });
+      return;
+    }
+
+    const bytes = Buffer.from(await downloadResponse.arrayBuffer());
+    res.setHeader("Content-Type", document.contentType || "application/octet-stream");
+    res.setHeader("Content-Length", String(bytes.length));
+    res.setHeader("Content-Disposition", `attachment; filename="${document.fileName.replace(/"/g, "")}"`);
+    res.send(bytes);
+  } catch (err) {
+    req.log.error({ err }, "Failed to download cassa document");
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+const rawCassaFile = express.raw({ type: "*/*", limit: "50mb" });
+
+router.post("/cassa-files/:documentId", rawCassaFile, uploadCassaFile);
+router.get("/cassa-file-download", downloadCassaFile);
+router.get("/cassa-files/:documentId", downloadCassaFile);
+
+export default router;

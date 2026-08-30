@@ -1,4 +1,4 @@
-import app from "../artifacts/api-server/dist/app.mjs";
+import app from "../backend/dist/app.mjs";
 
 function withApiPrefix(url) {
   if (!url || url.startsWith("/api")) {

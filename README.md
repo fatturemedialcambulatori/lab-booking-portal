@@ -1,0 +1,77 @@
+# MedicalDesk
+
+Gestionale medico interno per M Medical, organizzato per due sedi operative: Modena e Sassuolo.
+
+## Struttura
+
+- `backend/`: API Express in Node.js/TypeScript. E il confine di sicurezza: legge `DATABASE_URL`, Supabase, sessioni, ruoli, upload, log e integrazioni future.
+- `frontend/`: frontend Next.js App Router. Consuma solo API backend e usa solo variabili pubbliche `NEXT_PUBLIC_*`.
+- `lib/`: librerie workspace condivise, inclusi schema DB, client API generato e validazioni.
+- `supabase/`: script SQL di inizializzazione/migrazione.
+
+## Ambiente locale
+
+1. Installa le dipendenze:
+
+```bash
+pnpm install
+```
+
+2. Crea `.env` partendo da `.env.example` e compila solo i valori reali necessari al backend.
+
+3. Avvia backend e frontend insieme:
+
+```bash
+pnpm dev
+```
+
+Comandi separati:
+
+```bash
+pnpm dev:backend
+pnpm dev:frontend
+```
+
+URL locali predefiniti:
+
+- Backend: `http://127.0.0.1:5000`
+- Frontend: `http://localhost:3000`
+
+## Variabili
+
+Backend:
+
+- `DATABASE_URL`
+- `DATABASE_POOL_MAX`
+- `DATABASE_SSL_REJECT_UNAUTHORIZED`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_STORAGE_BUCKET`
+- `AUTH_SECRET`
+- `CORS_ORIGINS`
+- `APP_ORIGIN`
+- `JSON_BODY_LIMIT`
+
+Frontend:
+
+- `NEXT_PUBLIC_API_BASE_URL`
+
+Il frontend non deve contenere `DATABASE_URL`, service key Supabase o altre credenziali sensibili.
+
+## Script
+
+```bash
+pnpm dev
+pnpm dev:backend
+pnpm dev:frontend
+pnpm build
+pnpm typecheck
+```
+
+## Note architetturali
+
+- Il backend resta l'unico punto di accesso a database, Supabase Storage e integrazioni esterne.
+- Le verifiche di ruolo e permesso devono essere enforceate lato backend.
+- Gli upload passano da API controllate, con limiti dimensione e controlli MIME.
+- Log e audit non devono contenere dati sanitari o segreti.
+- Le integrazioni future previste sono AWS, Aruba Fatturazione Elettronica, storage documentale e macchinari/LIS.
