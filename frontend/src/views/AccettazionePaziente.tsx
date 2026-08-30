@@ -188,9 +188,15 @@ const splitPatientName = (fullName: string) => {
 export function AccettazionePaziente({
   role = "segreteria",
   area = "laboratorio",
+  canCreateAcceptance,
+  showBillingActions,
+  canUpdatePaymentStatus,
 }: {
   role?: string;
   area?: AreaAccettazione;
+  canCreateAcceptance?: boolean;
+  showBillingActions?: boolean;
+  canUpdatePaymentStatus?: boolean;
 }) {
   const queryClient = useQueryClient();
   const { data: allBookings, isLoading, error, refetch } = useListBookings();
@@ -216,6 +222,10 @@ export function AccettazionePaziente({
   const [agendaError, setAgendaError] = React.useState(false);
 
   const isAmbulatorio = area === "ambulatorio";
+  const canUseSecretarialControls = role === "segreteria";
+  const canCreateNewAcceptance = canCreateAcceptance ?? canUseSecretarialControls;
+  const canSeeBillingActions = showBillingActions ?? canUseSecretarialControls;
+  const canMarkPaymentStatus = canUpdatePaymentStatus ?? canUseSecretarialControls;
 
   const loadAgendaAppointments = React.useCallback(async () => {
     setAgendaLoading(true);
@@ -521,7 +531,7 @@ export function AccettazionePaziente({
           </p>
         </div>
 
-        {role === "segreteria" && (
+        {canCreateNewAcceptance && (
           <Button onClick={() => setShowNuovaPrenotazione(true)} className="gap-2 shrink-0">
             <Plus className="h-4 w-4" />
             Nuova accettazione
@@ -551,7 +561,7 @@ export function AccettazionePaziente({
       </div>
 
       {/* Stats bar — segreteria only */}
-      {role === "segreteria" && (
+      {canUseSecretarialControls && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: "Da accettare", value: counts.confirmed, color: "text-amber-600", bg: "bg-amber-50 border-amber-200" },
@@ -580,7 +590,7 @@ export function AccettazionePaziente({
             className="pl-9"
           />
         </div>
-        {role === "segreteria" && (
+        {canUseSecretarialControls && (
           <div className="flex gap-1 bg-muted/50 rounded-lg p-1 border border-border flex-shrink-0">
             {FILTERS.map((f) => (
               <button
@@ -637,7 +647,8 @@ export function AccettazionePaziente({
               onUpdateStatus={updateVisitStatus}
               onUpdatePaymentStatus={updateVisitPaymentStatus}
               onEditBilling={() => setBillingVisit(visit)}
-              showBilling={role === "segreteria"}
+              showBilling={canSeeBillingActions}
+              canUpdatePaymentStatus={canMarkPaymentStatus}
               onOpenTodo={
                 isAmbulatorio
                   ? undefined
@@ -804,6 +815,7 @@ function VisitCard({
   onUpdatePaymentStatus,
   onEditBilling,
   showBilling = true,
+  canUpdatePaymentStatus = true,
   onOpenTodo,
   canComplete = true,
   onPrintReferto,
@@ -817,6 +829,7 @@ function VisitCard({
   onUpdatePaymentStatus: (visit: Visit, status: PaymentStatus) => void;
   onEditBilling: () => void;
   showBilling?: boolean;
+  canUpdatePaymentStatus?: boolean;
   onOpenTodo?: () => void;
   canComplete?: boolean;
   onPrintReferto?: () => void;
@@ -920,7 +933,7 @@ function VisitCard({
             )}
             {visit.status === "accepted" && (
               <>
-                {role === "segreteria" && (
+                {canUpdatePaymentStatus && (
                   <Button
                     size="sm"
                     variant="outline"

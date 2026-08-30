@@ -1,7 +1,7 @@
 import express, { Router, type RequestHandler } from "express";
 import { eq } from "drizzle-orm";
 import { adminSettingsTable, db } from "@workspace/db";
-import { hasPermission, requireAnyPermission } from "../lib/auth";
+import { canAccessSedeForPermission, hasPermission, requireAnyPermission } from "../lib/auth";
 
 const router = Router();
 
@@ -108,14 +108,8 @@ const readUnknownNumber = (value: unknown, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const normalizeSedeId = (value: string) => value.trim().toLocaleLowerCase("it-IT");
-
 const canAccessCassaSede = (req: Parameters<RequestHandler>[0], sedeId: string) => {
-  const normalized = normalizeSedeId(sedeId);
-  if (hasPermission(req, "cassa")) return true;
-  if (normalized === "modena") return hasPermission(req, "cassa.modena");
-  if (normalized === "sassuolo") return hasPermission(req, "cassa.sassuolo");
-  return false;
+  return canAccessSedeForPermission(req, "cassa", sedeId);
 };
 
 const rejectCassaSede = (req: Parameters<RequestHandler>[0], res: Parameters<RequestHandler>[1], sedeId: string) => {

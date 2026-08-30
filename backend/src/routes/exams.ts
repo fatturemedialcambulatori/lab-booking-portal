@@ -8,8 +8,8 @@ import { requireAnyPermission } from "../lib/auth";
 const router = Router();
 const CONTAINER_EXAM_TYPES = new Set(["composito", "pacchetto"]);
 const requireExamManagement = requireAnyPermission([
-  "laboratorio.listino",
-  "ambulatorio.prestazioni",
+  "laboratorio.listino.write",
+  "ambulatorio.prestazioni.write",
   "impostazioni",
 ]);
 

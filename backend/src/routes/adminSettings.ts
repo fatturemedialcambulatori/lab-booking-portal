@@ -1,7 +1,12 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { db, adminSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { requireAnyPermission, requireAuth } from "../lib/auth";
+import {
+  canAccessSedeForPermission,
+  requireAnyPermission,
+  requireAuth,
+  type SedeScopedPermissionBase,
+} from "../lib/auth";
 
 const router = Router();
 const SETTINGS_KEY = "admin-settings";
@@ -20,6 +25,55 @@ type AgendaAppointmentValue = Record<string, unknown>;
 
 const isPlainObject = (value: unknown): value is AgendaAppointmentValue =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const readText = (value: unknown) => String(value ?? "").trim();
+
+const readAgendaId = (item: AgendaAppointmentValue) => readText(item.id);
+
+const readAgendaSede = (item: AgendaAppointmentValue) =>
+  readText(item.sede) || readText(item.sedeId);
+
+const agendaPermissionForItem = (item: AgendaAppointmentValue): SedeScopedPermissionBase =>
+  readText(item.area) === "laboratorio" ? "laboratorio.agenda" : "ambulatorio.agenda";
+
+const canAccessAgendaItem = (
+  req: Request,
+  item: AgendaAppointmentValue,
+) => canAccessSedeForPermission(req, agendaPermissionForItem(item), readAgendaSede(item));
+
+const rejectForbiddenAgendaItems = (
+  req: Request,
+  res: Response,
+  items: AgendaAppointmentValue[],
+) => {
+  if (items.every((item) => canAccessAgendaItem(req, item))) return false;
+  res.status(403).json({ error: "Permesso insufficiente per una o piu sedi" });
+  return true;
+};
+
+const mergeAllowedAgendaItems = (
+  req: Request,
+  currentItems: AgendaAppointmentValue[],
+  incomingItems: AgendaAppointmentValue[],
+) => [
+  ...currentItems.filter((item) => !canAccessAgendaItem(req, item)),
+  ...incomingItems,
+];
+
+const replaceAllowedAgendaItem = (
+  req: Request,
+  currentItems: AgendaAppointmentValue[],
+  incomingItem: AgendaAppointmentValue,
+) => {
+  const incomingId = readAgendaId(incomingItem);
+  const existing = currentItems.find((item) => readAgendaId(item) === incomingId);
+  if (existing && !canAccessAgendaItem(req, existing)) return null;
+
+  return [
+    ...currentItems.filter((item) => readAgendaId(item) !== incomingId),
+    incomingItem,
+  ];
+};
 
 const loadAgendaAppointments = async () => {
   const [settings] = await db
@@ -162,7 +216,7 @@ router.put("/admin-settings", requireSettingsWrite, async (req, res) => {
 
 router.get("/agenda-appointments", requireAgendaAccess, async (req, res) => {
   try {
-    res.json(await loadAgendaAppointments());
+    res.json((await loadAgendaAppointments()).filter((item) => canAccessAgendaItem(req, item)));
   } catch (err) {
     req.log.error({ err }, "Failed to load agenda appointments");
     res.status(500).json({ error: "Internal server error" });
@@ -177,11 +231,16 @@ router.post("/agenda-appointments", requireAgendaAccess, async (req, res) => {
 
   try {
     const appointment = req.body;
+    if (!canAccessAgendaItem(req, appointment)) {
+      res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+      return;
+    }
     const appointments = await loadAgendaAppointments();
-    const nextAppointments = [
-      ...appointments.filter((item) => item.id !== appointment.id),
-      appointment,
-    ];
+    const nextAppointments = replaceAllowedAgendaItem(req, appointments, appointment);
+    if (!nextAppointments) {
+      res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+      return;
+    }
 
     await saveAgendaAppointments(nextAppointments);
     res.status(201).json(appointment);
@@ -199,7 +258,10 @@ router.put("/agenda-appointments", requireAgendaAccess, async (req, res) => {
 
   try {
     const appointments = req.body.filter(isPlainObject);
-    res.json(await saveAgendaAppointments(appointments));
+    if (rejectForbiddenAgendaItems(req, res, appointments)) return;
+    const nextAppointments = mergeAllowedAgendaItems(req, await loadAgendaAppointments(), appointments);
+    const saved = await saveAgendaAppointments(nextAppointments) as AgendaAppointmentValue[];
+    res.json(saved.filter((item) => canAccessAgendaItem(req, item)));
   } catch (err) {
     req.log.error({ err }, "Failed to replace agenda appointments");
     res.status(500).json({ error: "Internal server error" });
@@ -208,7 +270,7 @@ router.put("/agenda-appointments", requireAgendaAccess, async (req, res) => {
 
 router.get("/agenda-waitlist", requireAgendaAccess, async (req, res) => {
   try {
-    res.json(await loadAgendaWaitlist());
+    res.json((await loadAgendaWaitlist()).filter((item) => canAccessAgendaItem(req, item)));
   } catch (err) {
     req.log.error({ err }, "Failed to load agenda waitlist");
     res.status(500).json({ error: "Internal server error" });
@@ -223,11 +285,16 @@ router.post("/agenda-waitlist", requireAgendaAccess, async (req, res) => {
 
   try {
     const item = req.body;
+    if (!canAccessAgendaItem(req, item)) {
+      res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+      return;
+    }
     const items = await loadAgendaWaitlist();
-    const nextItems = [
-      ...items.filter((existing) => existing.id !== item.id),
-      item,
-    ];
+    const nextItems = replaceAllowedAgendaItem(req, items, item);
+    if (!nextItems) {
+      res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+      return;
+    }
 
     await saveAgendaWaitlist(nextItems);
     res.status(201).json(item);
@@ -247,7 +314,12 @@ router.delete("/agenda-waitlist/:id", requireAgendaAccess, async (req, res) => {
 
   try {
     const items = await loadAgendaWaitlist();
-    const nextItems = items.filter((item) => item.id !== id);
+    const existing = items.find((item) => readAgendaId(item) === id);
+    if (existing && !canAccessAgendaItem(req, existing)) {
+      res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+      return;
+    }
+    const nextItems = items.filter((item) => readAgendaId(item) !== id);
     await saveAgendaWaitlist(nextItems);
     res.json({ id, deleted: items.length !== nextItems.length });
   } catch (err) {
@@ -258,7 +330,7 @@ router.delete("/agenda-waitlist/:id", requireAgendaAccess, async (req, res) => {
 
 router.get("/agenda-resource-assignments", requireAgendaAccess, async (req, res) => {
   try {
-    res.json(await loadAgendaResourceAssignments());
+    res.json((await loadAgendaResourceAssignments()).filter((item) => canAccessAgendaItem(req, item)));
   } catch (err) {
     req.log.error({ err }, "Failed to load agenda resource assignments");
     res.status(500).json({ error: "Internal server error" });
@@ -273,11 +345,16 @@ router.post("/agenda-resource-assignments", requireAgendaAccess, async (req, res
 
   try {
     const item = req.body;
+    if (!canAccessAgendaItem(req, item)) {
+      res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+      return;
+    }
     const items = await loadAgendaResourceAssignments();
-    const nextItems = [
-      ...items.filter((existing) => existing.id !== item.id),
-      item,
-    ];
+    const nextItems = replaceAllowedAgendaItem(req, items, item);
+    if (!nextItems) {
+      res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+      return;
+    }
 
     await saveAgendaResourceAssignments(nextItems);
     res.status(201).json(item);
@@ -295,7 +372,10 @@ router.put("/agenda-resource-assignments", requireAgendaAccess, async (req, res)
 
   try {
     const items = req.body.filter(isPlainObject);
-    res.json(await saveAgendaResourceAssignments(items));
+    if (rejectForbiddenAgendaItems(req, res, items)) return;
+    const nextItems = mergeAllowedAgendaItems(req, await loadAgendaResourceAssignments(), items);
+    const saved = await saveAgendaResourceAssignments(nextItems) as AgendaAppointmentValue[];
+    res.json(saved.filter((item) => canAccessAgendaItem(req, item)));
   } catch (err) {
     req.log.error({ err }, "Failed to replace agenda resource assignments");
     res.status(500).json({ error: "Internal server error" });
@@ -312,7 +392,12 @@ router.delete("/agenda-resource-assignments/:id", requireAgendaAccess, async (re
 
   try {
     const items = await loadAgendaResourceAssignments();
-    const nextItems = items.filter((item) => item.id !== id);
+    const existing = items.find((item) => readAgendaId(item) === id);
+    if (existing && !canAccessAgendaItem(req, existing)) {
+      res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+      return;
+    }
+    const nextItems = items.filter((item) => readAgendaId(item) !== id);
     await saveAgendaResourceAssignments(nextItems);
     res.json({ id, deleted: items.length !== nextItems.length });
   } catch (err) {

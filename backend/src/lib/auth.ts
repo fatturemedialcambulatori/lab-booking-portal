@@ -4,12 +4,23 @@ import { eq } from "drizzle-orm";
 import { adminSettingsTable, db } from "@workspace/db";
 
 export type PermissionId =
+  | "admin"
   | "laboratorio.accettazione"
+  | "laboratorio.accettazione.modena"
+  | "laboratorio.accettazione.sassuolo"
   | "laboratorio.agenda"
+  | "laboratorio.agenda.modena"
+  | "laboratorio.agenda.sassuolo"
   | "laboratorio.listino"
+  | "laboratorio.listino.write"
   | "ambulatorio.accettazione"
+  | "ambulatorio.accettazione.modena"
+  | "ambulatorio.accettazione.sassuolo"
   | "ambulatorio.agenda"
+  | "ambulatorio.agenda.modena"
+  | "ambulatorio.agenda.sassuolo"
   | "ambulatorio.prestazioni"
+  | "ambulatorio.prestazioni.write"
   | "anagrafiche"
   | "infortunistica"
   | "cassa"
@@ -42,6 +53,7 @@ export type PublicAdminAccount = Omit<StoredAdminAccount, "passwordHash" | "pass
 };
 
 type StoredAccessConfig = {
+  securityProfileVersion?: number;
   ruoli: AdminRole[];
   account: StoredAdminAccount[];
 };
@@ -71,18 +83,30 @@ declare global {
 }
 
 const ADMIN_ACCESS_KEY = "admin-access";
+const ACCESS_CONFIG_VERSION = 2;
 export const SESSION_COOKIE_NAME = "mmedical_session";
 const SESSION_TTL_SECONDS = Number(process.env["AUTH_SESSION_TTL_SECONDS"] ?? 8 * 60 * 60);
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILURES = Number(process.env["AUTH_LOGIN_MAX_FAILURES"] ?? 10);
 
 const PERMISSION_IDS: PermissionId[] = [
+  "admin",
   "laboratorio.accettazione",
+  "laboratorio.accettazione.modena",
+  "laboratorio.accettazione.sassuolo",
   "laboratorio.agenda",
+  "laboratorio.agenda.modena",
+  "laboratorio.agenda.sassuolo",
   "laboratorio.listino",
+  "laboratorio.listino.write",
   "ambulatorio.accettazione",
+  "ambulatorio.accettazione.modena",
+  "ambulatorio.accettazione.sassuolo",
   "ambulatorio.agenda",
+  "ambulatorio.agenda.modena",
+  "ambulatorio.agenda.sassuolo",
   "ambulatorio.prestazioni",
+  "ambulatorio.prestazioni.write",
   "anagrafiche",
   "infortunistica",
   "cassa",
@@ -92,93 +116,116 @@ const PERMISSION_IDS: PermissionId[] = [
   "utenti",
 ];
 
-const SEGRETERIA_PERMESSI = PERMISSION_IDS.filter((permesso) => permesso !== "laboratorio.agenda");
+export type SedeId = "modena" | "sassuolo";
+export type SedeScopedPermissionBase =
+  | "laboratorio.accettazione"
+  | "laboratorio.agenda"
+  | "ambulatorio.accettazione"
+  | "ambulatorio.agenda"
+  | "cassa";
 
-const RUOLI_DEFAULT_FORZATI = new Set([
+const SEDI: SedeId[] = ["modena", "sassuolo"];
+const DEFAULT_ADMIN_PASSWORD_HASH =
+  "scrypt$JiwyKsD8QHBOECchiqDozw$lsh63_ficzu7h518fciFoIhXbulE0eFgd4BFV3ZdDlw";
+const DEFAULT_SEGRETERIA_PASSWORD_HASH =
+  "scrypt$LKNI4woszTP_Zm7PF6fHGw$C5RBBMdRzF-5jBiC_eI7HCwKDFBwk-03LBq4yMjc4LY";
+const DEFAULT_OPERATIVO_PASSWORD_HASH =
+  "scrypt$3sSgutaFx7_1xukvP360pQ$kBPgzWQufVWxoekUjgEqVdMA_mKGz6ZWWEXRookeWSE";
+
+const LEGACY_DEFAULT_ROLE_IDS = new Set([
   "segreteria",
   "laboratorio",
+  "medico",
   "avvocato",
-  "segreteria-modena",
-  "segreteria-sassuolo",
+  "amministrazione",
+]);
+
+const LEGACY_DEFAULT_ACCOUNT_IDS = new Set([
+  "segreteria",
+  "laboratorio",
+  "medico",
+  "avvocato",
+  "amministrazione",
 ]);
 
 const DEFAULT_ACCESS_CONFIG: StoredAccessConfig = {
+  securityProfileVersion: ACCESS_CONFIG_VERSION,
   ruoli: [
     {
-      id: "segreteria",
-      nome: "Segreteria",
-      descrizione: "Gestione operativa completa dello studio.",
-      permessi: SEGRETERIA_PERMESSI,
-    },
-    {
-      id: "laboratorio",
-      nome: "Laboratorio",
-      descrizione: "Area laboratorio e refertazione operativa.",
-      permessi: ["laboratorio.accettazione", "laboratorio.listino", "anagrafiche"],
-    },
-    {
-      id: "medico",
-      nome: "Medico",
-      descrizione: "Accesso alla sola agenda/prestazioni assegnate.",
-      permessi: ["ambulatorio.agenda"],
-    },
-    {
-      id: "avvocato",
-      nome: "Avvocato",
-      descrizione: "Accesso limitato ai sinistri, clienti infortunistica e documenti.",
-      permessi: ["infortunistica"],
-    },
-    {
-      id: "amministrazione",
-      nome: "Amministrazione",
-      descrizione: "Gestione amministrativa e impostazioni.",
-      permessi: ["anagrafiche", "infortunistica", "cassa", "impostazioni"],
+      id: "admin",
+      nome: "Admin",
+      descrizione: "Accesso completo a tutte le sedi, sezioni e operazioni.",
+      permessi: PERMISSION_IDS,
     },
     {
       id: "segreteria-modena",
       nome: "Segreteria Modena",
-      descrizione: "Accesso limitato alla sola cassa della sede di Modena.",
-      permessi: ["cassa.modena"],
+      descrizione: "Operativita Modena; agenda ambulatoriale visibile e scrivibile su entrambe le sedi.",
+      permessi: [
+        "laboratorio.accettazione.modena",
+        "laboratorio.agenda.modena",
+        "laboratorio.agenda.sassuolo",
+        "ambulatorio.accettazione.modena",
+        "ambulatorio.agenda.modena",
+        "ambulatorio.agenda.sassuolo",
+        "cassa.modena",
+      ],
     },
     {
       id: "segreteria-sassuolo",
       nome: "Segreteria Sassuolo",
-      descrizione: "Accesso limitato alla sola cassa della sede di Sassuolo.",
-      permessi: ["cassa.sassuolo"],
+      descrizione: "Operativita Sassuolo; agenda ambulatoriale visibile e scrivibile su entrambe le sedi.",
+      permessi: [
+        "laboratorio.accettazione.sassuolo",
+        "laboratorio.agenda.modena",
+        "laboratorio.agenda.sassuolo",
+        "ambulatorio.accettazione.sassuolo",
+        "ambulatorio.agenda.modena",
+        "ambulatorio.agenda.sassuolo",
+        "cassa.sassuolo",
+      ],
     },
     {
-      id: "admin",
-      nome: "Amministratore",
-      descrizione: "Accesso tecnico completo.",
-      permessi: PERMISSION_IDS,
+      id: "laboratorio-modena",
+      nome: "Laboratorio Modena",
+      descrizione: "Accesso operativo limitato al laboratorio della sede di Modena.",
+      permessi: ["laboratorio.accettazione.modena", "laboratorio.listino"],
+    },
+    {
+      id: "laboratorio-sassuolo",
+      nome: "Laboratorio Sassuolo",
+      descrizione: "Accesso operativo limitato al laboratorio della sede di Sassuolo.",
+      permessi: ["laboratorio.accettazione.sassuolo", "laboratorio.listino"],
+    },
+    {
+      id: "ambulatorio-modena",
+      nome: "Ambulatorio Modena",
+      descrizione: "Accesso operativo limitato all'ambulatorio della sede di Modena.",
+      permessi: [
+        "ambulatorio.accettazione.modena",
+        "ambulatorio.agenda.modena",
+        "ambulatorio.prestazioni",
+      ],
+    },
+    {
+      id: "ambulatorio-sassuolo",
+      nome: "Ambulatorio Sassuolo",
+      descrizione: "Accesso operativo limitato all'ambulatorio della sede di Sassuolo.",
+      permessi: [
+        "ambulatorio.accettazione.sassuolo",
+        "ambulatorio.agenda.sassuolo",
+        "ambulatorio.prestazioni",
+      ],
     },
   ],
   account: [
     {
-      id: "segreteria",
-      nome: "Segreteria",
-      email: "segreteria@mmedical.local",
-      username: "segreteria",
-      passwordHash: "scrypt$aRtcc40wpLDTaHMizImCJw$0adBqdZjsSF53EGWFA29mWJo-FVgkYEWfZjIN6d6w7o",
-      ruoloId: "segreteria",
-      stato: "attivo",
-    },
-    {
-      id: "laboratorio",
-      nome: "Laboratorio",
-      email: "laboratorio@mmedical.local",
-      username: "laboratorio",
-      passwordHash: "scrypt$MVNibxzOAy_1t5H1H6Mg0A$GUS5p2WJ8mSu6h0u1goQvkzOfbGT6q0ngOj_p92Elnw",
-      ruoloId: "laboratorio",
-      stato: "attivo",
-    },
-    {
-      id: "avvocato",
-      nome: "Avvocato",
-      email: "avvocato@mmedical.local",
-      username: "avvocato",
-      passwordHash: "scrypt$WJljZDUgZddw36Jn4_HTOw$6aEv5q_XGPZzRvDWDLU8D4c2Rb5UvvHMlXYz85jHpC0",
-      ruoloId: "avvocato",
+      id: "admin",
+      nome: "Admin",
+      email: "admin@mmedical.local",
+      username: "admin",
+      passwordHash: DEFAULT_ADMIN_PASSWORD_HASH,
+      ruoloId: "admin",
       stato: "attivo",
     },
     {
@@ -186,7 +233,7 @@ const DEFAULT_ACCESS_CONFIG: StoredAccessConfig = {
       nome: "Segreteria Modena",
       email: "segreteria.modena@mmedical.local",
       username: "segreteria-modena",
-      passwordHash: "scrypt$1HE-1zG-xq5MJ0h63TDCvg$T23SlhUe1K_WA73TXmEcOcstdwvovVLOn-4i2_VVvHQ",
+      passwordHash: DEFAULT_SEGRETERIA_PASSWORD_HASH,
       ruoloId: "segreteria-modena",
       stato: "attivo",
     },
@@ -195,8 +242,44 @@ const DEFAULT_ACCESS_CONFIG: StoredAccessConfig = {
       nome: "Segreteria Sassuolo",
       email: "segreteria.sassuolo@mmedical.local",
       username: "segreteria-sassuolo",
-      passwordHash: "scrypt$Ne9B1anN07aFKj7clXvP8w$r7Rh6HCWY4qBbUf_e3CefPSUzeuqgjSkphRg4LmTFlA",
+      passwordHash: DEFAULT_SEGRETERIA_PASSWORD_HASH,
       ruoloId: "segreteria-sassuolo",
+      stato: "attivo",
+    },
+    {
+      id: "laboratorio-modena",
+      nome: "Laboratorio Modena",
+      email: "laboratorio.modena@mmedical.local",
+      username: "laboratorio-modena",
+      passwordHash: DEFAULT_OPERATIVO_PASSWORD_HASH,
+      ruoloId: "laboratorio-modena",
+      stato: "attivo",
+    },
+    {
+      id: "laboratorio-sassuolo",
+      nome: "Laboratorio Sassuolo",
+      email: "laboratorio.sassuolo@mmedical.local",
+      username: "laboratorio-sassuolo",
+      passwordHash: DEFAULT_OPERATIVO_PASSWORD_HASH,
+      ruoloId: "laboratorio-sassuolo",
+      stato: "attivo",
+    },
+    {
+      id: "ambulatorio-modena",
+      nome: "Ambulatorio Modena",
+      email: "ambulatorio.modena@mmedical.local",
+      username: "ambulatorio-modena",
+      passwordHash: DEFAULT_OPERATIVO_PASSWORD_HASH,
+      ruoloId: "ambulatorio-modena",
+      stato: "attivo",
+    },
+    {
+      id: "ambulatorio-sassuolo",
+      nome: "Ambulatorio Sassuolo",
+      email: "ambulatorio.sassuolo@mmedical.local",
+      username: "ambulatorio-sassuolo",
+      passwordHash: DEFAULT_OPERATIVO_PASSWORD_HASH,
+      ruoloId: "ambulatorio-sassuolo",
       stato: "attivo",
     },
   ],
@@ -271,12 +354,14 @@ const normalizeStoredAccount = (value: unknown): StoredAdminAccount | null => {
 const normalizeStoredConfig = (value: unknown): StoredAccessConfig => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return DEFAULT_ACCESS_CONFIG;
   const item = value as Record<string, unknown>;
+  const version = Number(item["securityProfileVersion"] ?? 0);
   const ruoli = Array.isArray(item["ruoli"]) ? item["ruoli"].map(normalizeRole).filter(Boolean) as AdminRole[] : [];
   const account = Array.isArray(item["account"])
     ? item["account"].map(normalizeStoredAccount).filter(Boolean) as StoredAdminAccount[]
     : [];
 
   return {
+    securityProfileVersion: Number.isFinite(version) ? version : 0,
     ruoli: ruoli.length ? ruoli : DEFAULT_ACCESS_CONFIG.ruoli,
     account: account.length ? account : DEFAULT_ACCESS_CONFIG.account,
   };
@@ -294,49 +379,26 @@ const hasLegacyPlaintextPasswords = (value: unknown) => {
 };
 
 const mergeDefaultAccessConfig = (config: StoredAccessConfig): StoredAccessConfig => {
-  const ruoli = [...config.ruoli];
-  DEFAULT_ACCESS_CONFIG.ruoli.forEach((ruoloDefault) => {
-    const existingIndex = ruoli.findIndex((ruolo) => ruolo.id === ruoloDefault.id);
-    if (existingIndex === -1) {
-      ruoli.push(ruoloDefault);
-      return;
-    }
+  const defaultRoleIds = new Set(DEFAULT_ACCESS_CONFIG.ruoli.map((ruolo) => ruolo.id));
+  const defaultAccountIds = new Set(DEFAULT_ACCESS_CONFIG.account.map((account) => account.id));
+  const defaultUsernames = new Set(DEFAULT_ACCESS_CONFIG.account.map((account) => account.username));
 
-    ruoli[existingIndex] = {
-      ...ruoli[existingIndex],
-      descrizione: RUOLI_DEFAULT_FORZATI.has(ruoloDefault.id)
-        ? ruoloDefault.descrizione
-        : ruoli[existingIndex].descrizione,
-      permessi: RUOLI_DEFAULT_FORZATI.has(ruoloDefault.id)
-        ? ruoloDefault.permessi
-        : Array.from(new Set([...ruoli[existingIndex].permessi, ...ruoloDefault.permessi])),
-    };
-  });
+  const customRoles = config.ruoli.filter((ruolo) =>
+    !defaultRoleIds.has(ruolo.id) &&
+    !LEGACY_DEFAULT_ROLE_IDS.has(ruolo.id),
+  );
+  const customAccounts = config.account.filter((account) =>
+    !defaultAccountIds.has(account.id) &&
+    !defaultUsernames.has(account.username) &&
+    !LEGACY_DEFAULT_ACCOUNT_IDS.has(account.id) &&
+    !LEGACY_DEFAULT_ACCOUNT_IDS.has(account.username),
+  );
 
-  const account = [...config.account];
-  DEFAULT_ACCESS_CONFIG.account.forEach((accountDefault) => {
-    const existingIndex = account.findIndex(
-      (item) => item.id === accountDefault.id || item.username === accountDefault.username,
-    );
-
-    if (existingIndex === -1) {
-      account.push(accountDefault);
-      return;
-    }
-
-    if (accountDefault.id === "avvocato") {
-      account[existingIndex] = {
-        ...account[existingIndex],
-        nome: accountDefault.nome,
-        email: account[existingIndex].email || accountDefault.email,
-        username: accountDefault.username,
-        ruoloId: accountDefault.ruoloId,
-        stato: "attivo",
-      };
-    }
-  });
-
-  return { ruoli, account };
+  return {
+    securityProfileVersion: ACCESS_CONFIG_VERSION,
+    ruoli: [...DEFAULT_ACCESS_CONFIG.ruoli, ...customRoles],
+    account: [...DEFAULT_ACCESS_CONFIG.account, ...customAccounts],
+  };
 };
 
 export async function loadAccessConfig(): Promise<StoredAccessConfig> {
@@ -346,12 +408,16 @@ export async function loadAccessConfig(): Promise<StoredAccessConfig> {
     .where(eq(adminSettingsTable.key, ADMIN_ACCESS_KEY))
     .limit(1);
 
-  const config = mergeDefaultAccessConfig(normalizeStoredConfig(settings?.value));
-  if (settings && hasLegacyPlaintextPasswords(settings.value)) {
+  const normalized = normalizeStoredConfig(settings?.value);
+  const config = mergeDefaultAccessConfig(normalized);
+  if (!settings || normalized.securityProfileVersion !== ACCESS_CONFIG_VERSION || hasLegacyPlaintextPasswords(settings.value)) {
     await db
-      .update(adminSettingsTable)
-      .set({ value: config, updatedAt: new Date() })
-      .where(eq(adminSettingsTable.key, ADMIN_ACCESS_KEY));
+      .insert(adminSettingsTable)
+      .values({ key: ADMIN_ACCESS_KEY, value: config, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: adminSettingsTable.key,
+        set: { value: config, updatedAt: new Date() },
+      });
   }
 
   return config;
@@ -482,6 +548,80 @@ const tokenFromRequest = (req: Request) => {
   return readString(cookies?.[SESSION_COOKIE_NAME]);
 };
 
+const AGGREGATE_PERMISSION_VARIANTS: Partial<Record<PermissionId, PermissionId[]>> = {
+  "laboratorio.accettazione": [
+    "laboratorio.accettazione.modena",
+    "laboratorio.accettazione.sassuolo",
+  ],
+  "laboratorio.agenda": [
+    "laboratorio.agenda.modena",
+    "laboratorio.agenda.sassuolo",
+  ],
+  "ambulatorio.accettazione": [
+    "ambulatorio.accettazione.modena",
+    "ambulatorio.accettazione.sassuolo",
+  ],
+  "ambulatorio.agenda": [
+    "ambulatorio.agenda.modena",
+    "ambulatorio.agenda.sassuolo",
+  ],
+};
+
+const SEDE_PERMISSION_BY_BASE: Record<SedeScopedPermissionBase, Record<SedeId, PermissionId>> = {
+  "laboratorio.accettazione": {
+    modena: "laboratorio.accettazione.modena",
+    sassuolo: "laboratorio.accettazione.sassuolo",
+  },
+  "laboratorio.agenda": {
+    modena: "laboratorio.agenda.modena",
+    sassuolo: "laboratorio.agenda.sassuolo",
+  },
+  "ambulatorio.accettazione": {
+    modena: "ambulatorio.accettazione.modena",
+    sassuolo: "ambulatorio.accettazione.sassuolo",
+  },
+  "ambulatorio.agenda": {
+    modena: "ambulatorio.agenda.modena",
+    sassuolo: "ambulatorio.agenda.sassuolo",
+  },
+  cassa: {
+    modena: "cassa.modena",
+    sassuolo: "cassa.sassuolo",
+  },
+};
+
+const readRequestPermissions = (req: Request) => req.auth?.permissions ?? [];
+
+export const hasGlobalPermission = (req: Request, permission: PermissionId) => {
+  const permissions = readRequestPermissions(req);
+  return permissions.includes("admin") || permissions.includes(permission);
+};
+
+export const normalizeSedeId = (value: unknown): SedeId | null => {
+  const normalized = readString(value).toLocaleLowerCase("it-IT");
+  if (normalized === "modena" || normalized === "sassuolo") return normalized;
+  return null;
+};
+
+export const allowedSediForPermission = (
+  req: Request,
+  permission: SedeScopedPermissionBase,
+): SedeId[] => {
+  if (hasGlobalPermission(req, permission)) return SEDI;
+  const bySede = SEDE_PERMISSION_BY_BASE[permission];
+  return SEDI.filter((sede) => hasGlobalPermission(req, bySede[sede]));
+};
+
+export const canAccessSedeForPermission = (
+  req: Request,
+  permission: SedeScopedPermissionBase,
+  sede: unknown,
+) => {
+  const normalized = normalizeSedeId(sede);
+  if (!normalized) return hasGlobalPermission(req, permission);
+  return hasGlobalPermission(req, permission) || hasGlobalPermission(req, SEDE_PERMISSION_BY_BASE[permission][normalized]);
+};
+
 export const createSessionForAccount = async (account: StoredAdminAccount): Promise<AuthSession> => {
   const config = await loadAccessConfig();
   const role = config.ruoli.find((item) => item.id === account.ruoloId);
@@ -553,11 +693,10 @@ export const requireAnyPermission = (permissions: PermissionId[]): RequestHandle
 };
 
 export const hasPermission = (req: Request, permission: PermissionId) => {
-  const permissions = req.auth?.permissions ?? [];
-  if (permissions.includes("utenti") && permission === "utenti") return true;
-  if (permission === "cassa.modena") return permissions.includes("cassa") || permissions.includes("cassa.modena");
-  if (permission === "cassa.sassuolo") return permissions.includes("cassa") || permissions.includes("cassa.sassuolo");
-  return permissions.includes(permission);
+  if (hasGlobalPermission(req, permission)) return true;
+  if (permission === "cassa.modena") return hasGlobalPermission(req, "cassa");
+  if (permission === "cassa.sassuolo") return hasGlobalPermission(req, "cassa");
+  return AGGREGATE_PERMISSION_VARIANTS[permission]?.some((variant) => hasGlobalPermission(req, variant)) ?? false;
 };
 
 export const publicSession = (session: AuthSession) => ({

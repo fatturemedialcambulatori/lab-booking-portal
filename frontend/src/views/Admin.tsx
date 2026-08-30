@@ -31,6 +31,7 @@ import { AdminInfortunistica } from "./AdminInfortunistica";
 import { AdminCassa } from "./AdminCassa";
 import { AdminPagamenti } from "./AdminPagamenti";
 import {
+  permissionListHas,
   type PermissionId,
 } from "@/lib/adminAccess";
 
@@ -295,11 +296,7 @@ function AdminDashboard({
   });
 
   const can = React.useCallback(
-    (permission: PermissionId) => {
-      if (permission === "cassa.modena") return permissions.includes("cassa") || permissions.includes("cassa.modena");
-      if (permission === "cassa.sassuolo") return permissions.includes("cassa") || permissions.includes("cassa.sassuolo");
-      return permissions.includes(permission);
-    },
+    (permission: PermissionId) => permissionListHas(permissions, permission),
     [permissions],
   );
 
@@ -399,12 +396,18 @@ function AdminDashboard({
   const isCassaTab = activeTab.startsWith("cassa-");
   const showSettingsSave = activeTab === "impostazioni";
   const settingsSaveEnabled = Boolean(settingsSaveControl?.canSave);
-  const isReadOnlyLaboratoryListino = activeArea === "laboratorio" && role === "segreteria";
+  const canEditCatalog = activeArea === "ambulatorio"
+    ? can("ambulatorio.prestazioni.write")
+    : can("laboratorio.listino.write");
+  const isReadOnlyCatalog = !canEditCatalog;
   const pagamentiScope = can("cassa")
     ? "tutte"
     : can("cassa.modena")
       ? "modena"
       : "sassuolo";
+  const accettazioneWorkflowRole = role.startsWith("laboratorio") ? "laboratorio" : "segreteria";
+  const canUseCassaActions = can("cassa") || can("cassa.modena") || can("cassa.sassuolo");
+  const canCreateAcceptance = role === "admin" || role.startsWith("segreteria");
   const settingsSaving = settingsSaveControl?.state === "saving";
   const settingsSaveButtonClass = settingsSaveEnabled
     ? "gap-2 border-slate-950 bg-slate-950 text-white hover:bg-slate-900 hover:text-white"
@@ -609,8 +612,11 @@ function AdminDashboard({
 
             {activeTab === "accettazione" && (
               <AccettazionePaziente
-                role={role}
+                role={accettazioneWorkflowRole}
                 area={activeArea === "ambulatorio" ? "ambulatorio" : "laboratorio"}
+                canCreateAcceptance={canCreateAcceptance}
+                showBillingActions={canUseCassaActions}
+                canUpdatePaymentStatus={canUseCassaActions}
               />
             )}
 
@@ -645,12 +651,12 @@ function AdminDashboard({
                 <div>
                   <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">{activeItem.label}</h1>
                   <p className="text-muted-foreground text-sm">
-                    {isReadOnlyLaboratoryListino
-                      ? "Consulta il catalogo degli esami del laboratorio."
+                    {isReadOnlyCatalog
+                      ? `Consulta il catalogo ${activeArea === "ambulatorio" ? "delle prestazioni" : "degli esami"}.`
                       : `Gestisci il catalogo ${activeArea === "ambulatorio" ? "delle prestazioni" : "degli esami"} del modulo ${activeGroup.label.toLowerCase()}.`}
                   </p>
                 </div>
-                <AdminExams readOnly={isReadOnlyLaboratoryListino} />
+                <AdminExams readOnly={isReadOnlyCatalog} />
               </div>
             )}
 

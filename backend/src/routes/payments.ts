@@ -8,7 +8,7 @@ import {
 } from "@workspace/db";
 import { desc, eq, inArray } from "drizzle-orm";
 import { ensureBookingPaymentColumns, isPaymentStatus, normalizePaymentStatus } from "../lib/bookingPayments";
-import { hasPermission, requireAnyPermission } from "../lib/auth";
+import { allowedSediForPermission, canAccessSedeForPermission, hasPermission, requireAnyPermission } from "../lib/auth";
 
 const router = Router();
 const SETTINGS_KEY = "admin-settings";
@@ -101,11 +101,7 @@ const saveAgendaAppointments = async (appointments: AgendaAppointmentValue[]) =>
 };
 
 const allowedSedi = (req: Parameters<typeof hasPermission>[0]) => {
-  if (hasPermission(req, "cassa")) return ["modena", "sassuolo"] as SedeOperativa[];
-  return [
-    hasPermission(req, "cassa.modena") ? "modena" : null,
-    hasPermission(req, "cassa.sassuolo") ? "sassuolo" : null,
-  ].filter((item): item is SedeOperativa => Boolean(item));
+  return allowedSediForPermission(req, "cassa") as SedeOperativa[];
 };
 
 const canSeeSede = (sede: SedeOperativa | null, sedi: SedeOperativa[], canSeeAll: boolean) => {
@@ -114,10 +110,7 @@ const canSeeSede = (sede: SedeOperativa | null, sedi: SedeOperativa[], canSeeAll
 };
 
 const canMutatePaymentSede = (req: Parameters<typeof hasPermission>[0], sede: SedeOperativa | null) => {
-  if (hasPermission(req, "cassa")) return true;
-  if (sede === "modena") return hasPermission(req, "cassa.modena");
-  if (sede === "sassuolo") return hasPermission(req, "cassa.sassuolo");
-  return false;
+  return canAccessSedeForPermission(req, "cassa", sede);
 };
 
 const matchesPaymentFilter = (status: "paid" | "unpaid", filter: PaymentStatusFilter) =>

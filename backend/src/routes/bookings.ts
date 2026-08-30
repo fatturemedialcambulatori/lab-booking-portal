@@ -1,9 +1,9 @@
 import { Router, type RequestHandler } from "express";
-import { db } from "@workspace/db";
+import { adminSettingsTable, db } from "@workspace/db";
 import { bookingsTable, bookingExamsTable, examsTable, patientsTable, refertiTable, examComponentsTable } from "@workspace/db";
 import { eq, desc, inArray, or, and, isNotNull, sql } from "drizzle-orm";
 import { CreateBookingBody, GetBookingParams } from "@workspace/api-zod";
-import { requireAnyPermission } from "../lib/auth";
+import { canAccessSedeForPermission, hasGlobalPermission, requireAnyPermission } from "../lib/auth";
 import {
   ensureBookingPaymentColumns,
   isPaymentStatus,
@@ -12,6 +12,7 @@ import {
 } from "../lib/bookingPayments";
 
 const router = Router();
+const AGENDA_APPOINTMENTS_KEY = "agenda-appointments";
 const VALID_BOOKING_STATUSES = ["confirmed", "pending", "accepted", "completed", "cancelled"] as const;
 const CONTAINER_EXAM_TYPES = new Set(["composito", "pacchetto"]);
 const requireBookingAccess = requireAnyPermission([
@@ -28,9 +29,62 @@ const PUBLIC_BOOKING_MAX_PER_WINDOW = Number(process.env["PUBLIC_BOOKING_MAX_PER
 const publicBookingHits = new Map<string, { count: number; resetAt: number }>();
 
 type BookingStatusValue = (typeof VALID_BOOKING_STATUSES)[number];
+type AgendaAppointmentValue = Record<string, unknown>;
 
 const toDateStr = (v: string | Date | null): string =>
   !v ? "" : typeof v === "string" ? v.slice(0, 10) : v.toISOString().slice(0, 10);
+
+const readText = (value: unknown) => String(value ?? "").trim();
+
+const loadAgendaAppointments = async () => {
+  const [settings] = await db
+    .select()
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.key, AGENDA_APPOINTMENTS_KEY))
+    .limit(1);
+
+  return Array.isArray(settings?.value) ? (settings.value as AgendaAppointmentValue[]) : [];
+};
+
+const agendaByLabBookingId = (appointments: AgendaAppointmentValue[]) => {
+  const result = new Map<number, AgendaAppointmentValue>();
+  appointments.forEach((appointment) => {
+    const labBookingId = Number(appointment["labBookingId"]);
+    if (Number.isInteger(labBookingId) && labBookingId > 0) {
+      result.set(labBookingId, appointment);
+    }
+  });
+  return result;
+};
+
+const canAccessBooking = (
+  req: Parameters<RequestHandler>[0],
+  bookingId: number,
+  linkedAgendaByBooking: Map<number, AgendaAppointmentValue>,
+) => {
+  const linkedAppointment = linkedAgendaByBooking.get(bookingId);
+  if (!linkedAppointment) {
+    return (
+      hasGlobalPermission(req, "laboratorio.accettazione") ||
+      hasGlobalPermission(req, "ambulatorio.accettazione")
+    );
+  }
+
+  const basePermission = readText(linkedAppointment["area"]) === "ambulatorio"
+    ? "ambulatorio.accettazione"
+    : "laboratorio.accettazione";
+  return canAccessSedeForPermission(req, basePermission, linkedAppointment["sede"]);
+};
+
+const canAccessBookingPayment = (
+  req: Parameters<RequestHandler>[0],
+  bookingId: number,
+  linkedAgendaByBooking: Map<number, AgendaAppointmentValue>,
+) => {
+  const linkedAppointment = linkedAgendaByBooking.get(bookingId);
+  if (!linkedAppointment) return hasGlobalPermission(req, "cassa");
+  return canAccessSedeForPermission(req, "cassa", linkedAppointment["sede"]);
+};
 
 function isBookingStatus(value: unknown): value is BookingStatusValue {
   return typeof value === "string" && (VALID_BOOKING_STATUSES as readonly string[]).includes(value);
@@ -192,7 +246,8 @@ router.get("/bookings", requireBookingAccess, async (req, res) => {
       .groupBy(refertiTable.bookingId);
     const refertiByBooking = new Map(refertiCounts.map((r) => [r.bookingId, r.count]));
 
-    const result = bookings.map((b) => {
+    const linkedAgendaByBooking = agendaByLabBookingId(await loadAgendaAppointments());
+    const result = bookings.filter((booking) => canAccessBooking(req, booking.id, linkedAgendaByBooking)).map((b) => {
       const exams = examsByBooking.get(b.id) ?? [];
       const expectedRefertiCount = exams.reduce((sum, e) => {
         if (isContainerExamType(e.tipo)) return sum + (componentCounts.get(e.examId) ?? 1);
@@ -317,6 +372,9 @@ router.get("/bookings/:id", requireBookingAccess, async (req, res) => {
     if (!result) {
       return res.status(404).json({ error: "Booking not found" });
     }
+    if (!canAccessBooking(req, parsed.data.id, agendaByLabBookingId(await loadAgendaAppointments()))) {
+      return res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+    }
     return res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to get booking");
@@ -336,6 +394,9 @@ router.patch("/bookings/:id/status", requireBookingAccess, async (req, res) => {
   }
 
   try {
+    if (!canAccessBooking(req, id, agendaByLabBookingId(await loadAgendaAppointments()))) {
+      return res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+    }
     const result = await persistBookingStatus(id, status);
     if (!result) {
       return res.status(404).json({ error: "Booking not found" });
@@ -359,6 +420,9 @@ router.post("/bookings-status", requireBookingAccess, async (req, res) => {
   }
 
   try {
+    if (!canAccessBooking(req, id, agendaByLabBookingId(await loadAgendaAppointments()))) {
+      return res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+    }
     const result = await persistBookingStatus(id, status);
     if (!result) {
       return res.status(404).json({ error: "Booking not found" });
@@ -382,6 +446,9 @@ router.patch("/bookings/:id/payment-status", requireBookingPaymentAccess, async 
   }
 
   try {
+    if (!canAccessBookingPayment(req, id, agendaByLabBookingId(await loadAgendaAppointments()))) {
+      return res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+    }
     const result = await persistBookingPaymentStatus(id, paymentStatus);
     if (!result) {
       return res.status(404).json({ error: "Booking not found" });
@@ -405,6 +472,9 @@ router.post("/bookings-payment-status", requireBookingPaymentAccess, async (req,
   }
 
   try {
+    if (!canAccessBookingPayment(req, id, agendaByLabBookingId(await loadAgendaAppointments()))) {
+      return res.status(403).json({ error: "Permesso insufficiente per questa sede" });
+    }
     const result = await persistBookingPaymentStatus(id, paymentStatus);
     if (!result) {
       return res.status(404).json({ error: "Booking not found" });

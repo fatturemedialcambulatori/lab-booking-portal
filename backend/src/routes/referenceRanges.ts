@@ -7,8 +7,8 @@ import { requireAnyPermission } from "../lib/auth";
 const router = Router();
 const VALID_REFERENCE_RANGE_TYPES = ["range", "gt", "gte", "lt", "lte", "qualitative", "fasce"] as const;
 const requireReferenceRangeManagement = requireAnyPermission([
-  "laboratorio.listino",
-  "ambulatorio.prestazioni",
+  "laboratorio.listino.write",
+  "ambulatorio.prestazioni.write",
   "impostazioni",
 ]);
 
