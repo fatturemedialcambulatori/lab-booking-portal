@@ -83,6 +83,14 @@ let providerCooldownUntilMs = 0;
 
 const cleanEnv = (value: string | undefined) => value?.trim().replace(/^(['"])(.*)\1$/, "$2") ?? "";
 
+const readEnv = (...keys: string[]) => {
+  for (const key of keys) {
+    const value = cleanEnv(process.env[key]);
+    if (value) return value;
+  }
+  return "";
+};
+
 const readString = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
 const readInteger = (value: unknown, fallback: number, min: number, max: number) => {
@@ -94,6 +102,14 @@ const readInteger = (value: unknown, fallback: number, min: number, max: number)
 const normalizeEnvironment = (value: string): ArubaFatturazioneEnvironment =>
   value.toLocaleLowerCase("it-IT") === "production" ? "production" : "demo";
 
+const inferEnvironment = (explicit: string, authBaseUrl: string, wsBaseUrl: string) => {
+  if (explicit) return normalizeEnvironment(explicit);
+  const combinedUrls = `${authBaseUrl} ${wsBaseUrl}`.toLocaleLowerCase("it-IT");
+  if (combinedUrls.includes("demo")) return "demo";
+  if (combinedUrls.includes("fatturazioneelettronica.aruba.it")) return "production";
+  return "demo";
+};
+
 const defaultAuthBaseUrl = (environment: ArubaFatturazioneEnvironment) =>
   environment === "production" ? PRODUCTION_AUTH_BASE_URL : DEMO_AUTH_BASE_URL;
 
@@ -103,9 +119,15 @@ const defaultWsBaseUrl = (environment: ArubaFatturazioneEnvironment) =>
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 
 const getConfig = (): ArubaFatturazioneConfig => {
-  const environment = normalizeEnvironment(cleanEnv(process.env["ARUBA_FE_ENVIRONMENT"]));
-  const username = cleanEnv(process.env["ARUBA_FE_USERNAME"]);
-  const password = cleanEnv(process.env["ARUBA_FE_PASSWORD"]);
+  const explicitAuthBaseUrl = readEnv("ARUBA_FE_AUTH_BASE_URL", "ARUBA_FE_AUTH_URL");
+  const explicitWsBaseUrl = readEnv("ARUBA_FE_WS_BASE_URL", "ARUBA_FE_API_URL");
+  const environment = inferEnvironment(
+    readEnv("ARUBA_FE_ENVIRONMENT"),
+    explicitAuthBaseUrl,
+    explicitWsBaseUrl,
+  );
+  const username = readEnv("ARUBA_FE_USERNAME");
+  const password = readEnv("ARUBA_FE_PASSWORD");
   const missing = [
     ["ARUBA_FE_USERNAME", username],
     ["ARUBA_FE_PASSWORD", password],
@@ -115,15 +137,15 @@ const getConfig = (): ArubaFatturazioneConfig => {
 
   return {
     environment,
-    authBaseUrl: trimTrailingSlash(cleanEnv(process.env["ARUBA_FE_AUTH_BASE_URL"]) || defaultAuthBaseUrl(environment)),
-    wsBaseUrl: trimTrailingSlash(cleanEnv(process.env["ARUBA_FE_WS_BASE_URL"]) || defaultWsBaseUrl(environment)),
+    authBaseUrl: trimTrailingSlash(explicitAuthBaseUrl || defaultAuthBaseUrl(environment)),
+    wsBaseUrl: trimTrailingSlash(explicitWsBaseUrl || defaultWsBaseUrl(environment)),
     username,
     password,
-    timeoutMs: readInteger(cleanEnv(process.env["ARUBA_FE_TIMEOUT_MS"]), 10_000, 1_000, 30_000),
-    senderCountry: cleanEnv(process.env["ARUBA_FE_SENDER_COUNTRY"]) || "IT",
-    senderVatcode: cleanEnv(process.env["ARUBA_FE_SENDER_VATCODE"]),
-    receiverCountry: cleanEnv(process.env["ARUBA_FE_RECEIVER_COUNTRY"]) || "IT",
-    receiverVatcode: cleanEnv(process.env["ARUBA_FE_RECEIVER_VATCODE"]),
+    timeoutMs: readInteger(readEnv("ARUBA_FE_TIMEOUT_MS"), 10_000, 1_000, 30_000),
+    senderCountry: readEnv("ARUBA_FE_SENDER_COUNTRY") || "IT",
+    senderVatcode: readEnv("ARUBA_FE_SENDER_VATCODE", "ARUBA_FE_SENDER_PIVA"),
+    receiverCountry: readEnv("ARUBA_FE_RECEIVER_COUNTRY") || "IT",
+    receiverVatcode: readEnv("ARUBA_FE_RECEIVER_VATCODE", "ARUBA_FE_RECEIVER_PIVA"),
     configured: missing.length === 0,
     missing,
   };
@@ -245,7 +267,13 @@ const parseProviderPayload = (text: string) => {
   }
 };
 
-const arubaErrorMessage = (status: number, operation: string) => {
+const isCredentialProviderMessage = (message: string | undefined) =>
+  Boolean(message?.toLocaleLowerCase("it-IT").match(/user name|username|password|credential|credenzial/));
+
+const arubaErrorMessage = (status: number, operation: string, providerMessage?: string) => {
+  if ((status === 400 || status === 401) && isCredentialProviderMessage(providerMessage)) {
+    return "Credenziali Aruba non valide o ambiente Aruba errato";
+  }
   if (status === 400) return "Richiesta Aruba non valida";
   if (status === 401) return "Credenziali Aruba non valide o ambiente Aruba errato";
   if (status === 403) return "Utenza Aruba senza permessi per questa consultazione";
@@ -256,7 +284,15 @@ const arubaErrorMessage = (status: number, operation: string) => {
   return `${operation}: Aruba ha rifiutato o non ha completato la richiesta`;
 };
 
-const arubaErrorHint = (status: number, operation: string, retryAfterSeconds?: number) => {
+const arubaErrorHint = (
+  status: number,
+  operation: string,
+  retryAfterSeconds?: number,
+  providerMessage?: string,
+) => {
+  if ((status === 400 || status === 401) && isCredentialProviderMessage(providerMessage)) {
+    return "Controlla ambiente demo/produzione, username e password Aruba configurati nel backend.";
+  }
   if (status === 400 && operation.includes("fatture")) {
     return "Controlla intervallo date, ambiente e Partita IVA mittente/destinatario configurata nel backend.";
   }
@@ -295,12 +331,12 @@ const fetchJson = async <T>(
       : providerMessageFromPayload(providerPayload);
     throw new ArubaFatturazioneError(
       response.status >= 500 ? 502 : response.status,
-      arubaErrorMessage(response.status, operation),
+      arubaErrorMessage(response.status, operation, providerMessage),
       response.status,
       {
         providerMessage,
         operation,
-        hint: arubaErrorHint(response.status, operation, retryAfterSeconds),
+        hint: arubaErrorHint(response.status, operation, retryAfterSeconds, providerMessage),
         retryAfterSeconds,
       },
     );
