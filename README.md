@@ -66,6 +66,7 @@ Backend:
 - `ARUBA_FE_RECEIVER_COUNTRY`
 - `ARUBA_FE_RECEIVER_VATCODE`
 - `ARUBA_FE_TIMEOUT_MS`
+- `ARUBA_FE_SYNC_DELAY_MS`
 
 Frontend:
 
@@ -89,5 +90,5 @@ pnpm typecheck
 - Le verifiche di ruolo e permesso devono essere enforceate lato backend.
 - Gli upload passano da API controllate, con limiti dimensione e controlli MIME.
 - Log e audit non devono contenere dati sanitari o segreti.
-- L'integrazione Aruba Fatturazione Elettronica e esposta solo al ruolo `admin` e, per ora, usa solo endpoint di consultazione.
+- L'integrazione Aruba Fatturazione Elettronica e esposta solo al ruolo `admin` e, per ora, usa solo endpoint di consultazione. Gli intervalli lunghi vengono sincronizzati in cache locale con finestre compatibili con i limiti Aruba.
 - Le integrazioni future previste sono AWS, storage documentale e macchinari/LIS.

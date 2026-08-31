@@ -1,3 +1,6 @@
+import { eq } from "drizzle-orm";
+import { adminSettingsTable, db } from "@workspace/db";
+
 export type ArubaFatturazioneEnvironment = "demo" | "production";
 export type ArubaInvoiceDirection = "out" | "in";
 
@@ -12,6 +15,7 @@ type ArubaFatturazioneConfig = {
   senderVatcode: string;
   receiverCountry: string;
   receiverVatcode: string;
+  syncDelayMs: number;
   configured: boolean;
   missing: string[];
 };
@@ -27,6 +31,47 @@ type ArubaTokenResponse = {
   expires_in?: unknown;
 };
 
+type ArubaInvoiceCompany = {
+  description?: string;
+  countryCode?: string;
+  vatCode?: string;
+  fiscalCode?: string;
+};
+
+type ArubaInvoiceLine = {
+  invoiceDate?: string;
+  number?: string;
+  documentType?: string;
+  status?: string;
+  statusDescription?: string;
+  totalDocument?: number | string;
+  totalVat?: number | string;
+  netPayable?: number | string;
+};
+
+type ArubaInvoiceLot = {
+  id?: string;
+  idSdi?: string;
+  filename?: string;
+  docType?: string;
+  creationDate?: string;
+  lastUpdate?: string;
+  pddAvailable?: boolean;
+  sender?: ArubaInvoiceCompany;
+  receiver?: ArubaInvoiceCompany;
+  invoices?: ArubaInvoiceLine[];
+};
+
+type ArubaInvoicePage = {
+  content?: ArubaInvoiceLot[];
+  totalElements?: number;
+  totalPages?: number;
+  number?: number;
+  size?: number;
+  first?: boolean;
+  last?: boolean;
+};
+
 export type ArubaInvoiceSearchInput = {
   direction: ArubaInvoiceDirection;
   page?: unknown;
@@ -35,6 +80,63 @@ export type ArubaInvoiceSearchInput = {
   creationEndDate?: unknown;
   status?: unknown;
   documentType?: unknown;
+};
+
+export type ArubaInvoiceCacheRecord = {
+  cacheId: string;
+  direction: ArubaInvoiceDirection;
+  id?: string;
+  idSdi?: string;
+  filename?: string;
+  docType?: string;
+  creationDate?: string;
+  lastUpdate?: string;
+  pddAvailable?: boolean;
+  invoiceDate?: string;
+  number?: string;
+  documentType?: string;
+  status?: string;
+  statusDescription?: string;
+  totalDocument?: number;
+  totalVat?: number;
+  netPayable?: number;
+  counterpartyName?: string;
+  counterpartyCountry?: string;
+  counterpartyVatCode?: string;
+  counterpartyFiscalCode?: string;
+  syncedAt: string;
+};
+
+type ArubaInvoiceCacheState = {
+  version: 1;
+  updatedAt?: string;
+  invoices: ArubaInvoiceCacheRecord[];
+  lastSync?: ArubaInvoiceSyncState;
+};
+
+export type ArubaInvoiceSyncState = {
+  id: string;
+  direction: ArubaInvoiceDirection;
+  status: "idle" | "running" | "completed" | "failed";
+  requestedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  creationStartDate: string;
+  creationEndDate: string;
+  totalWindows: number;
+  completedWindows: number;
+  totalProviderRequests: number;
+  importedCount: number;
+  error?: string;
+  providerStatus?: number;
+  retryAfterSeconds?: number;
+};
+
+export type ArubaInvoiceSyncInput = {
+  direction: ArubaInvoiceDirection;
+  creationStartDate?: unknown;
+  creationEndDate?: unknown;
+  size?: unknown;
 };
 
 export class ArubaFatturazioneError extends Error {
@@ -68,6 +170,10 @@ const PRODUCTION_AUTH_BASE_URL = "https://auth.fatturazioneelettronica.aruba.it"
 const PRODUCTION_WS_BASE_URL = "https://ws.fatturazioneelettronica.aruba.it";
 const TOKEN_REFRESH_SAFETY_MS = 60_000;
 const MAX_INVOICE_SEARCH_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
+const INVOICE_CACHE_KEY = "aruba-fatturazione-cache-v1";
+const SYNC_WINDOW_DAYS = 2;
+const MAX_SYNC_RANGE_DAYS = 370;
+const DEFAULT_SYNC_DELAY_MS = 5_500;
 const SENSITIVE_PAYLOAD_KEYS = new Set([
   "access_token",
   "refresh_token",
@@ -80,6 +186,7 @@ const SENSITIVE_PAYLOAD_KEYS = new Set([
 let tokenCache: ArubaTokenCache | null = null;
 let tokenRefreshInFlight: { cacheKey: string; promise: Promise<string> } | null = null;
 let providerCooldownUntilMs = 0;
+let currentSyncJob: ArubaInvoiceSyncState | null = null;
 
 const cleanEnv = (value: string | undefined) => value?.trim().replace(/^(['"])(.*)\1$/, "$2") ?? "";
 
@@ -146,6 +253,7 @@ const getConfig = (): ArubaFatturazioneConfig => {
     senderVatcode: readEnv("ARUBA_FE_SENDER_VATCODE", "ARUBA_FE_SENDER_PIVA"),
     receiverCountry: readEnv("ARUBA_FE_RECEIVER_COUNTRY") || "IT",
     receiverVatcode: readEnv("ARUBA_FE_RECEIVER_VATCODE", "ARUBA_FE_RECEIVER_PIVA"),
+    syncDelayMs: readInteger(readEnv("ARUBA_FE_SYNC_DELAY_MS"), DEFAULT_SYNC_DELAY_MS, 1_000, 60_000),
     configured: missing.length === 0,
     missing,
   };
@@ -528,5 +636,436 @@ export const findArubaInvoices = async (input: ArubaInvoiceSearchInput) => {
     requestedAt: new Date().toISOString(),
     filters,
     data: sanitizeProviderPayload(data),
+  };
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const readNumberValue = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const readBooleanValue = (value: unknown) =>
+  typeof value === "boolean" ? value : undefined;
+
+const readInvoiceCompany = (value: unknown): ArubaInvoiceCompany | undefined => {
+  if (!isRecord(value)) return undefined;
+  return {
+    description: readString(value["description"]) || undefined,
+    countryCode: readString(value["countryCode"]) || undefined,
+    vatCode: readString(value["vatCode"]) || undefined,
+    fiscalCode: readString(value["fiscalCode"]) || undefined,
+  };
+};
+
+const readInvoiceLine = (value: unknown): ArubaInvoiceLine | undefined => {
+  if (!isRecord(value)) return undefined;
+  return {
+    invoiceDate: readString(value["invoiceDate"]) || undefined,
+    number: readString(value["number"]) || undefined,
+    documentType: readString(value["documentType"]) || undefined,
+    status: readString(value["status"]) || undefined,
+    statusDescription: readString(value["statusDescription"]) || undefined,
+    totalDocument: readNumberValue(value["totalDocument"]),
+    totalVat: readNumberValue(value["totalVat"]),
+    netPayable: readNumberValue(value["netPayable"]),
+  };
+};
+
+const readInvoiceLots = (value: unknown): ArubaInvoiceLot[] => {
+  if (!isRecord(value) || !Array.isArray(value["content"])) return [];
+  return value["content"].filter(isRecord).map((item) => ({
+    id: readString(item["id"]) || undefined,
+    idSdi: readString(item["idSdi"]) || undefined,
+    filename: readString(item["filename"]) || undefined,
+    docType: readString(item["docType"]) || undefined,
+    creationDate: readString(item["creationDate"]) || undefined,
+    lastUpdate: readString(item["lastUpdate"]) || undefined,
+    pddAvailable: readBooleanValue(item["pddAvailable"]),
+    sender: readInvoiceCompany(item["sender"]),
+    receiver: readInvoiceCompany(item["receiver"]),
+    invoices: Array.isArray(item["invoices"])
+      ? item["invoices"].map(readInvoiceLine).filter(Boolean) as ArubaInvoiceLine[]
+      : [],
+  }));
+};
+
+const readInvoiceTotalPages = (value: unknown) => {
+  if (!isRecord(value)) return 1;
+  return readInteger(value["totalPages"], 1, 1, 10_000);
+};
+
+const invoiceCacheId = (direction: ArubaInvoiceDirection, lot: ArubaInvoiceLot, invoice: ArubaInvoiceLine) =>
+  [
+    direction,
+    lot.id || "",
+    lot.idSdi || "",
+    lot.filename || "",
+    invoice.number || "",
+    invoice.invoiceDate || lot.creationDate || "",
+  ].join(":");
+
+const normalizeInvoiceForCache = (
+  direction: ArubaInvoiceDirection,
+  lot: ArubaInvoiceLot,
+  syncedAt: string,
+): ArubaInvoiceCacheRecord => {
+  const invoice = lot.invoices?.[0] ?? {};
+  const counterparty = direction === "out" ? lot.receiver : lot.sender;
+
+  return {
+    cacheId: invoiceCacheId(direction, lot, invoice),
+    direction,
+    id: lot.id,
+    idSdi: lot.idSdi,
+    filename: lot.filename,
+    docType: lot.docType,
+    creationDate: lot.creationDate,
+    lastUpdate: lot.lastUpdate,
+    pddAvailable: lot.pddAvailable,
+    invoiceDate: invoice.invoiceDate,
+    number: invoice.number,
+    documentType: invoice.documentType,
+    status: invoice.status,
+    statusDescription: invoice.statusDescription,
+    totalDocument: readNumberValue(invoice.totalDocument),
+    totalVat: readNumberValue(invoice.totalVat),
+    netPayable: readNumberValue(invoice.netPayable),
+    counterpartyName: counterparty?.description,
+    counterpartyCountry: counterparty?.countryCode,
+    counterpartyVatCode: counterparty?.vatCode,
+    counterpartyFiscalCode: counterparty?.fiscalCode,
+    syncedAt,
+  };
+};
+
+const normalizeCacheRecord = (value: unknown): ArubaInvoiceCacheRecord | null => {
+  if (!isRecord(value)) return null;
+  const cacheId = readString(value["cacheId"]);
+  const direction = readString(value["direction"]) === "in" ? "in" : readString(value["direction"]) === "out" ? "out" : null;
+  const syncedAt = readString(value["syncedAt"]);
+  if (!cacheId || !direction || !syncedAt) return null;
+
+  return {
+    cacheId,
+    direction,
+    id: readString(value["id"]) || undefined,
+    idSdi: readString(value["idSdi"]) || undefined,
+    filename: readString(value["filename"]) || undefined,
+    docType: readString(value["docType"]) || undefined,
+    creationDate: readString(value["creationDate"]) || undefined,
+    lastUpdate: readString(value["lastUpdate"]) || undefined,
+    pddAvailable: readBooleanValue(value["pddAvailable"]),
+    invoiceDate: readString(value["invoiceDate"]) || undefined,
+    number: readString(value["number"]) || undefined,
+    documentType: readString(value["documentType"]) || undefined,
+    status: readString(value["status"]) || undefined,
+    statusDescription: readString(value["statusDescription"]) || undefined,
+    totalDocument: readNumberValue(value["totalDocument"]),
+    totalVat: readNumberValue(value["totalVat"]),
+    netPayable: readNumberValue(value["netPayable"]),
+    counterpartyName: readString(value["counterpartyName"]) || undefined,
+    counterpartyCountry: readString(value["counterpartyCountry"]) || undefined,
+    counterpartyVatCode: readString(value["counterpartyVatCode"]) || undefined,
+    counterpartyFiscalCode: readString(value["counterpartyFiscalCode"]) || undefined,
+    syncedAt,
+  };
+};
+
+const normalizeSyncState = (value: unknown): ArubaInvoiceSyncState | undefined => {
+  if (!isRecord(value)) return undefined;
+  const id = readString(value["id"]);
+  const direction = readString(value["direction"]) === "in" ? "in" : readString(value["direction"]) === "out" ? "out" : null;
+  const status = readString(value["status"]);
+  const requestedAt = readString(value["requestedAt"]);
+  const creationStartDate = readString(value["creationStartDate"]);
+  const creationEndDate = readString(value["creationEndDate"]);
+  if (!id || !direction || !requestedAt || !creationStartDate || !creationEndDate) return undefined;
+  if (status !== "idle" && status !== "running" && status !== "completed" && status !== "failed") return undefined;
+
+  return {
+    id,
+    direction,
+    status,
+    requestedAt,
+    startedAt: readString(value["startedAt"]) || undefined,
+    finishedAt: readString(value["finishedAt"]) || undefined,
+    creationStartDate,
+    creationEndDate,
+    totalWindows: readInteger(value["totalWindows"], 0, 0, 10_000),
+    completedWindows: readInteger(value["completedWindows"], 0, 0, 10_000),
+    totalProviderRequests: readInteger(value["totalProviderRequests"], 0, 0, 1_000_000),
+    importedCount: readInteger(value["importedCount"], 0, 0, 1_000_000),
+    error: readString(value["error"]) || undefined,
+    providerStatus: readInteger(value["providerStatus"], 0, 0, 999) || undefined,
+    retryAfterSeconds: readInteger(value["retryAfterSeconds"], 0, 0, 86_400) || undefined,
+  };
+};
+
+const normalizeCacheState = (value: unknown): ArubaInvoiceCacheState => {
+  if (!isRecord(value)) return { version: 1, invoices: [] };
+  return {
+    version: 1,
+    updatedAt: readString(value["updatedAt"]) || undefined,
+    invoices: Array.isArray(value["invoices"])
+      ? value["invoices"].map(normalizeCacheRecord).filter(Boolean) as ArubaInvoiceCacheRecord[]
+      : [],
+    lastSync: normalizeSyncState(value["lastSync"]),
+  };
+};
+
+const loadInvoiceCacheState = async () => {
+  const [settings] = await db
+    .select()
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.key, INVOICE_CACHE_KEY))
+    .limit(1);
+
+  return normalizeCacheState(settings?.value);
+};
+
+const saveInvoiceCacheState = async (state: ArubaInvoiceCacheState) => {
+  const now = new Date();
+  const value = {
+    ...state,
+    version: 1 as const,
+    updatedAt: now.toISOString(),
+  };
+
+  await db
+    .insert(adminSettingsTable)
+    .values({
+      key: INVOICE_CACHE_KEY,
+      value,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: adminSettingsTable.key,
+      set: {
+        value,
+        updatedAt: now,
+      },
+    });
+
+  return value;
+};
+
+const upsertCachedInvoices = async (records: ArubaInvoiceCacheRecord[], syncState?: ArubaInvoiceSyncState) => {
+  const state = await loadInvoiceCacheState();
+  const byId = new Map(state.invoices.map((invoice) => [invoice.cacheId, invoice]));
+  records.forEach((record) => byId.set(record.cacheId, record));
+  await saveInvoiceCacheState({
+    version: 1,
+    updatedAt: state.updatedAt,
+    invoices: Array.from(byId.values()),
+    lastSync: syncState ?? state.lastSync,
+  });
+};
+
+const saveSyncState = async (syncState: ArubaInvoiceSyncState) => {
+  const state = await loadInvoiceCacheState();
+  await saveInvoiceCacheState({
+    ...state,
+    lastSync: syncState,
+  });
+};
+
+const startOfUtcDay = (value: Date) =>
+  new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), 0, 0, 0, 0));
+
+const endOfUtcDay = (value: Date) =>
+  new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), 23, 59, 59, 999));
+
+const parseDateRange = (startValue: unknown, endValue: unknown, defaultStart: Date) => {
+  const now = new Date();
+  const startIso = normalizeDateParam(startValue, defaultStart, false);
+  const endIso = normalizeDateParam(endValue, now, true);
+  const start = startOfUtcDay(new Date(startIso));
+  const end = endOfUtcDay(new Date(endIso));
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end.getTime() < start.getTime()) {
+    throw new ArubaFatturazioneError(400, "Intervallo date fatturazione non valido");
+  }
+
+  const days = Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+  if (days > MAX_SYNC_RANGE_DAYS) {
+    throw new ArubaFatturazioneError(400, "La sincronizzazione Aruba non puo superare un anno per volta");
+  }
+
+  return { start, end };
+};
+
+const splitSyncWindows = (start: Date, end: Date) => {
+  const windows: Array<{ start: string; end: string }> = [];
+  let cursor = new Date(start);
+
+  while (cursor.getTime() <= end.getTime()) {
+    const windowStart = new Date(cursor);
+    const windowEnd = new Date(Math.min(
+      end.getTime(),
+      windowStart.getTime() + SYNC_WINDOW_DAYS * 24 * 60 * 60 * 1000 - 1,
+    ));
+    windows.push({
+      start: windowStart.toISOString(),
+      end: windowEnd.toISOString(),
+    });
+    cursor = new Date(windowEnd.getTime() + 1);
+  }
+
+  return windows;
+};
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const errorText = (err: unknown) =>
+  err instanceof Error ? err.message : "Sincronizzazione Aruba non riuscita";
+
+const runInvoiceSync = async (
+  initialState: ArubaInvoiceSyncState,
+  input: ArubaInvoiceSyncInput,
+  delayMs: number,
+) => {
+  const size = readInteger(input.size, 100, 1, 100);
+  const windows = splitSyncWindows(
+    new Date(initialState.creationStartDate),
+    new Date(initialState.creationEndDate),
+  );
+  const syncState = initialState;
+
+  try {
+    syncState.status = "running";
+    syncState.startedAt = new Date().toISOString();
+    await saveSyncState(syncState);
+
+    for (const window of windows) {
+      let page = 1;
+      let totalPages = 1;
+
+      do {
+        const result = await findArubaInvoices({
+          direction: syncState.direction,
+          creationStartDate: window.start,
+          creationEndDate: window.end,
+          page,
+          size,
+        });
+        const lots = readInvoiceLots(result.data);
+        const syncedAt = new Date().toISOString();
+        const records = lots.map((lot) => normalizeInvoiceForCache(syncState.direction, lot, syncedAt));
+
+        syncState.totalProviderRequests += 1;
+        syncState.importedCount += records.length;
+        totalPages = readInvoiceTotalPages(result.data);
+
+        await upsertCachedInvoices(records, syncState);
+
+        page += 1;
+        if (page <= totalPages) await delay(delayMs);
+      } while (page <= totalPages);
+
+      syncState.completedWindows += 1;
+      await saveSyncState(syncState);
+
+      if (syncState.completedWindows < syncState.totalWindows) await delay(delayMs);
+    }
+
+    syncState.status = "completed";
+    syncState.finishedAt = new Date().toISOString();
+    await saveSyncState(syncState);
+  } catch (err) {
+    syncState.status = "failed";
+    syncState.finishedAt = new Date().toISOString();
+    syncState.error = errorText(err);
+    syncState.providerStatus = err instanceof ArubaFatturazioneError ? err.providerStatus : undefined;
+    syncState.retryAfterSeconds = err instanceof ArubaFatturazioneError ? err.retryAfterSeconds : undefined;
+    await saveSyncState(syncState);
+  } finally {
+    currentSyncJob = syncState;
+  }
+};
+
+const defaultYearStart = () => {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0));
+};
+
+export const startArubaInvoiceSync = async (input: ArubaInvoiceSyncInput) => {
+  const config = getConfig();
+  assertConfigured(config);
+
+  if (currentSyncJob?.status === "running") {
+    throw new ArubaFatturazioneError(409, "Sincronizzazione Aruba gia in corso");
+  }
+
+  const direction = input.direction === "in" ? "in" : "out";
+  const { start, end } = parseDateRange(input.creationStartDate, input.creationEndDate, defaultYearStart());
+  const windows = splitSyncWindows(start, end);
+  const now = new Date().toISOString();
+  const syncState: ArubaInvoiceSyncState = {
+    id: `aruba-sync-${Date.now()}`,
+    direction,
+    status: "idle",
+    requestedAt: now,
+    creationStartDate: start.toISOString(),
+    creationEndDate: end.toISOString(),
+    totalWindows: windows.length,
+    completedWindows: 0,
+    totalProviderRequests: 0,
+    importedCount: 0,
+  };
+
+  currentSyncJob = syncState;
+  await saveSyncState(syncState);
+  void runInvoiceSync(syncState, { ...input, direction }, config.syncDelayMs);
+  return syncState;
+};
+
+export const getArubaInvoiceSyncState = async () => {
+  if (currentSyncJob?.status === "running") return currentSyncJob;
+  const state = await loadInvoiceCacheState();
+  return currentSyncJob ?? state.lastSync ?? null;
+};
+
+export const getCachedArubaInvoices = async (input: ArubaInvoiceSearchInput) => {
+  const direction = input.direction === "in" ? "in" : "out";
+  const { start, end } = parseDateRange(input.creationStartDate, input.creationEndDate, defaultYearStart());
+  const page = readInteger(input.page, 1, 1, 10_000);
+  const size = readInteger(input.size, 25, 1, 100);
+  const state = await loadInvoiceCacheState();
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+  const filtered = state.invoices
+    .filter((invoice) => {
+      if (invoice.direction !== direction) return false;
+      const dateMs = Date.parse(invoice.invoiceDate ?? invoice.creationDate ?? "");
+      return !Number.isNaN(dateMs) && dateMs >= startMs && dateMs <= endMs;
+    })
+    .sort((a, b) => Date.parse(b.invoiceDate ?? b.creationDate ?? "") - Date.parse(a.invoiceDate ?? a.creationDate ?? ""));
+
+  const totalElements = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalElements / size));
+  const safePage = Math.min(page, totalPages);
+  const offset = (safePage - 1) * size;
+
+  return {
+    provider: "aruba-fatturazione-elettronica",
+    direction,
+    readOnly: true,
+    source: "local-cache",
+    requestedAt: new Date().toISOString(),
+    cacheUpdatedAt: state.updatedAt,
+    lastSync: state.lastSync ?? null,
+    data: {
+      content: filtered.slice(offset, offset + size),
+      totalElements,
+      totalPages,
+      number: safePage,
+      size,
+      first: safePage === 1,
+      last: safePage >= totalPages,
+      numberOfElements: filtered.slice(offset, offset + size).length,
+    },
   };
 };

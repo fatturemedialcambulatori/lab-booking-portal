@@ -1,5 +1,5 @@
 import React from "react";
-import { format, parseISO, subDays } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
 import {
   AlertTriangle,
@@ -71,6 +71,18 @@ type ArubaInvoiceLot = {
   creationDate?: string;
   lastUpdate?: string;
   pddAvailable?: boolean;
+  invoiceDate?: string;
+  number?: string;
+  documentType?: string;
+  status?: string;
+  statusDescription?: string;
+  totalDocument?: number | string;
+  totalVat?: number | string;
+  netPayable?: number | string;
+  counterpartyName?: string;
+  counterpartyCountry?: string;
+  counterpartyVatCode?: string;
+  counterpartyFiscalCode?: string;
   sender?: ArubaCompany;
   receiver?: ArubaCompany;
   invoices?: ArubaInvoiceRow[];
@@ -89,7 +101,28 @@ type ArubaInvoicePayload = {
 
 type ArubaInvoicesResponse = {
   direction?: InvoiceDirection;
+  source?: "local-cache";
+  cacheUpdatedAt?: string;
+  lastSync?: ArubaSyncState | null;
   data?: ArubaInvoicePayload;
+};
+
+type ArubaSyncState = {
+  id: string;
+  direction: InvoiceDirection;
+  status: "idle" | "running" | "completed" | "failed";
+  requestedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  creationStartDate: string;
+  creationEndDate: string;
+  totalWindows: number;
+  completedWindows: number;
+  totalProviderRequests: number;
+  importedCount: number;
+  error?: string;
+  providerStatus?: number;
+  retryAfterSeconds?: number;
 };
 
 type FatturazioneApiErrorPayload = {
@@ -131,7 +164,7 @@ const localDateKey = (date: Date) => {
 };
 
 const todayKey = () => localDateKey(new Date());
-const yesterdayKey = () => localDateKey(subDays(new Date(), 1));
+const yearStartKey = () => `${new Date().getFullYear()}-01-01`;
 
 const formatDateTime = (value: string | undefined) => {
   if (!value) return "-";
@@ -147,12 +180,28 @@ const readAmount = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const firstInvoice = (lot: ArubaInvoiceLot) => lot.invoices?.[0] ?? {};
+const firstInvoice = (lot: ArubaInvoiceLot): ArubaInvoiceRow => lot.invoices?.[0] ?? {
+  invoiceDate: lot.invoiceDate,
+  number: lot.number,
+  documentType: lot.documentType,
+  status: lot.status,
+  statusDescription: lot.statusDescription,
+  totalDocument: lot.totalDocument,
+  totalVat: lot.totalVat,
+  netPayable: lot.netPayable,
+};
 
 const companyLabel = (company: ArubaCompany | undefined) => {
   if (!company) return "-";
   const fiscal = company.vatCode || company.fiscalCode;
   return [company.description, fiscal].filter(Boolean).join(" - ") || "-";
+};
+
+const counterpartyLabel = (lot: ArubaInvoiceLot, direction: InvoiceDirection) => {
+  if (lot.counterpartyName || lot.counterpartyVatCode || lot.counterpartyFiscalCode) {
+    return [lot.counterpartyName, lot.counterpartyVatCode || lot.counterpartyFiscalCode].filter(Boolean).join(" - ");
+  }
+  return companyLabel(direction === "out" ? lot.receiver : lot.sender);
 };
 
 const countCedenti = (value: unknown) => {
@@ -193,14 +242,16 @@ export function AdminFatturazione() {
   const [userInfo, setUserInfo] = React.useState<unknown>(null);
   const [cedenti, setCedenti] = React.useState<unknown>(null);
   const [direction, setDirection] = React.useState<InvoiceDirection>("out");
-  const [dateFrom, setDateFrom] = React.useState(yesterdayKey);
+  const [dateFrom, setDateFrom] = React.useState(yearStartKey);
   const [dateTo, setDateTo] = React.useState(todayKey);
   const [page, setPage] = React.useState(1);
   const [size, setSize] = React.useState("10");
   const [invoices, setInvoices] = React.useState<ArubaInvoicesResponse | null>(null);
+  const [syncState, setSyncState] = React.useState<ArubaSyncState | null>(null);
   const [loadingStatus, setLoadingStatus] = React.useState(true);
   const [loadingMeta, setLoadingMeta] = React.useState(false);
   const [loadingInvoices, setLoadingInvoices] = React.useState(false);
+  const [startingSync, setStartingSync] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const invoicePayload = invoices?.data;
@@ -264,8 +315,9 @@ export function AdminFatturazione() {
         page: String(page),
         size,
       });
-      const data = await fetchJson<ArubaInvoicesResponse>(`/api/fatturazione/invoices?${params.toString()}`);
+      const data = await fetchJson<ArubaInvoicesResponse>(`/api/fatturazione/cache?${params.toString()}`);
       setInvoices(data);
+      setSyncState((current) => data.lastSync ?? current);
     } catch (err) {
       setInvoices(null);
       setError(describeError(err));
@@ -273,6 +325,50 @@ export function AdminFatturazione() {
       setLoadingInvoices(false);
     }
   }, [dateFrom, dateTo, direction, page, size, status?.configured]);
+
+  const loadSync = React.useCallback(async () => {
+    if (!status?.configured) return;
+    try {
+      const data = await fetchJson<{ sync?: ArubaSyncState | null }>("/api/fatturazione/sync");
+      setSyncState(data.sync ?? null);
+    } catch {
+      setSyncState(null);
+    }
+  }, [status?.configured]);
+
+  const startSync = async () => {
+    if (!status?.configured || startingSync) return;
+    setStartingSync(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/fatturazione/sync", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          direction,
+          creationStartDate: dateFrom,
+          creationEndDate: dateTo,
+          size: 100,
+        }),
+      });
+      const data = await response.json().catch(() => ({})) as { sync?: ArubaSyncState } & FatturazioneApiErrorPayload;
+      if (!response.ok) throw new FatturazioneApiError(response.status, data);
+      setSyncState(data.sync ?? null);
+      toast({
+        title: "Sincronizzazione avviata",
+        description: "Il backend recupera le fatture Aruba in background rispettando i limiti API.",
+      });
+    } catch (err) {
+      toast({
+        title: "Sincronizzazione non avviata",
+        description: describeError(err),
+        variant: "destructive",
+      });
+    } finally {
+      setStartingSync(false);
+    }
+  };
 
   React.useEffect(() => {
     void loadStatus();
@@ -286,9 +382,23 @@ export function AdminFatturazione() {
     void loadInvoices();
   }, [loadInvoices]);
 
+  React.useEffect(() => {
+    void loadSync();
+  }, [loadSync]);
+
+  React.useEffect(() => {
+    if (syncState?.status !== "running") return;
+    const timer = window.setInterval(() => {
+      void loadSync();
+      void loadInvoices();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [loadInvoices, loadSync, syncState?.status]);
+
   const refreshAll = () => {
     void loadStatus();
     void loadMeta();
+    void loadSync();
     void loadInvoices();
   };
 
@@ -320,10 +430,21 @@ export function AdminFatturazione() {
             Consultazione Aruba Fatturazione Elettronica senza operazioni di emissione.
           </p>
         </div>
-        <Button type="button" variant="outline" className="gap-2 self-start lg:self-auto" onClick={refreshAll}>
-          <RefreshCw className={`h-4 w-4 ${loadingStatus || loadingMeta || loadingInvoices ? "animate-spin" : ""}`} />
-          Aggiorna
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" className="gap-2" onClick={refreshAll}>
+            <RefreshCw className={`h-4 w-4 ${loadingStatus || loadingMeta || loadingInvoices ? "animate-spin" : ""}`} />
+            Aggiorna archivio
+          </Button>
+          <Button
+            type="button"
+            className="gap-2"
+            disabled={!status?.configured || startingSync || syncState?.status === "running"}
+            onClick={() => void startSync()}
+          >
+            <RefreshCw className={`h-4 w-4 ${startingSync || syncState?.status === "running" ? "animate-spin" : ""}`} />
+            Sincronizza da Aruba
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">
@@ -362,6 +483,29 @@ export function AdminFatturazione() {
       {error && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           {error}
+        </div>
+      )}
+
+      {syncState && (
+        <div className="rounded-md border border-border bg-white p-4">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                Sync {syncState.direction === "out" ? "fatture inviate" : "fatture ricevute"}: {syncState.status === "running" ? "in corso" : syncState.status === "completed" ? "completata" : syncState.status === "failed" ? "fallita" : "pronta"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Finestre {syncState.completedWindows}/{syncState.totalWindows} · richieste Aruba {syncState.totalProviderRequests} · righe importate {syncState.importedCount}
+              </p>
+              {syncState.error && (
+                <p className="mt-1 text-xs text-destructive">
+                  {syncState.error}{syncState.retryAfterSeconds ? ` · Riprova tra circa ${syncState.retryAfterSeconds} secondi` : ""}
+                </p>
+              )}
+            </div>
+            <Badge variant={syncState.status === "completed" ? "default" : syncState.status === "failed" ? "destructive" : "outline"}>
+              {Math.round((syncState.completedWindows / Math.max(1, syncState.totalWindows)) * 100)}%
+            </Badge>
+          </div>
         </div>
       )}
 
@@ -491,12 +635,11 @@ export function AdminFatturazione() {
 
                 {!loadingInvoices && invoiceRows.map((lot) => {
                   const invoice = firstInvoice(lot);
-                  const company = direction === "out" ? lot.receiver : lot.sender;
                   return (
                     <TableRow key={`${lot.id ?? lot.filename ?? lot.idSdi}`}>
                       <TableCell className="font-medium">{invoice.number || lot.id || "-"}</TableCell>
                       <TableCell>{formatDateTime(invoice.invoiceDate ?? lot.creationDate)}</TableCell>
-                      <TableCell className="max-w-[320px] truncate">{companyLabel(company)}</TableCell>
+                      <TableCell className="max-w-[320px] truncate">{counterpartyLabel(lot, direction)}</TableCell>
                       <TableCell>{invoice.documentType || "-"}</TableCell>
                       <TableCell>
                         <Badge variant="outline">{invoice.status || "Letta"}</Badge>
@@ -512,7 +655,7 @@ export function AdminFatturazione() {
 
           <div className="flex items-center justify-between gap-3 border-t border-border p-4">
             <p className="text-xs text-muted-foreground">
-              Intervallo massimo Aruba: 2 giorni per ricerca.
+              La tabella legge la cache locale. La sincronizzazione spezza Aruba in finestre da 2 giorni.
             </p>
             <div className="flex gap-2">
               <Button type="button" variant="outline" disabled={page <= 1 || loadingInvoices} onClick={() => setPage((current) => Math.max(1, current - 1))}>
