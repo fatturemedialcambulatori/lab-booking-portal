@@ -2,6 +2,7 @@ import React from "react";
 import {
   Activity,
   ArrowLeft,
+  Bell,
   Building2,
   CalendarDays,
   Check,
@@ -9,9 +10,11 @@ import {
   Download,
   Euro,
   FileText,
+  Mail,
   Plane,
   Plus,
   Percent,
+  ReceiptText,
   Search,
   Stethoscope,
   Tags,
@@ -62,6 +65,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -119,6 +123,12 @@ type DatiFatturazioneMedico = {
   codiceSdi: string;
   regimeFiscale: string;
   noteFatturazione: string;
+};
+
+type ReportGiornalieroMedico = {
+  attivo: boolean;
+  email: boolean;
+  push: boolean;
 };
 
 type SedeMedicoId = "modena" | "sassuolo";
@@ -180,9 +190,11 @@ type Medico = {
   eccezioniAgenda?: EccezioneAgendaMedico[];
   pianoFerie?: PianoFerieMedico[];
   datiFatturazione?: DatiFatturazioneMedico;
+  reportGiornaliero?: ReportGiornalieroMedico;
 };
 
 type CompensoTipo = "percentuale" | "fisso";
+type MedicoDetailTab = "compensi" | "orari" | "prestazioni" | "report";
 
 type Listino = {
   id: string;
@@ -210,6 +222,25 @@ type PrenotazioneCompenso = {
   dataFattura?: string;
 };
 
+type PrenotazioneAgendaCompenso = {
+  id: string;
+  data: string;
+  ora: string;
+  paziente: string;
+  medicoId: string;
+  prestazione: string;
+  prestazioneId?: string;
+  durata: number;
+  stato: string;
+  area?: string;
+  paymentStatus?: string;
+  statoPagamento?: string;
+  pagata?: boolean;
+  fatturata?: boolean;
+  importoFatturato?: number;
+  numeroFattura?: string;
+};
+
 type PrenotazioneCalcolata = {
   prenotazione: PrenotazioneCompenso;
   medico: Medico;
@@ -218,6 +249,18 @@ type PrenotazioneCalcolata = {
   incasso: number;
   quota: number;
   netto: number;
+};
+
+type RigaCompensoMedico = {
+  prenotazione: PrenotazioneAgendaCompenso;
+  prestazione: Prestazione | null;
+  listino: Listino | null;
+  incasso: number;
+  quota: number;
+  netto: number;
+  percentualeEffettiva: number;
+  conteggiata: boolean;
+  motivoEsclusione: string;
 };
 
 type RigaExportCompenso = Record<string, string | number>;
@@ -264,6 +307,19 @@ type Specialita = {
 };
 
 const FILTRO_SPECIALITA_TUTTE = "__tutte__";
+const ANNO_COMPENSI_DEFAULT = new Date().getFullYear();
+const REPORT_GIORNALIERO_MEDICO_DEFAULT: ReportGiornalieroMedico = {
+  attivo: false,
+  email: true,
+  push: false,
+};
+
+const MEDICO_DETAIL_TABS: Array<{ id: MedicoDetailTab; label: string }> = [
+  { id: "compensi", label: "Compensi" },
+  { id: "orari", label: "Orari" },
+  { id: "prestazioni", label: "Prestazioni" },
+  { id: "report", label: "Report giornaliero" },
+];
 
 const GIORNI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
 
@@ -510,6 +566,16 @@ const normalizzaEccezioniAgenda = (medico: Pick<Medico, "eccezioniAgenda">) =>
 const normalizzaPianoFerie = (medico: Pick<Medico, "pianoFerie">) =>
   (medico.pianoFerie ?? []).map((ferie, index) => normalizzaPianoFerieMedico(ferie, index));
 
+const normalizzaReportGiornaliero = (
+  report?: Partial<ReportGiornalieroMedico>,
+): ReportGiornalieroMedico => ({
+  ...REPORT_GIORNALIERO_MEDICO_DEFAULT,
+  ...report,
+  attivo: report?.attivo === true,
+  email: report?.email !== false,
+  push: report?.push === true,
+});
+
 const normalizzaConventionTemplateService = (
   service: Partial<ConventionTemplateService>,
   index = 0,
@@ -571,6 +637,7 @@ const normalizzaMedico = (medico: Medico): Medico => {
       ...DATI_FATTURAZIONE_MEDICO_VUOTI,
       ...medico.datiFatturazione,
     },
+    reportGiornaliero: normalizzaReportGiornaliero(medico.reportGiornaliero),
   };
 };
 
@@ -627,6 +694,42 @@ const normalizzaTesto = (testo: string) =>
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const leggiNumero = (value: unknown, fallback = 0) => {
+  const parsed = typeof value === "number" ? value : Number(String(value ?? "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const leggiTesto = (value: unknown) => String(value ?? "").trim();
+
+const statoAgendaMaturaCompenso = (stato: string) => {
+  const valore = normalizzaTesto(stato);
+  return valore === "completata" || valore === "eseguita" || valore === "completed";
+};
+
+const prenotazioneAgendaPagata = (prenotazione: PrenotazioneAgendaCompenso) => {
+  const statoPagamento = normalizzaTesto(prenotazione.paymentStatus ?? prenotazione.statoPagamento ?? "");
+  return (
+    statoPagamento === "paid" ||
+    statoPagamento === "pagata" ||
+    statoPagamento === "incassata" ||
+    prenotazione.pagata === true ||
+    prenotazione.fatturata === true
+  );
+};
+
+const labelStatoAgendaCompenso = (stato: string) => {
+  const valore = normalizzaTesto(stato);
+  if (valore === "completata" || valore === "completed") return "Completata";
+  if (valore === "eseguita") return "Eseguita";
+  if (valore === "accettata" || valore === "accepted") return "Accettata";
+  if (valore === "annullata" || valore === "cancelled") return "Annullata";
+  if (valore === "confermata" || valore === "confirmed") return "Confermata";
+  return stato || "Da verificare";
+};
+
 const stessaSpecialita = (a: string, b: string) => normalizzaTesto(a) === normalizzaTesto(b);
 
 const slugId = (prefisso: string, valore: string, fallback = Date.now()) => {
@@ -674,6 +777,37 @@ const isAdminSettingsData = (value: unknown): value is AdminSettingsData => {
     Array.isArray(data.medici) &&
     Array.isArray(data.listini)
   );
+};
+
+const normalizzaPrenotazioneAgendaCompenso = (value: unknown): PrenotazioneAgendaCompenso | null => {
+  if (!isRecord(value)) return null;
+
+  const id = leggiTesto(value.id);
+  const data = leggiTesto(value.data);
+  const ora = leggiTesto(value.ora);
+  const paziente = leggiTesto(value.paziente);
+  const medicoId = leggiTesto(value.medicoId);
+  const prestazione = leggiTesto(value.prestazione);
+  if (!id || !data || !ora || !paziente || !medicoId || !prestazione) return null;
+
+  return {
+    id,
+    data,
+    ora,
+    paziente,
+    medicoId,
+    prestazione,
+    prestazioneId: leggiTesto(value.prestazioneId) || undefined,
+    durata: Math.max(5, leggiNumero(value.durata, 30)),
+    stato: leggiTesto(value.stato) || "confermata",
+    area: leggiTesto(value.area) || undefined,
+    paymentStatus: leggiTesto(value.paymentStatus) || undefined,
+    statoPagamento: leggiTesto(value.statoPagamento) || undefined,
+    pagata: typeof value.pagata === "boolean" ? value.pagata : undefined,
+    fatturata: typeof value.fatturata === "boolean" ? value.fatturata : undefined,
+    importoFatturato: leggiNumero(value.importoFatturato, 0),
+    numeroFattura: leggiTesto(value.numeroFattura) || undefined,
+  };
 };
 
 const SPECIALITA_INIZIALI: Specialita[] = [
@@ -824,6 +958,7 @@ export function AdminSettings({
   const [settingsSaveState, setSettingsSaveState] = React.useState<SettingsSaveState>("loading");
   const [selectedSpecialita, setSelectedSpecialita] = React.useState(SPECIALITA_INIZIALI[0]?.nome ?? "");
   const [selectedMedicoId, setSelectedMedicoId] = React.useState(MEDICI_INIZIALI[0]?.id ?? "");
+  const [medicoDetailTab, setMedicoDetailTab] = React.useState<MedicoDetailTab>("compensi");
   const [schedaMedicoModificaAttiva, setSchedaMedicoModificaAttiva] = React.useState(false);
   const [schedaMedicoDraft, setSchedaMedicoDraft] = React.useState<Medico | null>(null);
   const [agendaMedicoModificaAttiva, setAgendaMedicoModificaAttiva] = React.useState(false);
@@ -850,9 +985,12 @@ export function AdminSettings({
     specialita: SPECIALITA_INIZIALI[0]?.nome ?? "",
   });
   const [periodoCompensi, setPeriodoCompensi] = React.useState({
-    dal: "2026-07-01",
-    al: "2026-07-31",
+    dal: `${ANNO_COMPENSI_DEFAULT}-01-01`,
+    al: `${ANNO_COMPENSI_DEFAULT}-12-31`,
   });
+  const [prenotazioniAgendaCompensi, setPrenotazioniAgendaCompensi] = React.useState<PrenotazioneAgendaCompenso[]>([]);
+  const [prenotazioniAgendaCompensiLoading, setPrenotazioniAgendaCompensiLoading] = React.useState(false);
+  const [prenotazioniAgendaCompensiError, setPrenotazioniAgendaCompensiError] = React.useState("");
   const [medicoCompensiFiltro, setMedicoCompensiFiltro] = React.useState("tutti");
   const [exportCompensiOpen, setExportCompensiOpen] = React.useState(false);
   const [formatoExportCompensi, setFormatoExportCompensi] = React.useState<FormatoExportCompensi>("pdf");
@@ -940,6 +1078,42 @@ export function AdminSettings({
       active = false;
     };
   }, [initialMedicoId]);
+
+  React.useEffect(() => {
+    let active = true;
+
+    const caricaPrenotazioniAgenda = async () => {
+      setPrenotazioniAgendaCompensiLoading(true);
+      setPrenotazioniAgendaCompensiError("");
+
+      try {
+        const response = await fetch("/api/agenda-appointments", { credentials: "include" });
+        if (!response.ok) throw new Error(`Agenda non disponibile (HTTP ${response.status})`);
+        const data: unknown = await response.json();
+        if (!active) return;
+        const righe = Array.isArray(data)
+          ? data
+              .map(normalizzaPrenotazioneAgendaCompenso)
+              .filter((item): item is PrenotazioneAgendaCompenso => Boolean(item))
+          : [];
+        setPrenotazioniAgendaCompensi(righe);
+      } catch (error) {
+        if (!active) return;
+        setPrenotazioniAgendaCompensi([]);
+        setPrenotazioniAgendaCompensiError(
+          error instanceof Error ? error.message : "Non riesco a caricare gli appuntamenti agenda.",
+        );
+      } finally {
+        if (active) setPrenotazioniAgendaCompensiLoading(false);
+      }
+    };
+
+    void caricaPrenotazioniAgenda();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   React.useEffect(() => {
     setSettingsTab(initialTab);
@@ -1442,6 +1616,7 @@ export function AdminSettings({
                 ...DATI_FATTURAZIONE_MEDICO_VUOTI,
                 ...schedaMedicoDraft.datiFatturazione,
               },
+              reportGiornaliero: normalizzaReportGiornaliero(schedaMedicoDraft.reportGiornaliero),
             })
           : medico,
       ),
@@ -1626,6 +1801,7 @@ export function AdminSettings({
         eccezioniAgenda: [],
         pianoFerie: [],
         datiFatturazione: { ...DATI_FATTURAZIONE_MEDICO_VUOTI },
+        reportGiornaliero: { ...REPORT_GIORNALIERO_MEDICO_DEFAULT },
       },
     ]);
     setSelectedMedicoId(id);
@@ -1700,6 +1876,27 @@ export function AdminSettings({
                 [campo]: valore,
               },
             }
+          : medico,
+      ),
+    );
+  };
+
+  const aggiornaReportGiornalieroMedico = <K extends keyof ReportGiornalieroMedico>(
+    campo: K,
+    valore: ReportGiornalieroMedico[K],
+  ) => {
+    if (!medicoSelezionato) return;
+
+    setMedici((correnti) =>
+      correnti.map((medico) =>
+        medico.id === medicoSelezionato.id
+          ? normalizzaMedico({
+              ...medico,
+              reportGiornaliero: {
+                ...normalizzaReportGiornaliero(medico.reportGiornaliero),
+                [campo]: valore,
+              },
+            })
           : medico,
       ),
     );
@@ -1984,6 +2181,109 @@ export function AdminSettings({
     () => calcolaTotaliCompensi(prenotazioniCompensi),
     [prenotazioniCompensi],
   );
+
+  const periodoCompensiMedicoLabel = `${periodoCompensi.dal || "inizio"} - ${periodoCompensi.al || "fine"}`;
+
+  const reportGiornalieroMedicoSelezionato = normalizzaReportGiornaliero(
+    medicoSelezionato?.reportGiornaliero,
+  );
+
+  const righeCompensoMedico = React.useMemo<RigaCompensoMedico[]>(() => {
+    if (!medicoSelezionato) return [];
+
+    const dal = periodoCompensi.dal || "0000-01-01";
+    const al = periodoCompensi.al || "9999-12-31";
+    const inizio = dal <= al ? dal : al;
+    const fine = dal <= al ? al : dal;
+
+    return prenotazioniAgendaCompensi
+      .filter((prenotazione) => {
+        const inPeriodo = prenotazione.data >= inizio && prenotazione.data <= fine;
+        const delloStessoMedico = prenotazione.medicoId === medicoSelezionato.id;
+        const areaAmbulatoriale = prenotazione.area !== "laboratorio";
+        return inPeriodo && delloStessoMedico && areaAmbulatoriale;
+      })
+      .map((prenotazione) => {
+        const prestazione =
+          (prenotazione.prestazioneId
+            ? prestazioni.find((item) => item.id === prenotazione.prestazioneId)
+            : undefined) ??
+          prestazioni.find(
+            (item) =>
+              stessaSpecialita(item.specialita, medicoSelezionato.specialita) &&
+              normalizzaTesto(item.nome) === normalizzaTesto(prenotazione.prestazione),
+          ) ??
+          null;
+        const listino = prestazione
+          ? listini.find(
+              (item) => item.medicoId === medicoSelezionato.id && item.prestazioneId === prestazione.id,
+            ) ?? null
+          : null;
+        const completata = statoAgendaMaturaCompenso(prenotazione.stato);
+        const pagata = prenotazioneAgendaPagata(prenotazione);
+        const incassoLordo =
+          typeof prenotazione.importoFatturato === "number" && prenotazione.importoFatturato > 0
+            ? prenotazione.importoFatturato
+            : listino?.prezzo ?? 0;
+        const conteggiata = completata && pagata && Boolean(listino) && incassoLordo > 0;
+        const incasso = conteggiata ? incassoLordo : 0;
+        const quota = conteggiata && listino ? quotaMedicoSuIncasso(listino, incasso) : 0;
+        const motivoEsclusione = conteggiata
+          ? ""
+          : !completata
+            ? "Visita non completata"
+            : !pagata
+              ? "Pagamento non registrato"
+              : !listino
+                ? "Listino medico mancante"
+                : "Importo non disponibile";
+
+        return {
+          prenotazione,
+          prestazione,
+          listino,
+          incasso,
+          quota,
+          netto: incasso - quota,
+          percentualeEffettiva: incasso > 0 ? (quota / incasso) * 100 : 0,
+          conteggiata,
+          motivoEsclusione,
+        };
+      })
+      .sort((a, b) =>
+        `${a.prenotazione.data}${a.prenotazione.ora}`.localeCompare(`${b.prenotazione.data}${b.prenotazione.ora}`),
+      );
+  }, [
+    listini,
+    medicoSelezionato,
+    periodoCompensi.al,
+    periodoCompensi.dal,
+    prenotazioniAgendaCompensi,
+    prestazioni,
+  ]);
+
+  const righeCompensoMedicoConteggiate = React.useMemo(
+    () => righeCompensoMedico.filter((riga) => riga.conteggiata),
+    [righeCompensoMedico],
+  );
+
+  const totaliCompensoMedico = React.useMemo(
+    () =>
+      righeCompensoMedicoConteggiate.reduce(
+        (totali, riga) => ({
+          visite: totali.visite + 1,
+          minuti: totali.minuti + (riga.listino?.durata ?? riga.prenotazione.durata),
+          incasso: totali.incasso + riga.incasso,
+          compenso: totali.compenso + riga.quota,
+          netto: totali.netto + riga.netto,
+        }),
+        { visite: 0, minuti: 0, incasso: 0, compenso: 0, netto: 0 },
+      ),
+    [righeCompensoMedicoConteggiate],
+  );
+
+  const percentualeCompensoMedico =
+    totaliCompensoMedico.incasso > 0 ? (totaliCompensoMedico.compenso / totaliCompensoMedico.incasso) * 100 : 0;
 
   const mostraRiepilogoExport =
     opzioniExportCompensi.mostraTotalePrenotazioni ||
@@ -3682,7 +3982,212 @@ export function AdminSettings({
 
               {medicoSelezionato ? (
                 <div className="space-y-4">
-                  <div className="rounded-md border border-border bg-white p-4">
+                  <div className="overflow-hidden rounded-md border border-border bg-white shadow-sm">
+                    <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
+                          <Stethoscope className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="truncate text-lg font-semibold text-foreground">{medicoSelezionato.nome}</h3>
+                          <p className="truncate text-sm text-muted-foreground">{medicoSelezionato.specialita}</p>
+                        </div>
+                      </div>
+                      <Badge variant="secondary" className="w-fit">
+                        {listinoMedicoSalvato.length} prestazioni
+                      </Badge>
+                    </div>
+                    <div className="flex gap-1 overflow-x-auto border-t border-border px-3 py-2">
+                      {MEDICO_DETAIL_TABS.map((tab) => {
+                        const active = medicoDetailTab === tab.id;
+                        return (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setMedicoDetailTab(tab.id)}
+                            className={`whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                              active
+                                ? "bg-primary text-primary-foreground"
+                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {medicoDetailTab === "compensi" && (
+                    <div className="rounded-md border border-border bg-white p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
+                            <ReceiptText className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-semibold text-foreground">Calcolo compensi</h3>
+                            <p className="text-sm text-muted-foreground">
+                              Visite ambulatoriali completate e pagate per il medico selezionato.
+                            </p>
+                          </div>
+                        </div>
+                        <Badge variant="secondary" className="w-fit">
+                          {periodoCompensiMedicoLabel}
+                        </Badge>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-[160px_160px_auto]">
+                        <Field label="Dal">
+                          <Input
+                            type="date"
+                            value={periodoCompensi.dal}
+                            onChange={(event) =>
+                              setPeriodoCompensi((corrente) => ({ ...corrente, dal: event.target.value }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Al">
+                          <Input
+                            type="date"
+                            value={periodoCompensi.al}
+                            onChange={(event) =>
+                              setPeriodoCompensi((corrente) => ({ ...corrente, al: event.target.value }))
+                            }
+                          />
+                        </Field>
+                        <div className="flex items-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              setPeriodoCompensi({
+                                dal: `${ANNO_COMPENSI_DEFAULT}-01-01`,
+                                al: `${ANNO_COMPENSI_DEFAULT}-12-31`,
+                              })
+                            }
+                            className="w-full md:w-auto"
+                          >
+                            Anno corrente
+                          </Button>
+                        </div>
+                      </div>
+
+                      {prenotazioniAgendaCompensiError && (
+                        <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                          {prenotazioniAgendaCompensiError}
+                        </div>
+                      )}
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <CompensoMetric
+                          label="Visite conteggiate"
+                          value={String(totaliCompensoMedico.visite)}
+                          detail={`${totaliCompensoMedico.minuti} min · ${righeCompensoMedico.length - righeCompensoMedicoConteggiate.length} escluse`}
+                        />
+                        <CompensoMetric
+                          label="Incasso pazienti"
+                          value={valuta.format(totaliCompensoMedico.incasso)}
+                          detail="Totale pagato dai pazienti"
+                        />
+                        <CompensoMetric
+                          label="Compenso medico"
+                          value={valuta.format(totaliCompensoMedico.compenso)}
+                          detail="Quota da riconoscere"
+                        />
+                        <CompensoMetric
+                          label="Percentuale media"
+                          value={`${percentuale.format(percentualeCompensoMedico)}%`}
+                          detail="Compenso su incasso"
+                        />
+                      </div>
+
+                      <div className="mt-4 overflow-x-auto rounded-md border border-border">
+                        <Table className="min-w-[1040px]">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Data</TableHead>
+                              <TableHead>Paziente</TableHead>
+                              <TableHead>Visita</TableHead>
+                              <TableHead>Importo</TableHead>
+                              <TableHead>Compenso</TableHead>
+                              <TableHead>%</TableHead>
+                              <TableHead>Stato</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {prenotazioniAgendaCompensiLoading ? (
+                              <TableRow>
+                                <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                                  Caricamento appuntamenti agenda...
+                                </TableCell>
+                              </TableRow>
+                            ) : righeCompensoMedico.length > 0 ? (
+                              righeCompensoMedico.map((riga) => (
+                                <TableRow key={riga.prenotazione.id}>
+                                  <TableCell className="whitespace-nowrap">
+                                    <p className="font-medium text-foreground">{formattaData(riga.prenotazione.data)}</p>
+                                    <p className="text-xs text-muted-foreground">{riga.prenotazione.ora}</p>
+                                  </TableCell>
+                                  <TableCell className="min-w-[170px] font-medium text-foreground">
+                                    {riga.prenotazione.paziente}
+                                  </TableCell>
+                                  <TableCell className="min-w-[240px]">
+                                    <p className="font-medium text-foreground">
+                                      {riga.prestazione?.nome ?? riga.prenotazione.prestazione}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {riga.listino?.durata ?? riga.prenotazione.durata} min
+                                    </p>
+                                  </TableCell>
+                                  <TableCell className="whitespace-nowrap">
+                                    {riga.conteggiata ? valuta.format(riga.incasso) : "-"}
+                                  </TableCell>
+                                  <TableCell>
+                                    {riga.conteggiata ? (
+                                      <Badge variant="secondary" className="whitespace-nowrap">
+                                        {riga.listino?.compensoTipo === "percentuale"
+                                          ? `${riga.listino.compensoValore}%`
+                                          : "Fisso"}{" "}
+                                        · {valuta.format(riga.quota)}
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-sm text-muted-foreground">-</span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="whitespace-nowrap">
+                                    {riga.conteggiata ? `${percentuale.format(riga.percentualeEffettiva)}%` : "-"}
+                                  </TableCell>
+                                  <TableCell className="min-w-[190px]">
+                                    <Badge
+                                      className={
+                                        riga.conteggiata
+                                          ? "whitespace-nowrap border-green-200 bg-green-100 text-green-700 hover:bg-green-100"
+                                          : "whitespace-nowrap border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50"
+                                      }
+                                    >
+                                      {riga.conteggiata ? "Conteggiata" : riga.motivoEsclusione}
+                                    </Badge>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      {labelStatoAgendaCompenso(riga.prenotazione.stato)}
+                                    </p>
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            ) : (
+                              <TableRow>
+                                <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                                  Nessuna visita ambulatoriale per questo medico nel periodo.
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={medicoDetailTab === "orari" ? "rounded-md border border-border bg-white p-4" : "hidden"}>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <h3 className="text-base font-semibold text-foreground">Scheda medico</h3>
@@ -4287,7 +4792,7 @@ export function AdminSettings({
                     </div>
                   </div>
 
-                  <div className="rounded-md border border-border bg-white p-4">
+                  <div className={medicoDetailTab === "prestazioni" ? "rounded-md border border-border bg-white p-4" : "hidden"}>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex gap-3">
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
@@ -4588,6 +5093,87 @@ export function AdminSettings({
                       </div>
                     )}
                   </div>
+
+                  {medicoDetailTab === "report" && (
+                    <div className="rounded-md border border-border bg-white p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
+                            <Bell className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-semibold text-foreground">Report giornaliero</h3>
+                            <p className="text-sm text-muted-foreground">
+                              Riepilogo appuntamenti del giorno successivo per {medicoSelezionato.nome}.
+                            </p>
+                          </div>
+                        </div>
+                        <Badge variant="secondary" className="w-fit">
+                          SMTP futuro
+                        </Badge>
+                      </div>
+
+                      <div className="mt-5 rounded-md border border-border bg-muted/20 p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <h4 className="text-sm font-semibold text-foreground">Report giornaliero attivo</h4>
+                            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                              Invieremo un'email ed una notifica push tutti i pomeriggi con il riepilogo degli
+                              appuntamenti programmati per il giorno dopo.
+                            </p>
+                            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                              Puoi controllare quali indirizzi email o quali dispositivi sono abilitati a ricevere il
+                              report nella sezione Notifiche e dispositivi.
+                            </p>
+                          </div>
+                          <Switch
+                            checked={reportGiornalieroMedicoSelezionato.attivo}
+                            onCheckedChange={(checked) => aggiornaReportGiornalieroMedico("attivo", checked)}
+                            aria-label="Attiva report giornaliero"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <label className="flex items-center justify-between gap-3 rounded-md border border-border bg-white p-4">
+                          <span className="flex min-w-0 items-center gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                              <Mail className="h-4 w-4" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-medium text-foreground">Email pomeridiana</span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                Riepilogo agenda del giorno dopo
+                              </span>
+                            </span>
+                          </span>
+                          <Switch
+                            checked={reportGiornalieroMedicoSelezionato.email}
+                            onCheckedChange={(checked) => aggiornaReportGiornalieroMedico("email", checked)}
+                            aria-label="Canale email report giornaliero"
+                          />
+                        </label>
+                        <label className="flex items-center justify-between gap-3 rounded-md border border-border bg-white p-4">
+                          <span className="flex min-w-0 items-center gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                              <Bell className="h-4 w-4" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-medium text-foreground">Notifica push</span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                Canale da collegare in seguito
+                              </span>
+                            </span>
+                          </span>
+                          <Switch
+                            checked={reportGiornalieroMedicoSelezionato.push}
+                            onCheckedChange={(checked) => aggiornaReportGiornalieroMedico("push", checked)}
+                            aria-label="Canale push report giornaliero"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="rounded-md border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
