@@ -280,14 +280,15 @@ type MenuGroup = {
 };
 
 const WORKFLOW_ITEMS: MenuItem[] = [
-  { id: "prenotazioni", label: "Agenda", Icon: CalendarDays },
   { id: "accettazione", label: "Accettazione", Icon: UserCheck },
+  { id: "anagrafiche", label: "Anagrafiche", Icon: Users },
   { id: "listino", label: "Listino Esami", Icon: FlaskConical },
 ];
 
 const AMBULATORIO_ITEMS: MenuItem[] = [
   { id: "prenotazioni", label: "Agenda", Icon: CalendarDays },
   { id: "accettazione", label: "Accettazione", Icon: UserCheck },
+  { id: "anagrafiche", label: "Anagrafiche", Icon: Users },
   { id: "organizzazione-ambulatorio", label: "Organizzazione", Icon: Building2 },
   { id: "listino", label: "Prestazioni", Icon: Stethoscope },
 ];
@@ -400,7 +401,6 @@ const permessoVoce = (area: AreaId, tab: TabId): PermissionId | null => {
   }
   if (area === "laboratorio") {
     if (tab === "accettazione") return "laboratorio.accettazione";
-    if (tab === "prenotazioni") return "laboratorio.agenda";
     if (tab === "listino") return "laboratorio.listino";
   }
   if (area === "ambulatorio") {
@@ -493,7 +493,12 @@ function AdminDashboard({
   React.useEffect(() => {
     const routeTarget = routeTargetFromPath(location);
     if (!routeTarget) return;
-    setActiveArea(routeTarget.area);
+    setActiveArea((currentArea) => {
+      if (routeTarget.tab === "anagrafiche" && (currentArea === "ambulatorio" || currentArea === "laboratorio")) {
+        return currentArea;
+      }
+      return routeTarget.area;
+    });
     setActiveTab(routeTarget.tab);
   }, [location]);
 
@@ -513,7 +518,6 @@ function AdminDashboard({
     visibleMenuGroups.find((group) => group.id === activeArea) ?? visibleMenuGroups[0] ?? MENU_GROUPS[0];
   const isAreaScopedTab =
     activeTab !== "impostazioni" &&
-    activeTab !== "anagrafiche" &&
     activeTab !== "infortunistica" &&
     activeTab !== "utenti";
   const activeItem = activeTab === "impostazioni"
@@ -653,22 +657,6 @@ function AdminDashboard({
           </nav>
 
           <div className="border-t border-border px-5 py-4">
-            {can("anagrafiche") && (
-              <button
-                type="button"
-                onClick={() => setActiveTarget(activeArea, "anagrafiche")}
-                aria-current={activeTab === "anagrafiche" ? "page" : undefined}
-                className={`mb-2 flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
-                  activeTab === "anagrafiche"
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-slate-100 hover:text-foreground"
-                }`}
-              >
-                <Users className="h-4 w-4 shrink-0" />
-                <span>Anagrafiche</span>
-              </button>
-            )}
-
             {(can("impostazioni") || can("utenti")) && (
               <div className="mb-4 space-y-2">
                 {can("impostazioni") && (

@@ -306,7 +306,7 @@ type WaitlistSlot = {
 
 const ORA_INIZIO = 7;
 const ORA_FINE = 19;
-const SLOT_MINUTES = 30;
+const SLOT_MINUTES = 15;
 const SLOT_HEIGHT = 40;
 
 const SEDI: Array<{ id: SedeId; label: string }> = [
