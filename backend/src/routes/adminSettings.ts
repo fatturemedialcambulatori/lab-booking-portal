@@ -14,6 +14,11 @@ const AGENDA_APPOINTMENTS_KEY = "agenda-appointments";
 const AGENDA_WAITLIST_KEY = "agenda-waitlist";
 const AGENDA_RESOURCE_ASSIGNMENTS_KEY = "agenda-resource-assignments";
 const requireSettingsWrite = requireAnyPermission(["impostazioni"]);
+const requireAmbulatorioPrestazioniAccess = requireAnyPermission([
+  "ambulatorio.prestazioni",
+  "ambulatorio.prestazioni.write",
+  "impostazioni",
+]);
 const requireAgendaAccess = requireAnyPermission([
   "laboratorio.accettazione",
   "ambulatorio.accettazione",
@@ -27,6 +32,14 @@ const isPlainObject = (value: unknown): value is AgendaAppointmentValue =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 const readText = (value: unknown) => String(value ?? "").trim();
+
+const readNumber = (value: unknown, fallback = 0) => {
+  const parsed = typeof value === "number" ? value : Number(String(value ?? "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const readBoolean = (value: unknown, fallback = true) =>
+  typeof value === "boolean" ? value : fallback;
 
 const readAgendaId = (item: AgendaAppointmentValue) => readText(item.id);
 
@@ -168,17 +181,76 @@ const saveAgendaResourceAssignments = async (items: AgendaAppointmentValue[]) =>
   return settings.value;
 };
 
+const loadAdminSettingsValue = async () => {
+  const [settings] = await db
+    .select()
+    .from(adminSettingsTable)
+    .where(eq(adminSettingsTable.key, SETTINGS_KEY))
+    .limit(1);
+
+  return settings?.value ?? null;
+};
+
 router.get("/admin-settings", requireAuth, async (req, res) => {
   try {
-    const [settings] = await db
-      .select()
-      .from(adminSettingsTable)
-      .where(eq(adminSettingsTable.key, SETTINGS_KEY))
-      .limit(1);
-
-    res.json(settings?.value ?? null);
+    res.json(await loadAdminSettingsValue());
   } catch (err) {
     req.log.error({ err }, "Failed to load admin settings");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/ambulatorio/prestazioni", requireAmbulatorioPrestazioniAccess, async (req, res) => {
+  try {
+    const settings = await loadAdminSettingsValue();
+    const data = isPlainObject(settings) ? settings : {};
+
+    const specialita = (Array.isArray(data.specialita) ? data.specialita : [])
+      .filter(isPlainObject)
+      .map((item, index) => ({
+        id: readText(item.id) || `specialita-${index + 1}`,
+        nome: readText(item.nome),
+        attiva: readBoolean(item.attiva, true),
+      }))
+      .filter((item) => item.nome);
+
+    const prestazioni = (Array.isArray(data.prestazioni) ? data.prestazioni : [])
+      .filter(isPlainObject)
+      .map((item, index) => ({
+        id: readText(item.id) || `prestazione-${index + 1}`,
+        nome: readText(item.nome),
+        specialita: readText(item.specialita) || "Generale",
+        durata: Math.max(5, readNumber(item.durata, 30)),
+        attiva: readBoolean(item.attiva, true),
+      }))
+      .filter((item) => item.nome);
+
+    const medici = (Array.isArray(data.medici) ? data.medici : [])
+      .filter(isPlainObject)
+      .map((item, index) => ({
+        id: readText(item.id) || `medico-${index + 1}`,
+        nome: readText(item.nome),
+        specialita: readText(item.specialita) || "Generale",
+        agendaAperta: readBoolean(item.agendaAperta, true),
+      }))
+      .filter((item) => item.nome);
+
+    const prestazioneIds = new Set(prestazioni.map((item) => item.id));
+    const medicoIds = new Set(medici.map((item) => item.id));
+    const listini = (Array.isArray(data.listini) ? data.listini : [])
+      .filter(isPlainObject)
+      .map((item, index) => ({
+        id: readText(item.id) || `listino-${index + 1}`,
+        prestazioneId: readText(item.prestazioneId),
+        medicoId: readText(item.medicoId),
+        durata: Math.max(5, readNumber(item.durata, 30)),
+        prezzo: Math.max(0, readNumber(item.prezzo, 0)),
+      }))
+      .filter((item) => prestazioneIds.has(item.prestazioneId) && medicoIds.has(item.medicoId));
+
+    res.json({ specialita, prestazioni, medici, listini });
+  } catch (err) {
+    req.log.error({ err }, "Failed to load ambulatorio prestazioni");
     res.status(500).json({ error: "Internal server error" });
   }
 });

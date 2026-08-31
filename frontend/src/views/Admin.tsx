@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { Login, type AuthUser } from "./Login";
 import { AdminExams } from "./AdminExams";
+import { AdminPrestazioniAmbulatorio } from "./AdminPrestazioniAmbulatorio";
 import { AccettazionePaziente } from "./AccettazionePaziente";
 import { AdminAnagrafiche } from "./AdminAnagrafiche";
 import { AdminAmbulatorioOrganization, AdminBookingCalendar } from "./AdminBookingCalendar";
@@ -263,7 +264,24 @@ type SettingsTarget = {
   tab: SettingsTabId;
   medicoId: string | null;
   key: number;
+  overview: boolean;
 };
+
+const SETTINGS_ROUTE_SLUGS: Record<SettingsTabId, string> = {
+  specialita: "specialita",
+  prestazioni: "prestazioni",
+  convenzioni: "convenzioni",
+  risorse: "risorse",
+  medici: "medici",
+  compensi: "compensi",
+  log: "log",
+};
+
+const SETTINGS_TAB_BY_ROUTE = new Map(
+  Object.entries(SETTINGS_ROUTE_SLUGS).map(([tab, slug]) => [slug, tab as SettingsTabId]),
+);
+
+const settingsPathForTab = (tab: SettingsTabId) => `/admin/impostazioni/${SETTINGS_ROUTE_SLUGS[tab]}`;
 
 type MenuItem = {
   id: TabId;
@@ -329,7 +347,12 @@ const adminPathForTarget = (area: AreaId, tab: TabId) => {
   return `/admin/${area}/${tabSlug}`;
 };
 
-const routeTargetFromPath = (path: string): { area: AreaId; tab: TabId } | null => {
+const routeTargetFromPath = (path: string): {
+  area: AreaId;
+  tab: TabId;
+  settingsTab?: SettingsTabId;
+  settingsOverview?: boolean;
+} | null => {
   const cleaned = cleanAdminPath(path);
   if (cleaned === "/admin") return null;
 
@@ -342,7 +365,15 @@ const routeTargetFromPath = (path: string): { area: AreaId; tab: TabId } | null 
   if (section === "infortunistica" || section === "infortunistica-stradale") {
     return { area: "laboratorio", tab: "infortunistica" };
   }
-  if (section === "impostazioni") return { area: "laboratorio", tab: "impostazioni" };
+  if (section === "impostazioni") {
+    const settingsTab = rawTab ? SETTINGS_TAB_BY_ROUTE.get(rawTab) : undefined;
+    return {
+      area: "laboratorio",
+      tab: "impostazioni",
+      settingsTab: settingsTab ?? "prestazioni",
+      settingsOverview: !settingsTab,
+    };
+  }
   if (section === "utenti") return { area: "laboratorio", tab: "utenti" };
 
   if (section === "cassa") {
@@ -436,9 +467,10 @@ function AdminDashboard({
   const [activeTab, setActiveTab] = React.useState<TabId>(initialTarget?.tab ?? "accettazione");
   const [settingsSaveControl, setSettingsSaveControl] = React.useState<SettingsSaveControl | null>(null);
   const [settingsTarget, setSettingsTarget] = React.useState<SettingsTarget>({
-    tab: "prestazioni",
+    tab: initialTarget?.tab === "impostazioni" ? initialTarget.settingsTab ?? "prestazioni" : "prestazioni",
     medicoId: null,
     key: 0,
+    overview: initialTarget?.tab === "impostazioni" ? initialTarget.settingsOverview ?? true : true,
   });
 
   const can = React.useCallback(
@@ -469,6 +501,36 @@ function AdminDashboard({
     [location, navigate],
   );
 
+  const apriTutteLeImpostazioni = React.useCallback(() => {
+    setActiveTab("impostazioni");
+    setSettingsTarget((corrente) => ({
+      ...corrente,
+      medicoId: null,
+      key: Date.now(),
+      overview: true,
+    }));
+    if (cleanAdminPath(location) !== "/admin/impostazioni") {
+      navigate("/admin/impostazioni");
+    }
+  }, [location, navigate]);
+
+  const apriPaginaImpostazioni = React.useCallback(
+    (tab: SettingsTabId, medicoId: string | null = null) => {
+      setActiveTab("impostazioni");
+      setSettingsTarget({
+        tab,
+        medicoId,
+        key: Date.now(),
+        overview: false,
+      });
+      const nextPath = settingsPathForTab(tab);
+      if (cleanAdminPath(location) !== nextPath) {
+        navigate(nextPath);
+      }
+    },
+    [location, navigate],
+  );
+
   const visibleMenuGroups = React.useMemo(
     () =>
       MENU_GROUPS.map((group) => ({
@@ -494,12 +556,23 @@ function AdminDashboard({
     const routeTarget = routeTargetFromPath(location);
     if (!routeTarget) return;
     setActiveArea((currentArea) => {
-      if (routeTarget.tab === "anagrafiche" && (currentArea === "ambulatorio" || currentArea === "laboratorio")) {
+      if (
+        (routeTarget.tab === "anagrafiche" || routeTarget.tab === "impostazioni") &&
+        (currentArea === "ambulatorio" || currentArea === "laboratorio")
+      ) {
         return currentArea;
       }
       return routeTarget.area;
     });
     setActiveTab(routeTarget.tab);
+    if (routeTarget.tab === "impostazioni") {
+      setSettingsTarget((corrente) => ({
+        tab: routeTarget.settingsTab ?? corrente.tab,
+        medicoId: null,
+        key: Date.now(),
+        overview: routeTarget.settingsOverview ?? true,
+      }));
+    }
   }, [location]);
 
   React.useEffect(() => {
@@ -540,8 +613,7 @@ function AdminDashboard({
       : activeGroup.label;
 
   const apriProfiloMedico = (medicoId: string) => {
-    setSettingsTarget({ tab: "medici", medicoId, key: Date.now() });
-    setActiveTarget(activeArea, "impostazioni");
+    apriPaginaImpostazioni("medici", medicoId);
   };
   const isCassaTab = activeTab.startsWith("cassa-");
   const showSettingsSave = activeTab === "impostazioni";
@@ -663,8 +735,7 @@ function AdminDashboard({
                   <button
                     type="button"
                     onClick={() => {
-                      setSettingsTarget({ tab: "prestazioni", medicoId: null, key: Date.now() });
-                      setActiveTarget(activeArea, "impostazioni");
+                      apriTutteLeImpostazioni();
                     }}
                     aria-current={activeTab === "impostazioni" ? "page" : undefined}
                     className={`flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-medium transition-colors ${
@@ -762,8 +833,11 @@ function AdminDashboard({
               <AdminSettings
                 initialTab={settingsTarget.tab}
                 initialMedicoId={settingsTarget.medicoId}
+                initialOverviewVisible={settingsTarget.overview}
                 focusKey={settingsTarget.key}
                 onSaveControlChange={setSettingsSaveControl}
+                onOpenSettingsOverview={apriTutteLeImpostazioni}
+                onOpenSettingsTab={apriPaginaImpostazioni}
               />
             )}
 
@@ -780,14 +854,16 @@ function AdminDashboard({
               <AdminAmbulatorioOrganization onOpenDoctor={apriProfiloMedico} />
             )}
 
-            {activeTab === "listino" && (
+            {activeTab === "listino" && activeArea === "ambulatorio" && <AdminPrestazioniAmbulatorio />}
+
+            {activeTab === "listino" && activeArea === "laboratorio" && (
               <div className="space-y-6">
                 <div>
                   <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">{activeItem.label}</h1>
                   <p className="text-muted-foreground text-sm">
                     {isReadOnlyCatalog
-                      ? `Consulta il catalogo ${activeArea === "ambulatorio" ? "delle prestazioni" : "degli esami"}.`
-                      : `Gestisci il catalogo ${activeArea === "ambulatorio" ? "delle prestazioni" : "degli esami"} del modulo ${activeGroup.label.toLowerCase()}.`}
+                      ? "Consulta il catalogo degli esami."
+                      : `Gestisci il catalogo degli esami del modulo ${activeGroup.label.toLowerCase()}.`}
                   </p>
                 </div>
                 <AdminExams readOnly={isReadOnlyCatalog} />

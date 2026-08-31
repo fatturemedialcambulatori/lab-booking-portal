@@ -70,7 +70,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { AdminAuditLogs } from "./AdminAuditLogs";
@@ -786,20 +786,28 @@ const colonneExportCompensi = (opzioni: OpzioniExportCompensi) => [
 export function AdminSettings({
   initialTab = "prestazioni",
   initialMedicoId = null,
+  initialOverviewVisible,
   focusKey = 0,
   onSaveControlChange,
+  onOpenSettingsOverview,
+  onOpenSettingsTab,
 }: {
   initialTab?: SettingsTabId;
   initialMedicoId?: string | null;
+  initialOverviewVisible?: boolean;
   focusKey?: number;
   onSaveControlChange?: (control: SettingsSaveControl) => void;
+  onOpenSettingsOverview?: () => void;
+  onOpenSettingsTab?: (tab: SettingsTabId) => void;
 } = {}) {
   const importInputRef = React.useRef<HTMLInputElement | null>(null);
   const skipInitialSettingsSaveRef = React.useRef(true);
   const lastSavedPayloadKeyRef = React.useRef("");
   const currentPayloadKeyRef = React.useRef("");
   const [settingsTab, setSettingsTab] = React.useState<SettingsTabId>(initialTab);
-  const [settingsOverviewVisible, setSettingsOverviewVisible] = React.useState(!initialMedicoId);
+  const [settingsOverviewVisible, setSettingsOverviewVisible] = React.useState(
+    initialOverviewVisible ?? !initialMedicoId,
+  );
   const [specialita, setSpecialita] = React.useState(SPECIALITA_INIZIALI);
   const [prestazioni, setPrestazioni] = React.useState(PRESTAZIONI_INIZIALI);
   const [prestazioniModificaAttiva, setPrestazioniModificaAttiva] = React.useState(false);
@@ -932,9 +940,9 @@ export function AdminSettings({
 
   React.useEffect(() => {
     setSettingsTab(initialTab);
-    setSettingsOverviewVisible(!initialMedicoId);
+    setSettingsOverviewVisible(initialOverviewVisible ?? !initialMedicoId);
     if (initialMedicoId) setSelectedMedicoId(initialMedicoId);
-  }, [focusKey, initialMedicoId, initialTab]);
+  }, [focusKey, initialMedicoId, initialOverviewVisible, initialTab]);
 
   React.useEffect(() => {
     if (!settingsCanSave) return;
@@ -2479,7 +2487,8 @@ export function AdminSettings({
   const apriSchedaImpostazioni = React.useCallback((tab: SettingsTabId) => {
     setSettingsTab(tab);
     setSettingsOverviewVisible(false);
-  }, []);
+    onOpenSettingsTab?.(tab);
+  }, [onOpenSettingsTab]);
 
   return (
     <div className="space-y-7">
@@ -2601,7 +2610,10 @@ export function AdminSettings({
             <Button
               type="button"
               variant="outline"
-              onClick={() => setSettingsOverviewVisible(true)}
+              onClick={() => {
+                setSettingsOverviewVisible(true);
+                onOpenSettingsOverview?.();
+              }}
               className="w-full gap-2 sm:w-auto"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -2611,43 +2623,8 @@ export function AdminSettings({
 
       <Tabs
         value={settingsTab}
-        onValueChange={(value) => {
-          setSettingsTab(value as SettingsTabId);
-          setSettingsOverviewVisible(false);
-        }}
         className="space-y-4"
       >
-        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-lg border border-border bg-white p-1 shadow-sm">
-          <TabsTrigger value="specialita" className="gap-2">
-            <Tags className="h-4 w-4" />
-            Specialita
-          </TabsTrigger>
-          <TabsTrigger value="prestazioni" className="gap-2">
-            <Stethoscope className="h-4 w-4" />
-            Prestazioni
-          </TabsTrigger>
-          <TabsTrigger value="convenzioni" className="gap-2">
-            <FileText className="h-4 w-4" />
-            Convenzioni
-          </TabsTrigger>
-          <TabsTrigger value="risorse" className="gap-2">
-            <Building2 className="h-4 w-4" />
-            Risorse
-          </TabsTrigger>
-          <TabsTrigger value="medici" className="gap-2">
-            <CalendarDays className="h-4 w-4" />
-            Medici
-          </TabsTrigger>
-          <TabsTrigger value="compensi" className="gap-2">
-            <Euro className="h-4 w-4" />
-            Compensi
-          </TabsTrigger>
-          <TabsTrigger value="log" className="gap-2">
-            <Activity className="h-4 w-4" />
-            Log
-          </TabsTrigger>
-        </TabsList>
-
         <TabsContent value="log" className="space-y-4">
           <AdminAuditLogs />
         </TabsContent>
