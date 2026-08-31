@@ -3423,19 +3423,6 @@ export function AdminBookingCalendar({
 
           <div className="min-h-0 flex-1 overflow-hidden">
             <div className="flex h-full min-h-0 flex-col">
-              {area === "ambulatorio" && view === "giorno" && (
-                <ResourceOrganizationPanel
-                  date={currentDate}
-                  sede={sede}
-                  doctors={mediciArea}
-                  resources={risorseAgenda}
-                  assignments={assegnazioniRisorseValide}
-                  onCreateAssignment={creaAssegnazioneRisorsa}
-                  onUpdateAssignment={aggiornaAssegnazioneRisorsa}
-                  onDeleteAssignment={eliminaAssegnazioneRisorsa}
-                  onOpenDoctor={onOpenDoctor}
-                />
-              )}
               <div className="min-h-0 flex-1 overflow-hidden">
                 {view === "ore-disponibili" ? (
                   <AvailableHoursView
