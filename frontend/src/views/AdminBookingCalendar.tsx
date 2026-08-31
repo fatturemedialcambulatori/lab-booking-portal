@@ -2766,10 +2766,15 @@ export function AdminBookingCalendar({
         setPazientiAgenda((correnti) => [pazienteCreato, ...correnti.filter((paziente) => paziente.id !== pazienteCreato.id)]);
       }
 
-      const appuntamento = calcolaDraftAppuntamento(appuntamentoDraft);
+      const appuntamentoCalcolato = calcolaDraftAppuntamento(appuntamentoDraft);
+      const appuntamento: NuovoAppuntamentoDraft = {
+        ...appuntamentoCalcolato,
+        labExamIds: appuntamentoCalcolato.area === "laboratorio" ? appuntamentoCalcolato.labExamIds : [],
+        labExamSearch: appuntamentoCalcolato.area === "laboratorio" ? appuntamentoCalcolato.labExamSearch : "",
+      };
       let labBookingId: number | null = null;
 
-      if (appuntamento.labExamIds.length > 0) {
+      if (appuntamento.area === "laboratorio" && appuntamento.labExamIds.length > 0) {
         const labBookingResponse = await fetch("/api/bookings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2785,7 +2790,7 @@ export function AdminBookingCalendar({
             email: pazienteEmail || `${slugFile(pazienteNome)}-${Date.now()}@mmedical.local`,
             phone: pazienteTelefono || "N/D",
             notes: [
-              `Agenda ${appuntamento.area === "ambulatorio" ? "ambulatorio" : "laboratorio"}: ${medicoAppuntamento.nome} - ${prestazione}`,
+              `Agenda laboratorio: ${medicoAppuntamento.nome} - ${prestazione}`,
               appuntamento.notaPrenotazione.trim(),
             ].filter(Boolean).join(" | "),
           }),
@@ -4227,68 +4232,70 @@ export function AdminBookingCalendar({
                 </Field>
               </div>
 
-              <div className="space-y-3 rounded-md border border-border p-3">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Esami laboratorio collegati</p>
-                  <p className="text-xs text-muted-foreground">
-                    Seleziona gli esami di laboratorio da collegare: verranno inviati in accettazione laboratorio.
-                  </p>
-                </div>
+              {appuntamentoDraft.area === "laboratorio" && (
+                <div className="space-y-3 rounded-md border border-border p-3">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Esami laboratorio collegati</p>
+                    <p className="text-xs text-muted-foreground">
+                      Seleziona gli esami di laboratorio da collegare: verranno inviati in accettazione laboratorio.
+                    </p>
+                  </div>
 
-                <Input
-                  value={appuntamentoDraft.labExamSearch}
-                  onChange={(event) => aggiornaDraftAppuntamento({ labExamSearch: event.target.value })}
-                  placeholder="Cerca esame per codice o descrizione..."
-                />
+                  <Input
+                    value={appuntamentoDraft.labExamSearch}
+                    onChange={(event) => aggiornaDraftAppuntamento({ labExamSearch: event.target.value })}
+                    placeholder="Cerca esame per codice o descrizione..."
+                  />
 
-                {esamiLaboratorioFiltratiDialog.selected.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {esamiLaboratorioFiltratiDialog.selected.map((exam) => (
-                      <Badge key={exam.id} variant="secondary" className="gap-2 py-1">
-                        <span>{exam.codiceAnalisi} · {exam.descrizione}</span>
+                  {esamiLaboratorioFiltratiDialog.selected.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {esamiLaboratorioFiltratiDialog.selected.map((exam) => (
+                        <Badge key={exam.id} variant="secondary" className="gap-2 py-1">
+                          <span>{exam.codiceAnalisi} · {exam.descrizione}</span>
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-muted-foreground hover:text-destructive"
+                            onClick={() =>
+                              aggiornaDraftAppuntamento({
+                                labExamIds: appuntamentoDraft.labExamIds.filter((id) => id !== exam.id),
+                              })
+                            }
+                          >
+                            Rimuovi
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="max-h-52 overflow-y-auto rounded-md border border-border">
+                    {labExams.length === 0 ? (
+                      <p className="px-3 py-4 text-sm text-muted-foreground">Listino laboratorio non disponibile.</p>
+                    ) : esamiLaboratorioFiltratiDialog.disponibili.length > 0 ? (
+                      esamiLaboratorioFiltratiDialog.disponibili.map((exam) => (
                         <button
+                          key={exam.id}
                           type="button"
-                          className="text-xs font-semibold text-muted-foreground hover:text-destructive"
+                          className="flex w-full items-center gap-3 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted/50"
                           onClick={() =>
                             aggiornaDraftAppuntamento({
-                              labExamIds: appuntamentoDraft.labExamIds.filter((id) => id !== exam.id),
+                              labExamIds: Array.from(new Set([...appuntamentoDraft.labExamIds, exam.id])),
                             })
                           }
                         >
-                          Rimuovi
+                          <Checkbox checked={false} />
+                          <span className="font-mono text-xs text-muted-foreground">{exam.codiceAnalisi}</span>
+                          <span className="font-medium text-foreground">{exam.descrizione}</span>
                         </button>
-                      </Badge>
-                    ))}
+                      ))
+                    ) : (
+                      <p className="px-3 py-4 text-sm text-muted-foreground">
+                        Nessun esame disponibile per questa ricerca.
+                      </p>
+                    )}
                   </div>
-                )}
-
-                <div className="max-h-52 overflow-y-auto rounded-md border border-border">
-                  {labExams.length === 0 ? (
-                    <p className="px-3 py-4 text-sm text-muted-foreground">Listino laboratorio non disponibile.</p>
-                  ) : esamiLaboratorioFiltratiDialog.disponibili.length > 0 ? (
-                    esamiLaboratorioFiltratiDialog.disponibili.map((exam) => (
-                      <button
-                        key={exam.id}
-                        type="button"
-                        className="flex w-full items-center gap-3 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted/50"
-                        onClick={() =>
-                          aggiornaDraftAppuntamento({
-                            labExamIds: Array.from(new Set([...appuntamentoDraft.labExamIds, exam.id])),
-                          })
-                        }
-                      >
-                        <Checkbox checked={false} />
-                        <span className="font-mono text-xs text-muted-foreground">{exam.codiceAnalisi}</span>
-                        <span className="font-medium text-foreground">{exam.descrizione}</span>
-                      </button>
-                    ))
-                  ) : (
-                    <p className="px-3 py-4 text-sm text-muted-foreground">
-                      Nessun esame disponibile per questa ricerca.
-                    </p>
-                  )}
                 </div>
-              </div>
+              )}
 
               <Field label="Nota prenotazione">
                 <Textarea
