@@ -630,7 +630,9 @@ export function AdminFatturazione() {
                     <TableCell colSpan={7} className="py-10 text-center">
                       <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-sm text-muted-foreground">
                         <p>
-                          {syncState
+                          {syncState?.status === "running"
+                            ? "Sincronizzazione in corso: le fatture compariranno appena Aruba restituisce finestre con documenti."
+                            : syncState
                             ? "Nessuna fattura presente nella cache per l'intervallo selezionato."
                             : "Archivio locale vuoto: avvia la sincronizzazione per importare i metadati da Aruba."}
                         </p>
@@ -672,7 +674,7 @@ export function AdminFatturazione() {
 
           <div className="flex items-center justify-between gap-3 border-t border-border p-4">
             <p className="text-xs text-muted-foreground">
-              La tabella legge la cache locale{invoices?.cacheUpdatedAt ? ` aggiornata ${formatDateTime(invoices.cacheUpdatedAt)}` : ""}. La sincronizzazione spezza Aruba in finestre da 2 giorni.
+              La tabella legge la cache locale{invoices?.cacheUpdatedAt ? `, stato aggiornato ${formatDateTime(invoices.cacheUpdatedAt)}` : ""}. La sincronizzazione parte dalle finestre piu recenti e rispetta il limite Aruba di 2 giorni.
             </p>
             <div className="flex gap-2">
               <Button type="button" variant="outline" disabled={page <= 1 || loadingInvoices} onClick={() => setPage((current) => Math.max(1, current - 1))}>

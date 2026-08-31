@@ -932,7 +932,7 @@ const runInvoiceSync = async (
   const windows = splitSyncWindows(
     new Date(initialState.creationStartDate),
     new Date(initialState.creationEndDate),
-  );
+  ).reverse();
   const syncState = initialState;
 
   try {
@@ -976,6 +976,17 @@ const runInvoiceSync = async (
 
       syncState.completedWindows += 1;
       await saveSyncState(syncState);
+      logger.info(
+        {
+          syncId: syncState.id,
+          direction: syncState.direction,
+          completedWindows: syncState.completedWindows,
+          totalWindows: syncState.totalWindows,
+          importedCount: syncState.importedCount,
+          totalProviderRequests: syncState.totalProviderRequests,
+        },
+        "Aruba invoice sync progress",
+      );
 
       if (syncState.completedWindows < syncState.totalWindows) await delay(delayMs);
     }
@@ -1053,6 +1064,17 @@ export const startArubaInvoiceSync = async (input: ArubaInvoiceSyncInput) => {
 export const getArubaInvoiceSyncState = async () => {
   if (currentSyncJob?.status === "running") return currentSyncJob;
   const state = await loadInvoiceCacheState();
+  if (state.lastSync?.status === "running") {
+    const interruptedSync: ArubaInvoiceSyncState = {
+      ...state.lastSync,
+      status: "failed",
+      finishedAt: new Date().toISOString(),
+      error: "Sincronizzazione interrotta: il backend e stato riavviato o fermato prima del completamento.",
+    };
+    await saveSyncState(interruptedSync);
+    return interruptedSync;
+  }
+
   return currentSyncJob ?? state.lastSync ?? null;
 };
 
