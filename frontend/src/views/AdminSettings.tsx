@@ -263,6 +263,8 @@ type Specialita = {
   attiva: boolean;
 };
 
+const FILTRO_SPECIALITA_TUTTE = "__tutte__";
+
 const GIORNI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
 
 const SEDI_MEDICO: Array<{ id: SedeMedicoId; label: string; sigla: string }> = [
@@ -833,6 +835,7 @@ export function AdminSettings({
     nome: "",
     durata: "30",
   });
+  const [filtroSpecialitaPrestazioni, setFiltroSpecialitaPrestazioni] = React.useState(FILTRO_SPECIALITA_TUTTE);
   const [ricercaPrestazioni, setRicercaPrestazioni] = React.useState("");
   const [ricercaPrestazioniApplicata, setRicercaPrestazioniApplicata] = React.useState("");
   const [ricercaPrestazioniMedico, setRicercaPrestazioniMedico] = React.useState("");
@@ -1022,6 +1025,12 @@ export function AdminSettings({
     return Array.from(nomi.values()).sort((a, b) => a.localeCompare(b, "it"));
   }, [specialita, prestazioni, medici]);
 
+  React.useEffect(() => {
+    if (filtroSpecialitaPrestazioni === FILTRO_SPECIALITA_TUTTE) return;
+    if (specialitaDisponibili.some((nome) => stessaSpecialita(nome, filtroSpecialitaPrestazioni))) return;
+    setFiltroSpecialitaPrestazioni(FILTRO_SPECIALITA_TUTTE);
+  }, [filtroSpecialitaPrestazioni, specialitaDisponibili]);
+
   const filtraPrestazioni = React.useCallback((lista: Prestazione[], ricerca: string) => {
     const query = normalizzaTesto(ricerca);
     if (!query) return lista;
@@ -1037,8 +1046,16 @@ export function AdminSettings({
   );
 
   const prestazioniFiltrate = React.useMemo(
-    () => filtraPrestazioni(prestazioniInGestione, ricercaPrestazioniApplicata),
-    [filtraPrestazioni, prestazioniInGestione, ricercaPrestazioniApplicata],
+    () => {
+      const listaSpecialita =
+        filtroSpecialitaPrestazioni === FILTRO_SPECIALITA_TUTTE
+          ? prestazioniInGestione
+          : prestazioniInGestione.filter((prestazione) =>
+              stessaSpecialita(prestazione.specialita, filtroSpecialitaPrestazioni),
+            );
+      return filtraPrestazioni(listaSpecialita, ricercaPrestazioniApplicata);
+    },
+    [filtraPrestazioni, filtroSpecialitaPrestazioni, prestazioniInGestione, ricercaPrestazioniApplicata],
   );
 
   const prestazioniSpecialita = React.useMemo(
@@ -1289,6 +1306,7 @@ export function AdminSettings({
     }
 
     setSelectedSpecialita(nome);
+    setFiltroSpecialitaPrestazioni(nome);
     setNuovaPrestazione((corrente) => ({ ...corrente, specialita: nome }));
     setNuovoMedico((corrente) => ({ ...corrente, specialita: nome }));
     setNuovaSpecialita("");
@@ -1324,6 +1342,7 @@ export function AdminSettings({
     }
 
     const specialitaPrestazione = nuovaPrestazione.specialita || specialitaDisponibili[0] || "Generale";
+    setFiltroSpecialitaPrestazioni(specialitaPrestazione);
 
     aggiornaPrestazioniDraft((correnti) => [
       ...correnti,
@@ -2862,7 +2881,30 @@ export function AdminSettings({
               </div>
             }
           >
-            <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-4 lg:grid-cols-[220px_minmax(0,1fr)_auto_auto]">
+              <Field label="Macro area">
+                <Select
+                  value={filtroSpecialitaPrestazioni}
+                  onValueChange={(valore) => {
+                    setFiltroSpecialitaPrestazioni(valore);
+                    if (valore !== FILTRO_SPECIALITA_TUTTE) {
+                      setNuovaPrestazione((corrente) => ({ ...corrente, specialita: valore }));
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={FILTRO_SPECIALITA_TUTTE}>Tutte</SelectItem>
+                    {specialitaDisponibili.map((nomeSpecialita) => (
+                      <SelectItem key={nomeSpecialita} value={nomeSpecialita}>
+                        {nomeSpecialita}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
               <Field label="Cerca prestazione">
                 <Input
                   value={ricercaPrestazioni}
@@ -2879,9 +2921,49 @@ export function AdminSettings({
                   Cerca
                 </Button>
               </div>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setFiltroSpecialitaPrestazioni(FILTRO_SPECIALITA_TUTTE);
+                    setRicercaPrestazioni("");
+                    setRicercaPrestazioniApplicata("");
+                  }}
+                  className="w-full"
+                >
+                  Tutte
+                </Button>
+              </div>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-[1fr_200px_120px_auto]">
+            <div className="grid gap-3 rounded-md border border-border bg-white p-4 md:grid-cols-[minmax(0,1fr)_auto]">
+              <Field label="Nuova specialita">
+                <Input
+                  value={nuovaSpecialita}
+                  disabled={!prestazioniModificaAttiva}
+                  onChange={(event) => setNuovaSpecialita(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") aggiungiSpecialita();
+                  }}
+                  placeholder="Es. Medicina dello sport"
+                />
+              </Field>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={aggiungiSpecialita}
+                  disabled={!prestazioniModificaAttiva}
+                  className="w-full gap-2 md:w-auto"
+                >
+                  <Plus className="h-4 w-4" />
+                  Aggiungi specialita
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid gap-3 rounded-md border border-border bg-white p-4 md:grid-cols-[1fr_200px_120px_auto]">
               <Field label="Prestazione">
                 <Input
                   value={nuovaPrestazione.nome}
@@ -2937,91 +3019,108 @@ export function AdminSettings({
               </div>
             </div>
 
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Prestazione</TableHead>
-                  <TableHead>Specialita</TableHead>
-                  <TableHead>Durata base</TableHead>
-                  <TableHead>Attiva</TableHead>
-                  <TableHead className="w-16">Azioni</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {prestazioniFiltrate.length > 0 ? (
-                  prestazioniFiltrate.map((prestazione) => (
-                    <TableRow key={prestazione.id}>
-                      <TableCell className="min-w-[220px]">
-                        <Input
-                          value={prestazione.nome}
-                          disabled={!prestazioniModificaAttiva}
-                          onChange={(event) => aggiornaPrestazione(prestazione.id, "nome", event.target.value)}
-                        />
-                      </TableCell>
-                      <TableCell className="min-w-[180px]">
-                        <Select
-                          value={prestazione.specialita}
-                          disabled={!prestazioniModificaAttiva}
-                          onValueChange={(valore) => aggiornaPrestazione(prestazione.id, "specialita", valore)}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {specialitaDisponibili.map((nomeSpecialita) => (
-                              <SelectItem key={nomeSpecialita} value={nomeSpecialita}>
-                                {nomeSpecialita}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell className="w-28">
-                        <Input
-                          type="number"
-                          min={5}
-                          step={5}
-                          value={prestazione.durata}
-                          disabled={!prestazioniModificaAttiva}
-                          onChange={(event) =>
-                            aggiornaPrestazione(prestazione.id, "durata", Number(event.target.value) || 0)
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Checkbox
-                          checked={prestazione.attiva}
-                          disabled={!prestazioniModificaAttiva}
-                          onCheckedChange={(checked) =>
-                            aggiornaPrestazione(prestazione.id, "attiva", Boolean(checked))
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className="w-16">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => eliminaPrestazione(prestazione.id)}
-                          disabled={!prestazioniModificaAttiva}
-                          className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                          aria-label={`Elimina ${prestazione.nome}`}
-                          title="Elimina prestazione"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
+            <div className="overflow-hidden rounded-md border border-border bg-white">
+              <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {filtroSpecialitaPrestazioni === FILTRO_SPECIALITA_TUTTE
+                      ? "Elenco prestazioni"
+                      : `Elenco ${filtroSpecialitaPrestazioni}`}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">{prestazioniFiltrate.length} prestazioni visualizzate</p>
+                </div>
+                <Badge variant="secondary">
+                  {filtroSpecialitaPrestazioni === FILTRO_SPECIALITA_TUTTE ? "Tutte" : filtroSpecialitaPrestazioni}
+                </Badge>
+              </div>
+              <div className="overflow-x-auto">
+                <Table className="min-w-[860px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Prestazione</TableHead>
+                      <TableHead>Specialita</TableHead>
+                      <TableHead>Durata base</TableHead>
+                      <TableHead>Attiva</TableHead>
+                      <TableHead className="w-16">Azioni</TableHead>
                     </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
-                      Nessuna prestazione trovata.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {prestazioniFiltrate.length > 0 ? (
+                      prestazioniFiltrate.map((prestazione) => (
+                        <TableRow key={prestazione.id}>
+                          <TableCell className="min-w-[220px]">
+                            <Input
+                              value={prestazione.nome}
+                              disabled={!prestazioniModificaAttiva}
+                              onChange={(event) => aggiornaPrestazione(prestazione.id, "nome", event.target.value)}
+                            />
+                          </TableCell>
+                          <TableCell className="min-w-[180px]">
+                            <Select
+                              value={prestazione.specialita}
+                              disabled={!prestazioniModificaAttiva}
+                              onValueChange={(valore) => aggiornaPrestazione(prestazione.id, "specialita", valore)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {specialitaDisponibili.map((nomeSpecialita) => (
+                                  <SelectItem key={nomeSpecialita} value={nomeSpecialita}>
+                                    {nomeSpecialita}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell className="w-28">
+                            <Input
+                              type="number"
+                              min={5}
+                              step={5}
+                              value={prestazione.durata}
+                              disabled={!prestazioniModificaAttiva}
+                              onChange={(event) =>
+                                aggiornaPrestazione(prestazione.id, "durata", Number(event.target.value) || 0)
+                              }
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Checkbox
+                              checked={prestazione.attiva}
+                              disabled={!prestazioniModificaAttiva}
+                              onCheckedChange={(checked) =>
+                                aggiornaPrestazione(prestazione.id, "attiva", Boolean(checked))
+                              }
+                            />
+                          </TableCell>
+                          <TableCell className="w-16">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => eliminaPrestazione(prestazione.id)}
+                              disabled={!prestazioniModificaAttiva}
+                              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              aria-label={`Elimina ${prestazione.nome}`}
+                              title="Elimina prestazione"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                          Nessuna prestazione trovata.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
             <PrestazioniSaveBar
               editing={prestazioniModificaAttiva}
               onCancel={annullaModificaPrestazioni}
