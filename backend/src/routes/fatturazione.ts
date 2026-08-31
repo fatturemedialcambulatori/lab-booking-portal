@@ -21,6 +21,9 @@ const handleArubaError = (err: unknown, res: Response) => {
     res.status(err.statusCode).json({
       error: err.message,
       providerStatus: err.providerStatus,
+      providerMessage: err.providerMessage,
+      operation: err.operation,
+      hint: err.hint,
     });
     return;
   }

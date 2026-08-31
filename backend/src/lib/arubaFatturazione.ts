@@ -40,12 +40,23 @@ export type ArubaInvoiceSearchInput = {
 export class ArubaFatturazioneError extends Error {
   readonly statusCode: number;
   readonly providerStatus?: number;
+  readonly providerMessage?: string;
+  readonly operation?: string;
+  readonly hint?: string;
 
-  constructor(statusCode: number, message: string, providerStatus?: number) {
+  constructor(
+    statusCode: number,
+    message: string,
+    providerStatus?: number,
+    options: { providerMessage?: string; operation?: string; hint?: string } = {},
+  ) {
     super(message);
     this.name = "ArubaFatturazioneError";
     this.statusCode = statusCode;
     this.providerStatus = providerStatus;
+    this.providerMessage = options.providerMessage;
+    this.operation = options.operation;
+    this.hint = options.hint;
   }
 }
 
@@ -170,15 +181,80 @@ const withTimeout = async (url: string, init: RequestInit, timeoutMs: number) =>
   }
 };
 
-const fetchJson = async <T>(url: string, init: RequestInit, timeoutMs: number): Promise<T> => {
+const sanitizeProviderMessage = (value: unknown) => {
+  const cleaned = readString(value).replace(/\s+/g, " ");
+  return cleaned.slice(0, 240);
+};
+
+const providerMessageFromPayload = (value: unknown): string | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const payload = sanitizeProviderPayload(value) as Record<string, unknown>;
+  const candidates = [
+    payload["error_description"],
+    payload["errorDescription"],
+    payload["message"],
+    payload["error"],
+    payload["title"],
+    payload["detail"],
+  ];
+  return candidates.map(sanitizeProviderMessage).find(Boolean);
+};
+
+const parseProviderPayload = (text: string) => {
+  if (!text.trim()) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return sanitizeProviderMessage(text);
+  }
+};
+
+const arubaErrorMessage = (status: number, operation: string) => {
+  if (status === 400) return "Richiesta Aruba non valida";
+  if (status === 401) return "Credenziali Aruba non valide o ambiente Aruba errato";
+  if (status === 403) return "Utenza Aruba senza permessi per questa consultazione";
+  if (status === 404) return "Risorsa Aruba non trovata";
+  if (status === 413) return "Risposta o richiesta Aruba troppo grande";
+  if (status === 429) return "Limite chiamate Aruba superato";
+  if (status >= 500) return "Servizio Aruba temporaneamente non disponibile";
+  return `${operation}: Aruba ha rifiutato o non ha completato la richiesta`;
+};
+
+const arubaErrorHint = (status: number, operation: string) => {
+  if (status === 400 && operation.includes("fatture")) {
+    return "Controlla intervallo date, ambiente e Partita IVA mittente/destinatario configurata nel backend.";
+  }
+  if (status === 400) return "Controlla i parametri inviati e la configurazione Aruba nel backend.";
+  if (status === 401) return "Controlla ARUBA_FE_ENVIRONMENT, username e password Aruba. Demo e produzione usano credenziali e host separati.";
+  if (status === 403) return "Verifica che l'utenza Aruba abbia accesso API alla funzione richiesta.";
+  if (status === 429) return "Attendi almeno un minuto prima di riprovare: Aruba limita login e ricerche per IP.";
+  if (status >= 500) return "Riprova piu tardi o verifica lo stato del servizio Aruba.";
+  return undefined;
+};
+
+const fetchJson = async <T>(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  operation: string,
+): Promise<T> => {
   const response = await withTimeout(url, init, timeoutMs);
   const text = await response.text();
 
   if (!response.ok) {
+    const providerPayload = parseProviderPayload(text);
+    const providerMessage = typeof providerPayload === "string"
+      ? providerPayload
+      : providerMessageFromPayload(providerPayload);
     throw new ArubaFatturazioneError(
       response.status >= 500 ? 502 : response.status,
-      "Aruba ha rifiutato o non ha completato la richiesta",
+      arubaErrorMessage(response.status, operation),
       response.status,
+      {
+        providerMessage,
+        operation,
+        hint: arubaErrorHint(response.status, operation),
+      },
     );
   }
 
@@ -220,6 +296,7 @@ const signIn = async (config: ArubaFatturazioneConfig) => {
       body,
     },
     config.timeoutMs,
+    "autenticazione Aruba",
   );
 
   const accessToken = readString(data?.access_token);
@@ -260,6 +337,11 @@ const authorizedGet = async <T>(config: ArubaFatturazioneConfig, url: string) =>
       },
     },
     config.timeoutMs,
+    url.includes("invoices-out")
+      ? "lettura fatture inviate"
+      : url.includes("invoices-in")
+        ? "lettura fatture ricevute"
+        : "lettura dati Aruba",
   );
 };
 

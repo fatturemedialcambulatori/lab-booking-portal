@@ -92,6 +92,32 @@ type ArubaInvoicesResponse = {
   data?: ArubaInvoicePayload;
 };
 
+type FatturazioneApiErrorPayload = {
+  error?: string;
+  providerStatus?: number;
+  providerMessage?: string;
+  operation?: string;
+  hint?: string;
+};
+
+class FatturazioneApiError extends Error {
+  readonly statusCode: number;
+  readonly providerStatus?: number;
+  readonly providerMessage?: string;
+  readonly operation?: string;
+  readonly hint?: string;
+
+  constructor(statusCode: number, payload: FatturazioneApiErrorPayload) {
+    super(payload.error || "Servizio fatturazione non disponibile");
+    this.name = "FatturazioneApiError";
+    this.statusCode = statusCode;
+    this.providerStatus = payload.providerStatus;
+    this.providerMessage = payload.providerMessage;
+    this.operation = payload.operation;
+    this.hint = payload.hint;
+  }
+}
+
 const euro = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" });
 
 const localDateKey = (date: Date) => {
@@ -138,11 +164,24 @@ const countCedenti = (value: unknown) => {
 
 const fetchJson = async <T,>(url: string): Promise<T> => {
   const response = await fetch(url, { credentials: "include" });
-  const data = await response.json().catch(() => ({}));
+  const data = await response.json().catch(() => ({})) as FatturazioneApiErrorPayload;
   if (!response.ok) {
-    throw new Error(typeof data?.error === "string" ? data.error : "Servizio fatturazione non disponibile");
+    throw new FatturazioneApiError(response.status, data);
   }
   return data as T;
+};
+
+const describeError = (err: unknown) => {
+  if (!(err instanceof FatturazioneApiError)) {
+    return err instanceof Error ? err.message : "Servizio fatturazione non disponibile";
+  }
+
+  return [
+    err.message,
+    err.providerStatus ? `Codice Aruba: ${err.providerStatus}` : null,
+    err.providerMessage ? `Dettaglio Aruba: ${err.providerMessage}` : null,
+    err.hint,
+  ].filter(Boolean).join(" · ");
 };
 
 export function AdminFatturazione() {
@@ -174,7 +213,7 @@ export function AdminFatturazione() {
       setStatus(data);
     } catch (err) {
       setStatus(null);
-      setError(err instanceof Error ? err.message : "Impossibile leggere la configurazione fatturazione");
+      setError(describeError(err));
     } finally {
       setLoadingStatus(false);
     }
@@ -184,16 +223,24 @@ export function AdminFatturazione() {
     if (!status?.configured) return;
     setLoadingMeta(true);
     try {
-      const [userResponse, cedentiResponse] = await Promise.all([
-        fetchJson<{ data?: unknown }>("/api/fatturazione/user-info"),
-        fetchJson<{ data?: unknown }>("/api/fatturazione/cedenti"),
-      ]);
+      const userResponse = await fetchJson<{ data?: unknown }>("/api/fatturazione/user-info");
       setUserInfo(userResponse.data ?? null);
-      setCedenti(cedentiResponse.data ?? null);
+
+      try {
+        const cedentiResponse = await fetchJson<{ data?: unknown }>("/api/fatturazione/cedenti");
+        setCedenti(cedentiResponse.data ?? null);
+      } catch (err) {
+        setCedenti(null);
+        toast({
+          title: "Cedenti Aruba non disponibili",
+          description: describeError(err),
+          variant: "destructive",
+        });
+      }
     } catch (err) {
       toast({
-        title: "Fatturazione",
-        description: err instanceof Error ? err.message : "Non riesco a leggere le informazioni Aruba.",
+        title: "Connessione Aruba non riuscita",
+        description: describeError(err),
         variant: "destructive",
       });
     } finally {
@@ -217,7 +264,7 @@ export function AdminFatturazione() {
       setInvoices(data);
     } catch (err) {
       setInvoices(null);
-      setError(err instanceof Error ? err.message : "Impossibile leggere le fatture Aruba");
+      setError(describeError(err));
     } finally {
       setLoadingInvoices(false);
     }
