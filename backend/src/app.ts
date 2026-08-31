@@ -54,10 +54,15 @@ app.use(
   }),
 );
 app.disable("x-powered-by");
-app.use((_req, res, next) => {
+app.set("etag", false);
+app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "same-origin");
   res.setHeader("Permissions-Policy", "camera=(self), microphone=(), geolocation=()");
+  if (req.path === "/api" || req.path.startsWith("/api/")) {
+    res.setHeader("Cache-Control", "no-store, private");
+    res.setHeader("Pragma", "no-cache");
+  }
   next();
 });
 app.use(cors({

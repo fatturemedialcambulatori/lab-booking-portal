@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { adminSettingsTable, db } from "@workspace/db";
+import { logger } from "./logger";
 
 export type ArubaFatturazioneEnvironment = "demo" | "production";
 export type ArubaInvoiceDirection = "out" | "in";
@@ -938,6 +939,14 @@ const runInvoiceSync = async (
     syncState.status = "running";
     syncState.startedAt = new Date().toISOString();
     await saveSyncState(syncState);
+    logger.info(
+      {
+        syncId: syncState.id,
+        direction: syncState.direction,
+        totalWindows: syncState.totalWindows,
+      },
+      "Aruba invoice sync started",
+    );
 
     for (const window of windows) {
       let page = 1;
@@ -974,6 +983,15 @@ const runInvoiceSync = async (
     syncState.status = "completed";
     syncState.finishedAt = new Date().toISOString();
     await saveSyncState(syncState);
+    logger.info(
+      {
+        syncId: syncState.id,
+        direction: syncState.direction,
+        importedCount: syncState.importedCount,
+        totalProviderRequests: syncState.totalProviderRequests,
+      },
+      "Aruba invoice sync completed",
+    );
   } catch (err) {
     syncState.status = "failed";
     syncState.finishedAt = new Date().toISOString();
@@ -981,6 +999,16 @@ const runInvoiceSync = async (
     syncState.providerStatus = err instanceof ArubaFatturazioneError ? err.providerStatus : undefined;
     syncState.retryAfterSeconds = err instanceof ArubaFatturazioneError ? err.retryAfterSeconds : undefined;
     await saveSyncState(syncState);
+    logger.warn(
+      {
+        syncId: syncState.id,
+        direction: syncState.direction,
+        providerStatus: syncState.providerStatus,
+        retryAfterSeconds: syncState.retryAfterSeconds,
+        message: syncState.error,
+      },
+      "Aruba invoice sync failed",
+    );
   } finally {
     currentSyncJob = syncState;
   }
