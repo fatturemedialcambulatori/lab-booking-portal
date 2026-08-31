@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  changeOwnPassword,
   clearSessionCookie,
   createSessionForAccount,
   isLoginRateLimited,
@@ -12,8 +13,18 @@ import {
   saveAccessConfig,
   setSessionCookie,
 } from "../lib/auth";
+import { writeAuditLog } from "../lib/audit";
 
 const router = Router();
+
+const auditAuthEvent = (
+  req: Parameters<typeof writeAuditLog>[0],
+  input: Parameters<typeof writeAuditLog>[1],
+) => {
+  void writeAuditLog(req, input).catch((err) => {
+    req.log.warn({ err }, "Failed to write auth audit event");
+  });
+};
 
 router.get("/auth/accounts", requireAnyPermission(["utenti"]), async (req, res) => {
   try {
@@ -38,6 +49,13 @@ router.post("/auth/login", async (req, res) => {
   }
 
   if (isLoginRateLimited(req, username)) {
+    auditAuthEvent(req, {
+      actorUsername: username,
+      action: "auth.login",
+      entityType: "auth",
+      outcome: "blocked",
+      reason: "rate_limited",
+    });
     res.status(429).json({ error: "Troppi tentativi. Riprova tra qualche minuto." });
     return;
   }
@@ -47,12 +65,30 @@ router.post("/auth/login", async (req, res) => {
     recordLoginResult(req, username, Boolean(account));
 
     if (!account) {
+      auditAuthEvent(req, {
+        actorUsername: username,
+        action: "auth.login",
+        entityType: "auth",
+        outcome: "blocked",
+        reason: "invalid_credentials",
+      });
       res.status(401).json({ error: "Credenziali non valide" });
       return;
     }
 
     const session = await createSessionForAccount(account);
     setSessionCookie(res, session);
+    auditAuthEvent(req, {
+      actorAccountId: account.id,
+      actorUsername: account.username,
+      actorRoleId: account.ruoloId,
+      action: "auth.login",
+      entityType: "auth",
+      outcome: "success",
+      metadata: {
+        mustChangePassword: account.mustChangePassword,
+      },
+    });
     res.json({ user: publicSession(session) });
   } catch (err) {
     req.log.error({ err }, "Failed to login");
@@ -62,6 +98,37 @@ router.post("/auth/login", async (req, res) => {
 
 router.get("/auth/me", requireAuth, (req, res) => {
   res.json({ user: publicSession(req.auth!) });
+});
+
+router.post("/auth/change-password", requireAuth, async (req, res) => {
+  const currentPassword = typeof req.body?.currentPassword === "string" ? req.body.currentPassword : "";
+  const newPassword = typeof req.body?.newPassword === "string" ? req.body.newPassword : "";
+
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({ error: "Password attuale e nuova password sono richieste" });
+    return;
+  }
+
+  try {
+    const session = await changeOwnPassword(req.auth!, currentPassword, newPassword);
+    setSessionCookie(res, session);
+    auditAuthEvent(req, {
+      action: "auth.password_change",
+      entityType: "auth",
+      outcome: "success",
+    });
+    res.json({ user: publicSession(session) });
+  } catch (err) {
+    auditAuthEvent(req, {
+      action: "auth.password_change",
+      entityType: "auth",
+      outcome: "blocked",
+      reason: "password_change_rejected",
+    });
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "Cambio password non riuscito",
+    });
+  }
 });
 
 router.post("/auth/logout", (_req, res) => {

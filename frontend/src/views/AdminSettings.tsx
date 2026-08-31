@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  Activity,
   ArrowLeft,
   Building2,
   CalendarDays,
@@ -72,6 +73,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { AdminAuditLogs } from "./AdminAuditLogs";
 
 type Prestazione = {
   id: string;
@@ -247,7 +249,7 @@ type AdminSettingsData = {
 };
 
 type SettingsSaveState = "loading" | "dirty" | "saving" | "saved" | "error";
-type SettingsTabId = "specialita" | "prestazioni" | "convenzioni" | "risorse" | "medici" | "compensi";
+type SettingsTabId = "specialita" | "prestazioni" | "convenzioni" | "risorse" | "medici" | "compensi" | "log";
 
 export type SettingsSaveControl = {
   state: SettingsSaveState;
@@ -985,10 +987,10 @@ export function AdminSettings({
   React.useEffect(() => {
     onSaveControlChange?.({
       state: settingsSaveState,
-      canSave: settingsSaveState === "dirty" || settingsSaveState === "error",
+      canSave: settingsTab !== "log" && (settingsSaveState === "dirty" || settingsSaveState === "error"),
       onSave: () => void salvaImpostazioni(),
     });
-  }, [onSaveControlChange, salvaImpostazioni, settingsSaveState]);
+  }, [onSaveControlChange, salvaImpostazioni, settingsSaveState, settingsTab]);
 
   React.useEffect(() => {
     setSchedaMedicoModificaAttiva(false);
@@ -2434,6 +2436,13 @@ export function AdminSettings({
       description: "Ambulatori e strumenti per Modena e Sassuolo",
       count: `${risorseSedi.filter((risorsa) => risorsa.attiva).length} attive`,
     },
+    {
+      tab: "log" as SettingsTabId,
+      icon: <Activity className="h-5 w-5" />,
+      title: "Log operatore",
+      description: "Audit delle azioni eseguite dal backend",
+      count: "Solo admin",
+    },
   ];
   const settingsFeatureCards = [
     {
@@ -2465,6 +2474,7 @@ export function AdminSettings({
     risorse: "Risorse sedi",
     medici: "Medici e agende",
     compensi: "Compensi medici",
+    log: "Log operatore",
   };
   const apriSchedaImpostazioni = React.useCallback((tab: SettingsTabId) => {
     setSettingsTab(tab);
@@ -2632,7 +2642,15 @@ export function AdminSettings({
             <Euro className="h-4 w-4" />
             Compensi
           </TabsTrigger>
+          <TabsTrigger value="log" className="gap-2">
+            <Activity className="h-4 w-4" />
+            Log
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="log" className="space-y-4">
+          <AdminAuditLogs />
+        </TabsContent>
 
         <TabsContent value="specialita" className="space-y-4">
           <SettingsPanel

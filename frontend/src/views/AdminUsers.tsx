@@ -41,9 +41,7 @@ import {
 import {
   PERMESSI_GRUPPI,
   TUTTI_I_PERMESSI,
-  readAdminAccessConfig,
   slugAccessId,
-  writeAdminAccessConfig,
   type AdminAccessConfig,
   type AdminAccount,
   type AdminRole,
@@ -65,10 +63,16 @@ const accountVuoto = (ruoloId = ""): AdminAccount => ({
   password: "",
   ruoloId,
   stato: "attivo",
+  mustChangePassword: true,
 });
 
+const emptyConfig: AdminAccessConfig = {
+  ruoli: [],
+  account: [],
+};
+
 export function AdminUsers() {
-  const [config, setConfig] = React.useState<AdminAccessConfig>(readAdminAccessConfig);
+  const [config, setConfig] = React.useState<AdminAccessConfig>(emptyConfig);
   const [loadingConfig, setLoadingConfig] = React.useState(true);
   const [savingConfig, setSavingConfig] = React.useState(false);
   const [configError, setConfigError] = React.useState("");
@@ -93,7 +97,6 @@ export function AdminUsers() {
       .then((data) => {
         if (cancelled) return;
         setConfig(data);
-        writeAdminAccessConfig(data);
         setConfigError("");
       })
       .catch((err) => {
@@ -134,7 +137,6 @@ export function AdminUsers() {
       }
       const savedConfig = data as AdminAccessConfig;
       setConfig(savedConfig);
-      writeAdminAccessConfig(savedConfig);
     } catch (err) {
       setConfigError(err instanceof Error ? err.message : "Errore salvataggio account");
     } finally {
@@ -145,7 +147,6 @@ export function AdminUsers() {
   const salvaConfig = (updater: (corrente: AdminAccessConfig) => AdminAccessConfig) => {
     setConfig((corrente) => {
       const prossima = updater(corrente);
-      writeAdminAccessConfig(prossima);
       void persistConfig(prossima);
       return prossima;
     });
@@ -208,6 +209,7 @@ export function AdminUsers() {
       username,
       email: accountForm.email.trim(),
       password,
+      mustChangePassword: editingAccountId ? (password ? true : accountForm.mustChangePassword) : true,
     };
 
     salvaConfig((corrente) => ({
@@ -247,7 +249,7 @@ export function AdminUsers() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Account e permessi</h1>
           <p className="text-sm text-muted-foreground">
-            Crea ruoli, scegli cosa possono vedere e assegna gli account operativi.
+            Crea ruoli, scegli cosa il backend autorizza e assegna gli account operativi.
           </p>
           {loadingConfig && <p className="mt-2 text-xs text-muted-foreground">Caricamento configurazione server...</p>}
           {savingConfig && <p className="mt-2 text-xs text-muted-foreground">Salvataggio permessi...</p>}
@@ -273,7 +275,7 @@ export function AdminUsers() {
           <div>
             <h2 className="text-lg font-semibold text-foreground">Ruoli</h2>
             <p className="text-sm text-muted-foreground">
-              Ogni ruolo controlla le voci visibili nel menu del gestionale.
+              Ogni ruolo controlla le autorizzazioni applicate dalle API.
             </p>
           </div>
         </div>
@@ -314,7 +316,7 @@ export function AdminUsers() {
           <div>
             <h2 className="text-lg font-semibold text-foreground">Account</h2>
             <p className="text-sm text-muted-foreground">
-              Ogni account usa il ruolo assegnato per mostrare o nascondere le sezioni.
+              Ogni account usa il ruolo assegnato per ricevere permessi verificati dal backend.
             </p>
           </div>
         </div>
@@ -326,6 +328,7 @@ export function AdminUsers() {
               <TableHead>Username</TableHead>
               <TableHead>Ruolo</TableHead>
               <TableHead>Stato</TableHead>
+              <TableHead>Password</TableHead>
               <TableHead className="w-24">Azioni</TableHead>
             </TableRow>
           </TableHeader>
@@ -379,6 +382,13 @@ export function AdminUsers() {
                   >
                     {account.stato === "attivo" ? "Attivo" : "Sospeso"}
                   </Button>
+                </TableCell>
+                <TableCell>
+                  {account.mustChangePassword ? (
+                    <Badge>Da cambiare</Badge>
+                  ) : (
+                    <Badge variant="outline">OK</Badge>
+                  )}
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center justify-end gap-1">
@@ -534,8 +544,13 @@ export function AdminUsers() {
                 type="password"
                 value={accountForm.password}
                 onChange={(event) =>
-                  setAccountForm((corrente) => ({ ...corrente, password: event.target.value }))
+                  setAccountForm((corrente) => ({
+                    ...corrente,
+                    password: event.target.value,
+                    mustChangePassword: event.target.value.trim() ? true : corrente.mustChangePassword,
+                  }))
                 }
+                placeholder={editingAccountId ? "Lascia vuota per non cambiarla" : "Password temporanea"}
               />
             </Field>
             <Field label="Ruolo">
@@ -559,6 +574,21 @@ export function AdminUsers() {
               <KeyRound className="mb-2 h-4 w-4 text-primary" />
               Vedra le sezioni abilitate per il ruolo {nomeRuolo(accountForm.ruoloId)}.
             </div>
+            <label className="flex items-start gap-2 rounded-md border border-border bg-muted/20 p-3 text-sm">
+              <Checkbox
+                checked={editingAccountId ? accountForm.mustChangePassword : true}
+                disabled={!editingAccountId || Boolean(accountForm.password.trim())}
+                onCheckedChange={(checked) =>
+                  setAccountForm((corrente) => ({ ...corrente, mustChangePassword: Boolean(checked) }))
+                }
+              />
+              <span>
+                <span className="block font-medium text-foreground">Richiedi cambio password</span>
+                <span className="block text-xs text-muted-foreground">
+                  Per i nuovi account e per le password reimpostate resta obbligatorio al prossimo accesso.
+                </span>
+              </span>
+            </label>
           </div>
 
           <DialogFooter>

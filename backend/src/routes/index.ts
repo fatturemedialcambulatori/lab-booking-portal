@@ -13,6 +13,7 @@ import infortunisticaRouter from "./infortunistica";
 import cassaRouter from "./cassa";
 import paymentsRouter from "./payments";
 import fatturazioneRouter from "./fatturazione";
+import auditLogsRouter from "./auditLogs";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(infortunisticaRouter);
 router.use(cassaRouter);
 router.use(paymentsRouter);
 router.use(fatturazioneRouter);
+router.use(auditLogsRouter);
 
 export default router;

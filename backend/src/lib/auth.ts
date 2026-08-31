@@ -1,7 +1,8 @@
 import { randomBytes, scryptSync, timingSafeEqual, createHmac } from "node:crypto";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { eq } from "drizzle-orm";
-import { adminSettingsTable, db } from "@workspace/db";
+import { adminSettingsTable, db, pool } from "@workspace/db";
+import { ensureSecurityTables } from "./securityDb";
 
 export type PermissionId =
   | "admin"
@@ -45,6 +46,8 @@ type StoredAdminAccount = {
   password?: string;
   ruoloId: string;
   stato: "attivo" | "sospeso";
+  mustChangePassword: boolean;
+  lastLoginAt?: Date | null;
 };
 
 export type PublicAdminAccount = Omit<StoredAdminAccount, "passwordHash" | "password"> & {
@@ -70,6 +73,7 @@ export type AuthSession = {
   roleId: string;
   roleName: string;
   permissions: PermissionId[];
+  mustChangePassword: boolean;
   iat: number;
   exp: number;
 };
@@ -88,6 +92,7 @@ export const SESSION_COOKIE_NAME = "mmedical_session";
 const SESSION_TTL_SECONDS = Number(process.env["AUTH_SESSION_TTL_SECONDS"] ?? 8 * 60 * 60);
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILURES = Number(process.env["AUTH_LOGIN_MAX_FAILURES"] ?? 10);
+const PASSWORD_MIN_LENGTH = Number(process.env["AUTH_PASSWORD_MIN_LENGTH"] ?? 8);
 
 const PERMISSION_IDS: PermissionId[] = [
   "admin",
@@ -227,6 +232,7 @@ const DEFAULT_ACCESS_CONFIG: StoredAccessConfig = {
       passwordHash: DEFAULT_ADMIN_PASSWORD_HASH,
       ruoloId: "admin",
       stato: "attivo",
+      mustChangePassword: false,
     },
     {
       id: "segreteria-modena",
@@ -236,6 +242,7 @@ const DEFAULT_ACCESS_CONFIG: StoredAccessConfig = {
       passwordHash: DEFAULT_SEGRETERIA_PASSWORD_HASH,
       ruoloId: "segreteria-modena",
       stato: "attivo",
+      mustChangePassword: false,
     },
     {
       id: "segreteria-sassuolo",
@@ -245,6 +252,7 @@ const DEFAULT_ACCESS_CONFIG: StoredAccessConfig = {
       passwordHash: DEFAULT_SEGRETERIA_PASSWORD_HASH,
       ruoloId: "segreteria-sassuolo",
       stato: "attivo",
+      mustChangePassword: false,
     },
     {
       id: "laboratorio-modena",
@@ -254,6 +262,7 @@ const DEFAULT_ACCESS_CONFIG: StoredAccessConfig = {
       passwordHash: DEFAULT_OPERATIVO_PASSWORD_HASH,
       ruoloId: "laboratorio-modena",
       stato: "attivo",
+      mustChangePassword: false,
     },
     {
       id: "laboratorio-sassuolo",
@@ -263,6 +272,7 @@ const DEFAULT_ACCESS_CONFIG: StoredAccessConfig = {
       passwordHash: DEFAULT_OPERATIVO_PASSWORD_HASH,
       ruoloId: "laboratorio-sassuolo",
       stato: "attivo",
+      mustChangePassword: false,
     },
     {
       id: "ambulatorio-modena",
@@ -272,6 +282,7 @@ const DEFAULT_ACCESS_CONFIG: StoredAccessConfig = {
       passwordHash: DEFAULT_OPERATIVO_PASSWORD_HASH,
       ruoloId: "ambulatorio-modena",
       stato: "attivo",
+      mustChangePassword: false,
     },
     {
       id: "ambulatorio-sassuolo",
@@ -281,6 +292,7 @@ const DEFAULT_ACCESS_CONFIG: StoredAccessConfig = {
       passwordHash: DEFAULT_OPERATIVO_PASSWORD_HASH,
       ruoloId: "ambulatorio-sassuolo",
       stato: "attivo",
+      mustChangePassword: false,
     },
   ],
 };
@@ -348,6 +360,7 @@ const normalizeStoredAccount = (value: unknown): StoredAdminAccount | null => {
     passwordHash: passwordHash || (legacyPassword ? hashPassword(legacyPassword) : undefined),
     ruoloId,
     stato,
+    mustChangePassword: Boolean(item["mustChangePassword"] ?? item["must_change_password"] ?? false),
   };
 };
 
@@ -381,7 +394,9 @@ const hasLegacyPlaintextPasswords = (value: unknown) => {
 const mergeDefaultAccessConfig = (config: StoredAccessConfig): StoredAccessConfig => {
   const defaultRoleIds = new Set(DEFAULT_ACCESS_CONFIG.ruoli.map((ruolo) => ruolo.id));
   const defaultAccountIds = new Set(DEFAULT_ACCESS_CONFIG.account.map((account) => account.id));
-  const defaultUsernames = new Set(DEFAULT_ACCESS_CONFIG.account.map((account) => account.username));
+  const configuredRolesById = new Map(config.ruoli.map((ruolo) => [ruolo.id, ruolo]));
+  const configuredAccountsById = new Map(config.account.map((account) => [account.id, account]));
+  const configuredAccountsByUsername = new Map(config.account.map((account) => [account.username, account]));
 
   const customRoles = config.ruoli.filter((ruolo) =>
     !defaultRoleIds.has(ruolo.id) &&
@@ -389,37 +404,245 @@ const mergeDefaultAccessConfig = (config: StoredAccessConfig): StoredAccessConfi
   );
   const customAccounts = config.account.filter((account) =>
     !defaultAccountIds.has(account.id) &&
-    !defaultUsernames.has(account.username) &&
+    !DEFAULT_ACCESS_CONFIG.account.some((defaultAccount) => defaultAccount.username === account.username) &&
     !LEGACY_DEFAULT_ACCOUNT_IDS.has(account.id) &&
     !LEGACY_DEFAULT_ACCOUNT_IDS.has(account.username),
   );
 
   return {
     securityProfileVersion: ACCESS_CONFIG_VERSION,
-    ruoli: [...DEFAULT_ACCESS_CONFIG.ruoli, ...customRoles],
-    account: [...DEFAULT_ACCESS_CONFIG.account, ...customAccounts],
+    ruoli: [
+      ...DEFAULT_ACCESS_CONFIG.ruoli.map((defaultRole) => configuredRolesById.get(defaultRole.id) ?? defaultRole),
+      ...customRoles,
+    ],
+    account: [
+      ...DEFAULT_ACCESS_CONFIG.account.map((defaultAccount) =>
+        configuredAccountsById.get(defaultAccount.id) ??
+        configuredAccountsByUsername.get(defaultAccount.username) ??
+        defaultAccount,
+      ),
+      ...customAccounts,
+    ],
   };
 };
 
-export async function loadAccessConfig(): Promise<StoredAccessConfig> {
+type RolePermissionRow = {
+  id: string;
+  nome: string;
+  descrizione: string | null;
+  permission_id: string | null;
+};
+
+type AccountRow = {
+  id: string;
+  nome: string;
+  email: string | null;
+  username: string;
+  password_hash: string;
+  role_id: string;
+  status: string;
+  must_change_password: boolean;
+  last_login_at: Date | null;
+};
+
+let accessStorePromise: Promise<void> | null = null;
+
+const roleIsSystemDefault = (roleId: string) =>
+  DEFAULT_ACCESS_CONFIG.ruoli.some((ruolo) => ruolo.id === roleId);
+
+const validatePasswordPolicy = (password: string) => {
+  if (password.length < PASSWORD_MIN_LENGTH) {
+    throw new Error(`La password deve contenere almeno ${PASSWORD_MIN_LENGTH} caratteri`);
+  }
+  if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+    throw new Error("La password deve contenere almeno una lettera e un numero");
+  }
+};
+
+const readAccessConfigFromDb = async (): Promise<StoredAccessConfig> => {
+  const roleRows = await pool.query<RolePermissionRow>(`
+    SELECT r.id, r.nome, r.descrizione, p.permission_id
+    FROM admin_roles r
+    LEFT JOIN admin_role_permissions p ON p.role_id = r.id
+    ORDER BY r.created_at ASC, r.id ASC, p.permission_id ASC
+  `);
+
+  const rolesById = new Map<string, AdminRole>();
+  const roleOrder: string[] = [];
+  for (const row of roleRows.rows) {
+    if (!rolesById.has(row.id)) {
+      roleOrder.push(row.id);
+      rolesById.set(row.id, {
+        id: row.id,
+        nome: row.nome,
+        descrizione: row.descrizione ?? "",
+        permessi: [],
+      });
+    }
+
+    if (row.permission_id && PERMISSION_IDS.includes(row.permission_id as PermissionId)) {
+      const role = rolesById.get(row.id);
+      role?.permessi.push(row.permission_id as PermissionId);
+    }
+  }
+
+  const accountRows = await pool.query<AccountRow>(`
+    SELECT id, nome, email, username, password_hash, role_id, status, must_change_password, last_login_at
+    FROM admin_accounts
+    ORDER BY created_at ASC, id ASC
+  `);
+
+  return {
+    securityProfileVersion: ACCESS_CONFIG_VERSION,
+    ruoli: roleOrder.map((roleId) => rolesById.get(roleId)).filter(Boolean) as AdminRole[],
+    account: accountRows.rows.map((row) => ({
+      id: row.id,
+      nome: row.nome,
+      email: row.email ?? "",
+      username: row.username,
+      passwordHash: row.password_hash,
+      ruoloId: row.role_id,
+      stato: row.status === "sospeso" ? "sospeso" : "attivo",
+      mustChangePassword: row.must_change_password,
+      lastLoginAt: row.last_login_at,
+    })),
+  };
+};
+
+const loadLegacyAccessConfigFromSettings = async () => {
   const [settings] = await db
     .select()
     .from(adminSettingsTable)
     .where(eq(adminSettingsTable.key, ADMIN_ACCESS_KEY))
     .limit(1);
 
-  const normalized = normalizeStoredConfig(settings?.value);
-  const config = mergeDefaultAccessConfig(normalized);
-  if (!settings || normalized.securityProfileVersion !== ACCESS_CONFIG_VERSION || hasLegacyPlaintextPasswords(settings.value)) {
-    await db
-      .insert(adminSettingsTable)
-      .values({ key: ADMIN_ACCESS_KEY, value: config, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: adminSettingsTable.key,
-        set: { value: config, updatedAt: new Date() },
-      });
+  return mergeDefaultAccessConfig(normalizeStoredConfig(settings?.value));
+};
+
+const writeAccessConfigToDb = async (config: StoredAccessConfig) => {
+  const client = await pool.connect();
+  const roleIds = config.ruoli.map((ruolo) => ruolo.id);
+  const accountIds = config.account.map((accountItem) => accountItem.id);
+
+  try {
+    await client.query("BEGIN");
+
+    for (const ruolo of config.ruoli) {
+      await client.query(
+        `
+          INSERT INTO admin_roles (id, nome, descrizione, system, updated_at)
+          VALUES ($1, $2, $3, $4, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            nome = EXCLUDED.nome,
+            descrizione = EXCLUDED.descrizione,
+            system = EXCLUDED.system,
+            updated_at = NOW()
+        `,
+        [ruolo.id, ruolo.nome, ruolo.descrizione, roleIsSystemDefault(ruolo.id)],
+      );
+    }
+
+    await client.query("DELETE FROM admin_accounts WHERE NOT (id = ANY($1::text[]))", [accountIds]);
+
+    for (const accountItem of config.account) {
+      await client.query(
+        `
+          INSERT INTO admin_accounts (
+            id,
+            nome,
+            email,
+            username,
+            password_hash,
+            role_id,
+            status,
+            must_change_password,
+            updated_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            nome = EXCLUDED.nome,
+            email = EXCLUDED.email,
+            username = EXCLUDED.username,
+            password_hash = EXCLUDED.password_hash,
+            role_id = EXCLUDED.role_id,
+            status = EXCLUDED.status,
+            must_change_password = EXCLUDED.must_change_password,
+            updated_at = NOW()
+        `,
+        [
+          accountItem.id,
+          accountItem.nome,
+          accountItem.email,
+          accountItem.username,
+          accountItem.passwordHash,
+          accountItem.ruoloId,
+          accountItem.stato,
+          accountItem.mustChangePassword,
+        ],
+      );
+    }
+
+    await client.query("DELETE FROM admin_role_permissions WHERE role_id = ANY($1::text[])", [roleIds]);
+
+    for (const ruolo of config.ruoli) {
+      for (const permesso of ruolo.permessi) {
+        await client.query(
+          `
+            INSERT INTO admin_role_permissions (role_id, permission_id)
+            VALUES ($1, $2)
+            ON CONFLICT (role_id, permission_id) DO NOTHING
+          `,
+          [ruolo.id, permesso],
+        );
+      }
+    }
+
+    await client.query("DELETE FROM admin_roles WHERE NOT (id = ANY($1::text[]))", [roleIds]);
+    await client.query(
+      `
+        INSERT INTO admin_settings (key, value, updated_at)
+        VALUES ($1, $2::jsonb, NOW())
+        ON CONFLICT (key) DO UPDATE SET
+          value = EXCLUDED.value,
+          updated_at = NOW()
+      `,
+      [ADMIN_ACCESS_KEY, JSON.stringify(config)],
+    );
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
+const ensureAccessStoreReady = async () => {
+  if (!accessStorePromise) {
+    accessStorePromise = (async () => {
+      await ensureSecurityTables();
+      const existingRoles = await pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM admin_roles");
+      if (Number(existingRoles.rows[0]?.count ?? "0") === 0) {
+        await writeAccessConfigToDb(await loadLegacyAccessConfigFromSettings());
+      }
+    })().catch((err) => {
+      accessStorePromise = null;
+      throw err;
+    });
   }
 
+  return accessStorePromise;
+};
+
+export async function loadAccessConfig(): Promise<StoredAccessConfig> {
+  await ensureAccessStoreReady();
+  const config = await readAccessConfigFromDb();
+  if (config.ruoli.length === 0 || config.account.length === 0) {
+    const fallback = await loadLegacyAccessConfigFromSettings();
+    await writeAccessConfigToDb(fallback);
+    return readAccessConfigFromDb();
+  }
   return config;
 }
 
@@ -437,6 +660,7 @@ export async function loadPublicAccessConfig(): Promise<PublicAccessConfig> {
 }
 
 export async function saveAccessConfig(input: unknown): Promise<PublicAccessConfig> {
+  await ensureAccessStoreReady();
   const current = await loadAccessConfig();
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("Configurazione account non valida");
@@ -449,6 +673,12 @@ export async function saveAccessConfig(input: unknown): Promise<PublicAccessConf
     : [];
 
   if (incomingRoles.length === 0) throw new Error("Almeno un ruolo e richiesto");
+
+  const roleIds = new Set<string>();
+  for (const role of incomingRoles) {
+    if (roleIds.has(role.id)) throw new Error(`Ruolo duplicato: ${role.nome}`);
+    roleIds.add(role.id);
+  }
 
   const existingById = new Map(current.account.map((account) => [account.id, account]));
   const existingByUsername = new Map(current.account.map((account) => [account.username, account]));
@@ -469,9 +699,13 @@ export async function saveAccessConfig(input: unknown): Promise<PublicAccessConf
 
     const existing = existingById.get(id) ?? existingByUsername.get(username);
     const newPassword = readString(item["password"]);
+    if (newPassword) validatePasswordPolicy(newPassword);
     const passwordHash = newPassword ? hashPassword(newPassword) : existing?.passwordHash;
     if (!passwordHash) {
       throw new Error(`Password mancante per ${username}`);
+    }
+    if (!roleIds.has(ruoloId)) {
+      throw new Error(`Ruolo non valido per ${username}`);
     }
 
     return {
@@ -482,23 +716,34 @@ export async function saveAccessConfig(input: unknown): Promise<PublicAccessConf
       passwordHash,
       ruoloId,
       stato: item["stato"] === "sospeso" ? "sospeso" : "attivo",
+      mustChangePassword: existing
+        ? newPassword
+          ? true
+          : Boolean(item["mustChangePassword"] ?? existing.mustChangePassword)
+        : true,
     };
   });
 
   if (account.length === 0) throw new Error("Almeno un account e richiesto");
 
-  const next = mergeDefaultAccessConfig({ ruoli: incomingRoles, account });
-  const now = new Date();
-  const [saved] = await db
-    .insert(adminSettingsTable)
-    .values({ key: ADMIN_ACCESS_KEY, value: next, updatedAt: now })
-    .onConflictDoUpdate({
-      target: adminSettingsTable.key,
-      set: { value: next, updatedAt: now },
-    })
-    .returning();
+  const adminRoleIds = new Set(
+    incomingRoles.filter((role) => role.permessi.includes("admin")).map((role) => role.id),
+  );
+  if (adminRoleIds.size === 0) {
+    throw new Error("Deve esistere almeno un ruolo amministratore");
+  }
+  if (!account.some((item) => item.stato === "attivo" && adminRoleIds.has(item.ruoloId))) {
+    throw new Error("Deve restare almeno un account amministratore attivo");
+  }
 
-  return toPublicAccessConfig(saved.value as StoredAccessConfig);
+  const next: StoredAccessConfig = {
+    securityProfileVersion: ACCESS_CONFIG_VERSION,
+    ruoli: incomingRoles,
+    account,
+  };
+  await writeAccessConfigToDb(next);
+
+  return toPublicAccessConfig(await readAccessConfigFromDb());
 }
 
 const getAuthSecret = () =>
@@ -535,6 +780,7 @@ const decodeToken = (token: string): AuthSession | null => {
     return {
       ...parsed,
       permissions: readPermissions(parsed.permissions),
+      mustChangePassword: Boolean(parsed.mustChangePassword),
     };
   } catch {
     return null;
@@ -622,9 +868,11 @@ export const canAccessSedeForPermission = (
   return hasGlobalPermission(req, permission) || hasGlobalPermission(req, SEDE_PERMISSION_BY_BASE[permission][normalized]);
 };
 
-export const createSessionForAccount = async (account: StoredAdminAccount): Promise<AuthSession> => {
-  const config = await loadAccessConfig();
-  const role = config.ruoli.find((item) => item.id === account.ruoloId);
+const buildSessionForAccount = (
+  account: StoredAdminAccount,
+  role: AdminRole | undefined,
+  bounds?: Pick<AuthSession, "iat" | "exp">,
+): AuthSession => {
   const now = Math.floor(Date.now() / 1000);
   return {
     accountId: account.id,
@@ -633,9 +881,26 @@ export const createSessionForAccount = async (account: StoredAdminAccount): Prom
     roleId: account.ruoloId,
     roleName: role?.nome ?? account.ruoloId,
     permissions: role?.permessi ?? [],
-    iat: now,
-    exp: now + Math.max(60, SESSION_TTL_SECONDS),
+    mustChangePassword: account.mustChangePassword,
+    iat: bounds?.iat ?? now,
+    exp: bounds?.exp ?? now + Math.max(60, SESSION_TTL_SECONDS),
   };
+};
+
+export const createSessionForAccount = async (account: StoredAdminAccount): Promise<AuthSession> => {
+  const config = await loadAccessConfig();
+  const role = config.ruoli.find((item) => item.id === account.ruoloId);
+  return buildSessionForAccount(account, role);
+};
+
+const createLiveSessionFromToken = async (decoded: AuthSession): Promise<AuthSession | null> => {
+  const config = await loadAccessConfig();
+  const account = config.account.find(
+    (item) => item.id === decoded.accountId && item.username === decoded.username && item.stato === "attivo",
+  );
+  if (!account) return null;
+  const role = config.ruoli.find((item) => item.id === account.ruoloId);
+  return buildSessionForAccount(account, role, { iat: decoded.iat, exp: decoded.exp });
 };
 
 export const setSessionCookie = (res: Response, session: AuthSession) => {
@@ -665,17 +930,84 @@ export const loginWithPassword = async (username: string, password: string) => {
   );
 
   if (!account || !verifyPassword(password, account.passwordHash)) return null;
+  void pool.query("UPDATE admin_accounts SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1", [account.id])
+    .catch(() => undefined);
   return account;
 };
 
-export const requireAuth: RequestHandler = (req, res, next) => {
-  const session = decodeToken(tokenFromRequest(req));
-  if (!session) {
+const isAllowedBeforePasswordChange = (req: Request) => {
+  const path = (req.originalUrl || req.url || req.path).split("?")[0] ?? "";
+  return (
+    path.endsWith("/auth/me") ||
+    path.endsWith("/auth/logout") ||
+    path.endsWith("/auth/change-password")
+  );
+};
+
+export const changeOwnPassword = async (
+  session: AuthSession,
+  currentPassword: string,
+  newPassword: string,
+) => {
+  const cleanCurrentPassword = typeof currentPassword === "string" ? currentPassword : "";
+  const cleanNewPassword = readString(newPassword);
+  validatePasswordPolicy(cleanNewPassword);
+
+  const config = await loadAccessConfig();
+  const account = config.account.find((item) => item.id === session.accountId && item.stato === "attivo");
+  if (!account || !verifyPassword(cleanCurrentPassword, account.passwordHash)) {
+    throw new Error("Password attuale non corretta");
+  }
+  if (verifyPassword(cleanNewPassword, account.passwordHash)) {
+    throw new Error("La nuova password deve essere diversa da quella attuale");
+  }
+
+  const passwordHash = hashPassword(cleanNewPassword);
+  await pool.query(
+    `
+      UPDATE admin_accounts
+      SET password_hash = $1,
+          must_change_password = FALSE,
+          updated_at = NOW()
+      WHERE id = $2
+    `,
+    [passwordHash, account.id],
+  );
+
+  return createSessionForAccount({
+    ...account,
+    passwordHash,
+    mustChangePassword: false,
+  });
+};
+
+export const requireAuth: RequestHandler = async (req, res, next) => {
+  const decoded = decodeToken(tokenFromRequest(req));
+  if (!decoded) {
     res.status(401).json({ error: "Accesso richiesto" });
     return;
   }
-  req.auth = session;
-  next();
+
+  try {
+    const session = await createLiveSessionFromToken(decoded);
+    if (!session) {
+      clearSessionCookie(res);
+      res.status(401).json({ error: "Sessione non valida o account sospeso" });
+      return;
+    }
+    if (session.mustChangePassword && !isAllowedBeforePasswordChange(req)) {
+      res.status(403).json({
+        error: "Cambio password richiesto prima di continuare",
+        code: "PASSWORD_CHANGE_REQUIRED",
+      });
+      return;
+    }
+
+    req.auth = session;
+    next();
+  } catch (err) {
+    next(err);
+  }
 };
 
 export const requireAnyPermission = (permissions: PermissionId[]): RequestHandler => (
@@ -683,7 +1015,11 @@ export const requireAnyPermission = (permissions: PermissionId[]): RequestHandle
   res: Response,
   next: NextFunction,
 ) => {
-  requireAuth(req, res, () => {
+  requireAuth(req, res, (err?: unknown) => {
+    if (err) {
+      next(err);
+      return;
+    }
     if (permissions.some((permission) => hasPermission(req, permission))) {
       next();
       return;
@@ -706,6 +1042,7 @@ export const publicSession = (session: AuthSession) => ({
   roleId: session.roleId,
   roleName: session.roleName,
   permissions: session.permissions,
+  mustChangePassword: session.mustChangePassword,
   expiresAt: new Date(session.exp * 1000).toISOString(),
 });
 

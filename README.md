@@ -56,6 +56,7 @@ Backend:
 - `CORS_ORIGINS`
 - `APP_ORIGIN`
 - `JSON_BODY_LIMIT`
+- `AUTH_PASSWORD_MIN_LENGTH`
 - `ARUBA_FE_ENVIRONMENT`
 - `ARUBA_FE_USERNAME`
 - `ARUBA_FE_PASSWORD`
@@ -88,6 +89,7 @@ pnpm typecheck
 
 - Il backend resta l'unico punto di accesso a database, Supabase Storage e integrazioni esterne.
 - Le verifiche di ruolo e permesso devono essere enforceate lato backend.
+- Ruoli, permessi, account e audit sono persistiti su DB nelle tabelle `admin_roles`, `admin_role_permissions`, `admin_accounts` e `audit_logs`.
 - Gli upload passano da API controllate, con limiti dimensione e controlli MIME.
 - Log e audit non devono contenere dati sanitari o segreti.
 - L'integrazione Aruba Fatturazione Elettronica e esposta solo al ruolo `admin` e, per ora, usa solo endpoint di consultazione. Gli intervalli lunghi vengono sincronizzati in cache locale con finestre compatibili con i limiti Aruba.

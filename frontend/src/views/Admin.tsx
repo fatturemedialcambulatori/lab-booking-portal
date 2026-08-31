@@ -1,6 +1,9 @@
 import React from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
   Bell,
@@ -8,6 +11,8 @@ import {
   CalendarDays,
   Car,
   CircleHelp,
+  Eye,
+  EyeOff,
   FileText,
   FlaskConical,
   LogOut,
@@ -18,6 +23,7 @@ import {
   Users,
   Save,
   ReceiptText,
+  ShieldCheck,
   WalletCards,
   type LucideIcon,
 } from "lucide-react";
@@ -87,6 +93,16 @@ export default function Admin() {
     return <Login onSuccess={(user) => setAuthUser(user)} />;
   }
 
+  if (authUser.mustChangePassword) {
+    return (
+      <PasswordChangeRequired
+        user={authUser}
+        onChanged={(user) => setAuthUser(user)}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   const role = authUser.roleId;
   const roleLabel = authUser.roleName || role;
 
@@ -99,6 +115,129 @@ export default function Admin() {
       location={location}
       navigate={navigate}
     />
+  );
+}
+
+function PasswordChangeRequired({
+  user,
+  onChanged,
+  onLogout,
+}: {
+  user: AuthUser;
+  onChanged: (user: AuthUser) => void;
+  onLogout: () => void;
+}) {
+  const [currentPassword, setCurrentPassword] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const [showPasswords, setShowPasswords] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setError("Compila tutti i campi.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Le nuove password non coincidono.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const response = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await response.json().catch(() => null) as { user?: AuthUser; error?: string } | null;
+      if (!response.ok || !data?.user) {
+        setError(data?.error ?? "Cambio password non riuscito.");
+        return;
+      }
+      onChanged(data.user);
+    } catch {
+      setError("Errore di rete durante il cambio password.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <Card className="w-full max-w-md border-border/70 p-6 shadow-lg">
+        <div className="mb-6 flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">Cambio password richiesto</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {user.nome} deve impostare una password personale prima di continuare.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={submit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="current-password">Password temporanea</Label>
+            <Input
+              id="current-password"
+              type={showPasswords ? "text" : "password"}
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              autoComplete="current-password"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="new-password">Nuova password</Label>
+            <Input
+              id="new-password"
+              type={showPasswords ? "text" : "password"}
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="confirm-password">Conferma password</Label>
+            <Input
+              id="confirm-password"
+              type={showPasswords ? "text" : "password"}
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowPasswords((current) => !current)}
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+          >
+            {showPasswords ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {showPasswords ? "Nascondi password" : "Mostra password"}
+          </button>
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={onLogout}>
+              Esci
+            </Button>
+            <Button type="submit" disabled={loading}>
+              {loading ? "Salvataggio..." : "Salva password"}
+            </Button>
+          </div>
+        </form>
+      </Card>
+    </div>
   );
 }
 
@@ -118,7 +257,7 @@ type TabId =
   | "utenti";
 type OperationalAreaId = "laboratorio" | "ambulatorio";
 type AreaId = OperationalAreaId | "cassa";
-type SettingsTabId = "specialita" | "prestazioni" | "convenzioni" | "risorse" | "medici" | "compensi";
+type SettingsTabId = "specialita" | "prestazioni" | "convenzioni" | "risorse" | "medici" | "compensi" | "log";
 
 type SettingsTarget = {
   tab: SettingsTabId;

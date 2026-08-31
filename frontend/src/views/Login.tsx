@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Lock, Eye, EyeOff } from "lucide-react";
-import { readAdminAccessConfig, type PermissionId } from "@/lib/adminAccess";
+import type { PermissionId } from "@/lib/adminAccess";
 
 export type AuthUser = {
   accountId: string;
@@ -13,6 +13,7 @@ export type AuthUser = {
   roleId: string;
   roleName: string;
   permissions: PermissionId[];
+  mustChangePassword: boolean;
   expiresAt: string;
 };
 
@@ -21,9 +22,7 @@ interface LoginProps {
 }
 
 export function Login({ onSuccess }: LoginProps) {
-  const fallbackAccessConfig = React.useMemo(readAdminAccessConfig, []);
-  const defaultUsername = fallbackAccessConfig.account.find((account) => account.stato === "attivo")?.username ?? "";
-  const [username, setUsername] = React.useState<string>(defaultUsername);
+  const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
   const [error, setError] = React.useState("");

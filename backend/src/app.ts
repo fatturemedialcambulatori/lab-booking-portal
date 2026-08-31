@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { auditHttpMutations } from "./lib/audit";
 
 const app: Express = express();
 const jsonBodyLimit = process.env["JSON_BODY_LIMIT"] ?? "10mb";
@@ -80,6 +81,7 @@ app.use("/api/ocr", express.json({ limit: "20mb" }));
 app.use(express.json({ limit: jsonBodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: jsonBodyLimit }));
 
+app.use(auditHttpMutations);
 app.use("/api", router);
 
 app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
