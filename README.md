@@ -56,6 +56,16 @@ Backend:
 - `CORS_ORIGINS`
 - `APP_ORIGIN`
 - `JSON_BODY_LIMIT`
+- `ARUBA_FE_ENVIRONMENT`
+- `ARUBA_FE_USERNAME`
+- `ARUBA_FE_PASSWORD`
+- `ARUBA_FE_AUTH_BASE_URL`
+- `ARUBA_FE_WS_BASE_URL`
+- `ARUBA_FE_SENDER_COUNTRY`
+- `ARUBA_FE_SENDER_VATCODE`
+- `ARUBA_FE_RECEIVER_COUNTRY`
+- `ARUBA_FE_RECEIVER_VATCODE`
+- `ARUBA_FE_TIMEOUT_MS`
 
 Frontend:
 
@@ -79,4 +89,5 @@ pnpm typecheck
 - Le verifiche di ruolo e permesso devono essere enforceate lato backend.
 - Gli upload passano da API controllate, con limiti dimensione e controlli MIME.
 - Log e audit non devono contenere dati sanitari o segreti.
-- Le integrazioni future previste sono AWS, Aruba Fatturazione Elettronica, storage documentale e macchinari/LIS.
+- L'integrazione Aruba Fatturazione Elettronica e esposta solo al ruolo `admin` e, per ora, usa solo endpoint di consultazione.
+- Le integrazioni future previste sono AWS, storage documentale e macchinari/LIS.

@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Car,
   CircleHelp,
+  FileText,
   FlaskConical,
   LogOut,
   Settings,
@@ -30,6 +31,7 @@ import { AdminUsers } from "./AdminUsers";
 import { AdminInfortunistica } from "./AdminInfortunistica";
 import { AdminCassa } from "./AdminCassa";
 import { AdminPagamenti } from "./AdminPagamenti";
+import { AdminFatturazione } from "./AdminFatturazione";
 import {
   permissionListHas,
   type PermissionId,
@@ -109,6 +111,7 @@ type TabId =
   | "infortunistica"
   | "cassa-totale"
   | "cassa-pagamenti"
+  | "cassa-fatturazione"
   | "cassa-modena"
   | "cassa-sassuolo"
   | "impostazioni"
@@ -157,6 +160,7 @@ const UTENTI_ITEM: MenuItem = { id: "utenti", label: "Utenti", Icon: KeyRound };
 const CASSA_ITEMS: MenuItem[] = [
   { id: "cassa-totale", label: "Totale sedi", Icon: WalletCards },
   { id: "cassa-pagamenti", label: "Pagamenti", Icon: ReceiptText },
+  { id: "cassa-fatturazione", label: "Fatturazione", Icon: FileText },
   { id: "cassa-modena", label: "Modena", Icon: WalletCards },
   { id: "cassa-sassuolo", label: "Sassuolo", Icon: WalletCards },
 ];
@@ -171,6 +175,7 @@ const adminPathForTarget = (area: AreaId, tab: TabId) => {
 
   if (area === "cassa") {
     if (tab === "cassa-pagamenti") return "/admin/cassa/pagamenti";
+    if (tab === "cassa-fatturazione") return "/admin/cassa/fatturazione";
     if (tab === "cassa-modena") return "/admin/cassa/modena";
     if (tab === "cassa-sassuolo") return "/admin/cassa/sassuolo";
     return "/admin/cassa/totale";
@@ -202,6 +207,7 @@ const routeTargetFromPath = (path: string): { area: AreaId; tab: TabId } | null 
 
   if (section === "cassa") {
     if (rawTab === "pagamenti") return { area: "cassa", tab: "cassa-pagamenti" };
+    if (rawTab === "fatturazione") return { area: "cassa", tab: "cassa-fatturazione" };
     if (rawTab === "modena") return { area: "cassa", tab: "cassa-modena" };
     if (rawTab === "sassuolo") return { area: "cassa", tab: "cassa-sassuolo" };
     return { area: "cassa", tab: "cassa-totale" };
@@ -250,6 +256,7 @@ const permessoVoce = (area: AreaId, tab: TabId): PermissionId | null => {
     if (tab === "cassa-totale") return "cassa";
     if (tab === "cassa-modena") return "cassa.modena";
     if (tab === "cassa-sassuolo") return "cassa.sassuolo";
+    if (tab === "cassa-fatturazione") return "admin";
     if (tab === "cassa-pagamenti") return null;
   }
   if (area === "laboratorio") {
@@ -663,6 +670,8 @@ function AdminDashboard({
             {activeTab === "cassa-totale" && <AdminCassa scope="tutte" />}
 
             {activeTab === "cassa-pagamenti" && <AdminPagamenti scope={pagamentiScope} />}
+
+            {activeTab === "cassa-fatturazione" && <AdminFatturazione />}
 
             {activeTab === "cassa-modena" && <AdminCassa scope="modena" />}
 

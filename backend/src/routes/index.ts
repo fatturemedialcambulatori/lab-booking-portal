@@ -12,6 +12,7 @@ import adminSettingsRouter from "./adminSettings";
 import infortunisticaRouter from "./infortunistica";
 import cassaRouter from "./cassa";
 import paymentsRouter from "./payments";
+import fatturazioneRouter from "./fatturazione";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(adminSettingsRouter);
 router.use(infortunisticaRouter);
 router.use(cassaRouter);
 router.use(paymentsRouter);
+router.use(fatturazioneRouter);
 
 export default router;
