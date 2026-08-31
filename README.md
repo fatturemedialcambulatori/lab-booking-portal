@@ -41,6 +41,13 @@ URL locali predefiniti:
 - Backend: `http://127.0.0.1:5100`
 - Frontend: `http://localhost:3000`
 
+## Deploy iniziale
+
+1. Applica su Supabase la migration `backend/supabase/2026-08-31-security-access-audit.sql`.
+2. Deploya il backend impostando almeno `DATABASE_URL`, `AUTH_SECRET`, `APP_ORIGIN`, `CORS_ORIGINS` e gli eventuali segreti Supabase/Aruba.
+3. Deploya il frontend impostando solo `NEXT_PUBLIC_API_BASE_URL` con l'URL pubblico del backend.
+4. Verifica `/api/healthz`, poi accedi come admin e controlla `Impostazioni > Log`.
+
 ## Variabili
 
 Backend:
