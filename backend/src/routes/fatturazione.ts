@@ -24,6 +24,7 @@ const handleArubaError = (err: unknown, res: Response) => {
       providerMessage: err.providerMessage,
       operation: err.operation,
       hint: err.hint,
+      retryAfterSeconds: err.retryAfterSeconds,
     });
     return;
   }

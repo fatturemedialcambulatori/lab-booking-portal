@@ -43,12 +43,13 @@ export class ArubaFatturazioneError extends Error {
   readonly providerMessage?: string;
   readonly operation?: string;
   readonly hint?: string;
+  readonly retryAfterSeconds?: number;
 
   constructor(
     statusCode: number,
     message: string,
     providerStatus?: number,
-    options: { providerMessage?: string; operation?: string; hint?: string } = {},
+    options: { providerMessage?: string; operation?: string; hint?: string; retryAfterSeconds?: number } = {},
   ) {
     super(message);
     this.name = "ArubaFatturazioneError";
@@ -57,6 +58,7 @@ export class ArubaFatturazioneError extends Error {
     this.providerMessage = options.providerMessage;
     this.operation = options.operation;
     this.hint = options.hint;
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 }
 
@@ -76,6 +78,8 @@ const SENSITIVE_PAYLOAD_KEYS = new Set([
 ]);
 
 let tokenCache: ArubaTokenCache | null = null;
+let tokenRefreshInFlight: { cacheKey: string; promise: Promise<string> } | null = null;
+let providerCooldownUntilMs = 0;
 
 const cleanEnv = (value: string | undefined) => value?.trim().replace(/^(['"])(.*)\1$/, "$2") ?? "";
 
@@ -181,6 +185,38 @@ const withTimeout = async (url: string, init: RequestInit, timeoutMs: number) =>
   }
 };
 
+const retryAfterSecondsFromHeader = (value: string | null) => {
+  if (!value) return null;
+  const seconds = Number.parseInt(value, 10);
+  if (Number.isFinite(seconds) && seconds > 0) return Math.min(seconds, 300);
+
+  const dateMs = Date.parse(value);
+  if (!Number.isNaN(dateMs)) {
+    return Math.min(300, Math.max(1, Math.ceil((dateMs - Date.now()) / 1000)));
+  }
+
+  return null;
+};
+
+const cooldownSecondsRemaining = () =>
+  providerCooldownUntilMs > Date.now() ? Math.ceil((providerCooldownUntilMs - Date.now()) / 1000) : 0;
+
+const assertNoProviderCooldown = (operation: string) => {
+  const retryAfterSeconds = cooldownSecondsRemaining();
+  if (retryAfterSeconds <= 0) return;
+
+  throw new ArubaFatturazioneError(
+    429,
+    "Limite chiamate Aruba attivo",
+    429,
+    {
+      operation,
+      retryAfterSeconds,
+      hint: `Attendi circa ${retryAfterSeconds} secondi prima di riprovare.`,
+    },
+  );
+};
+
 const sanitizeProviderMessage = (value: unknown) => {
   const cleaned = readString(value).replace(/\s+/g, " ");
   return cleaned.slice(0, 240);
@@ -220,14 +256,18 @@ const arubaErrorMessage = (status: number, operation: string) => {
   return `${operation}: Aruba ha rifiutato o non ha completato la richiesta`;
 };
 
-const arubaErrorHint = (status: number, operation: string) => {
+const arubaErrorHint = (status: number, operation: string, retryAfterSeconds?: number) => {
   if (status === 400 && operation.includes("fatture")) {
     return "Controlla intervallo date, ambiente e Partita IVA mittente/destinatario configurata nel backend.";
   }
   if (status === 400) return "Controlla i parametri inviati e la configurazione Aruba nel backend.";
   if (status === 401) return "Controlla ARUBA_FE_ENVIRONMENT, username e password Aruba. Demo e produzione usano credenziali e host separati.";
   if (status === 403) return "Verifica che l'utenza Aruba abbia accesso API alla funzione richiesta.";
-  if (status === 429) return "Attendi almeno un minuto prima di riprovare: Aruba limita login e ricerche per IP.";
+  if (status === 429) {
+    return retryAfterSeconds
+      ? `Attendi circa ${retryAfterSeconds} secondi prima di riprovare: Aruba limita login e ricerche per IP.`
+      : "Attendi almeno un minuto prima di riprovare: Aruba limita login e ricerche per IP.";
+  }
   if (status >= 500) return "Riprova piu tardi o verifica lo stato del servizio Aruba.";
   return undefined;
 };
@@ -238,10 +278,17 @@ const fetchJson = async <T>(
   timeoutMs: number,
   operation: string,
 ): Promise<T> => {
+  assertNoProviderCooldown(operation);
   const response = await withTimeout(url, init, timeoutMs);
   const text = await response.text();
 
   if (!response.ok) {
+    const retryAfterSeconds = response.status === 429
+      ? retryAfterSecondsFromHeader(response.headers.get("retry-after")) ?? 60
+      : undefined;
+    if (retryAfterSeconds) {
+      providerCooldownUntilMs = Math.max(providerCooldownUntilMs, Date.now() + retryAfterSeconds * 1000);
+    }
     const providerPayload = parseProviderPayload(text);
     const providerMessage = typeof providerPayload === "string"
       ? providerPayload
@@ -253,7 +300,8 @@ const fetchJson = async <T>(
       {
         providerMessage,
         operation,
-        hint: arubaErrorHint(response.status, operation),
+        hint: arubaErrorHint(response.status, operation, retryAfterSeconds),
+        retryAfterSeconds,
       },
     );
   }
@@ -322,7 +370,16 @@ const getAccessToken = async (config: ArubaFatturazioneConfig) => {
     return tokenCache.accessToken;
   }
 
-  return signIn(config);
+  if (tokenRefreshInFlight?.cacheKey === cacheKey) return tokenRefreshInFlight.promise;
+
+  const promise = signIn(config).finally(() => {
+    if (tokenRefreshInFlight?.cacheKey === cacheKey) {
+      tokenRefreshInFlight = null;
+    }
+  });
+  tokenRefreshInFlight = { cacheKey, promise };
+
+  return promise;
 };
 
 const authorizedGet = async <T>(config: ArubaFatturazioneConfig, url: string) => {

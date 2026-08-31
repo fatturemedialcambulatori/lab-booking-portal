@@ -98,6 +98,7 @@ type FatturazioneApiErrorPayload = {
   providerMessage?: string;
   operation?: string;
   hint?: string;
+  retryAfterSeconds?: number;
 };
 
 class FatturazioneApiError extends Error {
@@ -106,6 +107,7 @@ class FatturazioneApiError extends Error {
   readonly providerMessage?: string;
   readonly operation?: string;
   readonly hint?: string;
+  readonly retryAfterSeconds?: number;
 
   constructor(statusCode: number, payload: FatturazioneApiErrorPayload) {
     super(payload.error || "Servizio fatturazione non disponibile");
@@ -115,6 +117,7 @@ class FatturazioneApiError extends Error {
     this.providerMessage = payload.providerMessage;
     this.operation = payload.operation;
     this.hint = payload.hint;
+    this.retryAfterSeconds = payload.retryAfterSeconds;
   }
 }
 
@@ -179,6 +182,7 @@ const describeError = (err: unknown) => {
   return [
     err.message,
     err.providerStatus ? `Codice Aruba: ${err.providerStatus}` : null,
+    err.retryAfterSeconds ? `Riprova tra circa ${err.retryAfterSeconds} secondi` : null,
     err.providerMessage ? `Dettaglio Aruba: ${err.providerMessage}` : null,
     err.hint,
   ].filter(Boolean).join(" · ");
