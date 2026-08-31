@@ -280,14 +280,14 @@ type MenuGroup = {
 };
 
 const WORKFLOW_ITEMS: MenuItem[] = [
-  { id: "accettazione", label: "Accettazione", Icon: UserCheck },
   { id: "prenotazioni", label: "Agenda", Icon: CalendarDays },
+  { id: "accettazione", label: "Accettazione", Icon: UserCheck },
   { id: "listino", label: "Listino Esami", Icon: FlaskConical },
 ];
 
 const AMBULATORIO_ITEMS: MenuItem[] = [
-  { id: "accettazione", label: "Accettazione", Icon: UserCheck },
   { id: "prenotazioni", label: "Agenda", Icon: CalendarDays },
+  { id: "accettazione", label: "Accettazione", Icon: UserCheck },
   { id: "organizzazione-ambulatorio", label: "Organizzazione", Icon: Building2 },
   { id: "listino", label: "Prestazioni", Icon: Stethoscope },
 ];
@@ -368,18 +368,18 @@ const routeTargetFromPath = (path: string): { area: AreaId; tab: TabId } | null 
 
 const MENU_GROUPS: MenuGroup[] = [
   {
-    id: "laboratorio",
-    label: "Laboratorio",
-    subtitle: "Analisi e referti",
-    Icon: FlaskConical,
-    items: WORKFLOW_ITEMS,
-  },
-  {
     id: "ambulatorio",
     label: "Ambulatorio",
     subtitle: "Visite e prestazioni",
     Icon: UserCheck,
     items: AMBULATORIO_ITEMS,
+  },
+  {
+    id: "laboratorio",
+    label: "Laboratorio",
+    subtitle: "Analisi e referti",
+    Icon: FlaskConical,
+    items: WORKFLOW_ITEMS,
   },
   {
     id: "cassa",

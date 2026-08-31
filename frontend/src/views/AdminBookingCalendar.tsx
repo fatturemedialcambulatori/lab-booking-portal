@@ -13,7 +13,9 @@ import {
 import { it } from "date-fns/locale";
 import {
   AlertTriangle,
+  Banknote,
   Building2,
+  CalendarCheck,
   CalendarDays,
   Check,
   ChevronLeft,
@@ -21,17 +23,21 @@ import {
   ChevronsUpDown,
   ClipboardList,
   Clock,
+  CreditCard,
   Download,
   FileText,
+  Mail,
   MoreVertical,
   Plane,
   Plus,
   Printer,
   Search,
   Settings,
+  Stethoscope,
   Trash2,
   UserPlus,
   UserRound,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -201,6 +207,9 @@ type PrenotazioneAgenda = {
   pagata?: boolean;
   importoFatturato?: number | string;
   fatturata?: boolean;
+  numeroFattura?: string;
+  dataFattura?: string;
+  metodoPagamento?: string;
   overbooking?: boolean;
   waitlistItemId?: string;
 };
@@ -1228,6 +1237,28 @@ const aggiungiMinutiOra = (ora: string, durata: number) => {
   return formattaOraMinuti(totale);
 };
 
+const leggiImporto = (value: number | string | undefined) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value !== "string") return 0;
+  const parsed = Number(value.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formattaEuro = (value: number | string | undefined) =>
+  new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(leggiImporto(value));
+
+const formattaDataAgenda = (value: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value || "-";
+  return format(new Date(`${value}T12:00:00`), "EEE d MMM yyyy", { locale: it });
+};
+
+const statoAgendaToBookingStatus = (stato: StatoPrenotazione) => {
+  if (stato === "accettata") return "accepted";
+  if (stato === "completata") return "completed";
+  if (stato === "annullata") return "cancelled";
+  return "confirmed";
+};
+
 const slugFile = (value: string) =>
   normalizza(value)
     .replace(/[^a-z0-9]+/g, "-")
@@ -1534,6 +1565,9 @@ export function AdminBookingCalendar({
     leggiAssegnazioniRisorseLocali(),
   );
   const [appuntamentoDraft, setAppuntamentoDraft] = React.useState<NuovoAppuntamentoDraft | null>(null);
+  const [appuntamentoSelezionatoId, setAppuntamentoSelezionatoId] = React.useState<string | null>(null);
+  const [salvataggioPannelloAccettazione, setSalvataggioPannelloAccettazione] = React.useState(false);
+  const [pazientePannelloAccettazione, setPazientePannelloAccettazione] = React.useState<PazienteAgenda | null>(null);
   const [pazientiAgenda, setPazientiAgenda] = React.useState<PazienteAgenda[]>([]);
   const [pazientiLoading, setPazientiLoading] = React.useState(false);
   const [salvataggioAppuntamento, setSalvataggioAppuntamento] = React.useState(false);
@@ -1910,6 +1944,68 @@ export function AdminBookingCalendar({
       );
     }).sort((a, b) => `${a.data}${a.ora}`.localeCompare(`${b.data}${b.ora}`));
   }, [area, mediciAgenda, mediciArea, prenotazioniAgenda, search, sede, selectedMediciSet, visibleDateKeys]);
+
+  const appuntamentoSelezionato = React.useMemo(
+    () => prenotazioniAgenda.find((prenotazione) => prenotazione.id === appuntamentoSelezionatoId) ?? null,
+    [appuntamentoSelezionatoId, prenotazioniAgenda],
+  );
+  const medicoAppuntamentoSelezionato = React.useMemo(
+    () => mediciAgenda.find((medico) => medico.id === appuntamentoSelezionato?.medicoId) ?? null,
+    [appuntamentoSelezionato?.medicoId, mediciAgenda],
+  );
+  const pazienteLocaleAppuntamentoSelezionato = React.useMemo(
+    () =>
+      pazientiAgenda.find((paziente) => String(paziente.id) === String(appuntamentoSelezionato?.pazienteId ?? "")) ?? null,
+    [appuntamentoSelezionato?.pazienteId, pazientiAgenda],
+  );
+
+  React.useEffect(() => {
+    if (!appuntamentoSelezionatoId) return;
+    if (appuntamentoSelezionato) return;
+    setAppuntamentoSelezionatoId(null);
+    setPazientePannelloAccettazione(null);
+  }, [appuntamentoSelezionato, appuntamentoSelezionatoId]);
+
+  React.useEffect(() => {
+    if (!appuntamentoSelezionato?.pazienteId) {
+      setPazientePannelloAccettazione(null);
+      return;
+    }
+    if (pazienteLocaleAppuntamentoSelezionato) {
+      setPazientePannelloAccettazione(pazienteLocaleAppuntamentoSelezionato);
+      return;
+    }
+
+    const patientId = Number(appuntamentoSelezionato.pazienteId);
+    if (!Number.isInteger(patientId) || patientId <= 0) {
+      setPazientePannelloAccettazione(null);
+      return;
+    }
+
+    let active = true;
+    fetch(`/api/patients/${patientId}/history`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Paziente non disponibile");
+        return response.json() as Promise<{ patient?: unknown }>;
+      })
+      .then((data) => {
+        const patient = data.patient;
+        if (!active || !isPazienteAgenda(patient)) return;
+        setPazientePannelloAccettazione(patient);
+        setPazientiAgenda((correnti) => {
+          const map = new Map(correnti.map((paziente) => [paziente.id, paziente]));
+          map.set(patient.id, patient);
+          return Array.from(map.values());
+        });
+      })
+      .catch(() => {
+        if (active) setPazientePannelloAccettazione(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [appuntamentoSelezionato?.pazienteId, pazienteLocaleAppuntamentoSelezionato]);
 
   const mediciConDisponibilita = React.useMemo(
     () =>
@@ -2786,6 +2882,57 @@ export function AdminBookingCalendar({
     }
   };
 
+  const aggiornaAppuntamentoDaPannello = React.useCallback(
+    async (patch: Partial<PrenotazioneAgenda>) => {
+      if (!appuntamentoSelezionato) return;
+
+      const precedente = appuntamentoSelezionato;
+      const prossimoStatoPagamento = patch.paymentStatus ?? patch.statoPagamento ?? precedente.paymentStatus ?? precedente.statoPagamento;
+      const aggiornato: PrenotazioneAgenda = {
+        ...precedente,
+        ...patch,
+        paymentStatus: prossimoStatoPagamento,
+        statoPagamento: prossimoStatoPagamento,
+        pagata: patch.pagata ?? (prossimoStatoPagamento ? prossimoStatoPagamento === "paid" : precedente.pagata),
+      };
+
+      setSalvataggioPannelloAccettazione(true);
+      setPrenotazioniSalvate((correnti) => unisciPrenotazioniAgenda(correnti, [aggiornato]));
+
+      try {
+        const response = await fetch("/api/agenda-appointments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(aggiornato),
+        });
+        if (!response.ok) throw new Error("Salvataggio appuntamento non riuscito");
+
+        if (typeof aggiornato.labBookingId === "number" && patch.stato) {
+          await fetch(`/api/bookings/${aggiornato.labBookingId}/status`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: statoAgendaToBookingStatus(patch.stato) }),
+          }).catch(() => undefined);
+        }
+
+        toast({ title: "Notifica", description: "Appuntamento aggiornato." });
+      } catch (error) {
+        setPrenotazioniSalvate((correnti) => unisciPrenotazioniAgenda(correnti, [precedente]));
+        toast({
+          title: "Attenzione",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Non riesco ad aggiornare l'appuntamento.",
+          variant: "destructive",
+        });
+      } finally {
+        setSalvataggioPannelloAccettazione(false);
+      }
+    },
+    [appuntamentoSelezionato],
+  );
+
   const goPrevious = () =>
     setCurrentDate((date) => addDays(date, view === "giorno" ? -1 : -7));
   const goNext = () =>
@@ -3421,8 +3568,12 @@ export function AdminBookingCalendar({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <div className="flex h-full min-h-0 flex-col">
+          <div
+            className={`min-h-0 flex-1 overflow-hidden ${
+              appuntamentoSelezionato ? "xl:grid xl:grid-cols-[minmax(0,1fr)_400px]" : ""
+            }`}
+          >
+            <div className="flex h-full min-h-0 flex-col overflow-hidden">
               <div className="min-h-0 flex-1 overflow-hidden">
                 {view === "ore-disponibili" ? (
                   <AvailableHoursView
@@ -3445,10 +3596,30 @@ export function AdminBookingCalendar({
                     resourceAssignments={assegnazioniRisorseValide}
                     onOpenDoctor={onOpenDoctor}
                     onSlotClick={apriNuovoAppuntamento}
+                    onAppointmentClick={(appointment) => setAppuntamentoSelezionatoId(appointment.id)}
                   />
                 )}
               </div>
             </div>
+            {appuntamentoSelezionato && (
+              <AppointmentAcceptancePanel
+                appointment={appuntamentoSelezionato}
+                doctor={medicoAppuntamentoSelezionato}
+                patient={pazientePannelloAccettazione ?? pazienteLocaleAppuntamentoSelezionato}
+                saving={salvataggioPannelloAccettazione}
+                onClose={() => setAppuntamentoSelezionatoId(null)}
+                onAccept={() => void aggiornaAppuntamentoDaPannello({ stato: "accettata" })}
+                onComplete={() => void aggiornaAppuntamentoDaPannello({ stato: "completata" })}
+                onCancel={() => void aggiornaAppuntamentoDaPannello({ stato: "annullata" })}
+                onPaymentChange={(paymentStatus) =>
+                  void aggiornaAppuntamentoDaPannello({
+                    paymentStatus,
+                    statoPagamento: paymentStatus,
+                    pagata: paymentStatus === "paid",
+                  })
+                }
+              />
+            )}
           </div>
         </section>
       </div>
@@ -5727,6 +5898,7 @@ function DayCalendar({
   resourceAssignments,
   onOpenDoctor,
   onSlotClick,
+  onAppointmentClick,
 }: {
   date: Date;
   doctors: MedicoAgenda[];
@@ -5736,6 +5908,7 @@ function DayCalendar({
   resourceAssignments: AssegnazioneRisorsaGiorno[];
   onOpenDoctor?: (doctorId: string) => void;
   onSlotClick?: (doctor: MedicoAgenda, date: Date, slot: number, sede?: SedeOperativa) => void;
+  onAppointmentClick?: (appointment: PrenotazioneAgenda) => void;
 }) {
   const appointmentsByDoctor = new Map<string, PrenotazioneAgenda[]>();
   appointments.forEach((appointment) => {
@@ -5922,6 +6095,7 @@ function DayCalendar({
                     key={appointment.id}
                     appointment={appointment}
                     doctor={doctor}
+                    onClick={() => onAppointmentClick?.(appointment)}
                   />
                 ))}
                 </div>
@@ -6081,14 +6255,203 @@ function MonthCalendar({
   );
 }
 
+function AppointmentAcceptancePanel({
+  appointment,
+  doctor,
+  patient,
+  saving,
+  onClose,
+  onAccept,
+  onComplete,
+  onCancel,
+  onPaymentChange,
+}: {
+  appointment: PrenotazioneAgenda;
+  doctor: MedicoAgenda | null;
+  patient: PazienteAgenda | null;
+  saving: boolean;
+  onClose: () => void;
+  onAccept: () => void;
+  onComplete: () => void;
+  onCancel: () => void;
+  onPaymentChange: (paymentStatus: "unpaid" | "paid") => void;
+}) {
+  const paymentStatus = appointment.paymentStatus ?? appointment.statoPagamento ?? (appointment.pagata ? "paid" : "unpaid");
+  const isPaid = paymentStatus === "paid";
+  const nomePaziente = patient ? nomePazienteAgenda(patient) : appointment.paziente;
+  const telefono = patient?.phone || appointment.pazienteTelefono || "-";
+  const email = patient?.email || appointment.pazienteEmail || "-";
+  const dataNascita = patient?.dateOfBirth ? formattaDataAgenda(patient.dateOfBirth) : "-";
+  const codiceFiscale = patient?.codiceFiscale || "-";
+  const sedeLabel = appointment.sede === "modena" ? "Modena" : "Sassuolo";
+  const areaLabel = appointment.area === "ambulatorio" ? "Ambulatorio" : "Laboratorio";
+  const statoClass =
+    appointment.stato === "annullata"
+      ? "border-red-200 bg-red-50 text-red-800"
+      : appointment.stato === "completata"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+        : appointment.stato === "accettata"
+          ? "border-sky-200 bg-sky-50 text-sky-800"
+          : "border-teal-200 bg-teal-50 text-teal-800";
+
+  return (
+    <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[430px] flex-col border-l border-border bg-[#f7f8f6] shadow-2xl xl:static xl:z-auto xl:h-full xl:max-w-none xl:shadow-none">
+      <div className="flex items-center justify-between border-b border-border bg-white px-4 py-3">
+        <Badge variant="outline" className={statoClass}>
+          {statoLabel(appointment.stato)}
+        </Badge>
+        <div className="flex items-center gap-1">
+          <Button type="button" variant="ghost" size="icon" disabled title="Fattura non ancora attiva">
+            <FileText className="h-4 w-4" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Chiudi accettazione">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        <section className="rounded-md border border-border bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="truncate text-lg font-semibold text-foreground">{nomePaziente}</h3>
+              <p className="text-sm text-muted-foreground">{patient?.gender ? `${patient.gender} · ` : ""}Paziente</p>
+            </div>
+            <Badge variant="secondary">#{appointment.pazienteId ?? appointment.id}</Badge>
+          </div>
+
+          <div className="space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <CalendarDays className="h-4 w-4" />
+              <span>Data di nascita: {dataNascita}</span>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <CreditCard className="h-4 w-4" />
+              <span>CF: {codiceFiscale}</span>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Mail className="h-4 w-4" />
+              <span className="truncate">{email}</span>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <UserRound className="h-4 w-4" />
+              <span>{telefono}</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-md border border-border bg-white p-4 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-foreground">Dettagli appuntamento</h3>
+            <Badge variant="outline">{areaLabel}</Badge>
+          </div>
+
+          <div className="space-y-3 text-sm">
+            <DetailRow icon={<CalendarCheck className="h-4 w-4" />} label="Giorno" value={formattaDataAgenda(appointment.data)} />
+            <DetailRow icon={<Clock className="h-4 w-4" />} label="Orario" value={`${appointment.ora} - ${aggiungiMinutiOra(appointment.ora, appointment.durata)}`} />
+            <DetailRow icon={<UserRound className="h-4 w-4" />} label="Medico" value={doctor?.nome ?? "Medico non trovato"} />
+            <DetailRow icon={<Stethoscope className="h-4 w-4" />} label="Prestazione" value={appointment.prestazione} />
+            <DetailRow icon={<Building2 className="h-4 w-4" />} label="Sede" value={sedeLabel} />
+            <DetailRow icon={<Clock className="h-4 w-4" />} label="Durata" value={`${appointment.durata} min`} />
+          </div>
+
+          {appointment.note && (
+            <div className="mt-4 rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+              {appointment.note}
+            </div>
+          )}
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {appointment.stato === "confermata" && (
+              <Button type="button" onClick={onAccept} disabled={saving} className="gap-2">
+                <Check className="h-4 w-4" />
+                Accetta
+              </Button>
+            )}
+            {appointment.stato === "accettata" && (
+              <Button type="button" onClick={onComplete} disabled={saving} className="gap-2">
+                <Check className="h-4 w-4" />
+                Completa
+              </Button>
+            )}
+            {appointment.stato !== "annullata" && appointment.stato !== "completata" && (
+              <Button type="button" variant="outline" onClick={onCancel} disabled={saving} className="gap-2">
+                <X className="h-4 w-4" />
+                Annulla
+              </Button>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-md border border-border bg-white p-4 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-foreground">Pagamento</h3>
+            <Badge variant={isPaid ? "default" : "outline"}>{isPaid ? "Pagato" : "Non pagato"}</Badge>
+          </div>
+
+          <div className="space-y-3 text-sm">
+            <DetailRow icon={<Banknote className="h-4 w-4" />} label="Importo" value={formattaEuro(appointment.importoFatturato)} />
+            <DetailRow icon={<CreditCard className="h-4 w-4" />} label="Metodo" value={appointment.metodoPagamento || "Da definire"} />
+            <DetailRow icon={<FileText className="h-4 w-4" />} label="Fattura" value={appointment.numeroFattura || "Non emessa"} />
+          </div>
+
+          {!isPaid && (
+            <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              Il pagamento risulta ancora aperto.
+            </div>
+          )}
+
+          <div className="mt-4 grid gap-2">
+            <Button
+              type="button"
+              variant={isPaid ? "outline" : "default"}
+              onClick={() => onPaymentChange(isPaid ? "unpaid" : "paid")}
+              disabled={saving}
+              className="gap-2"
+            >
+              <Banknote className="h-4 w-4" />
+              {isPaid ? "Riporta a non pagato" : "Segna come pagato"}
+            </Button>
+            <Button type="button" variant="outline" disabled className="gap-2">
+              <FileText className="h-4 w-4" />
+              Crea fattura
+            </Button>
+          </div>
+        </section>
+      </div>
+
+      <div className="grid gap-2 border-t border-border bg-white p-4 sm:grid-cols-2">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Chiudi
+        </Button>
+        <Button type="button" disabled>
+          Salva
+        </Button>
+      </div>
+    </aside>
+  );
+}
+
+function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[22px_92px_minmax(0,1fr)] items-center gap-2">
+      <span className="text-muted-foreground">{icon}</span>
+      <span className="text-xs font-medium uppercase text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate text-foreground">{value || "-"}</span>
+    </div>
+  );
+}
+
 function PositionedAppointment({
   appointment,
   doctor,
   compact,
+  onClick,
 }: {
   appointment: PrenotazioneAgenda;
   doctor: MedicoAgenda;
   compact?: boolean;
+  onClick?: () => void;
 }) {
   const start = minutiDaOra(appointment.ora);
   const top = ((start - ORA_INIZIO * 60) / SLOT_MINUTES) * SLOT_HEIGHT;
@@ -6103,8 +6466,11 @@ function PositionedAppointment({
           : "border-emerald-200 bg-emerald-50 text-emerald-950";
 
   return (
-    <div
-      className={`absolute left-1.5 right-1.5 z-20 overflow-hidden rounded-md border p-1.5 shadow-sm ${statusClass}`}
+    <button
+      type="button"
+      disabled={!onClick}
+      onClick={onClick}
+      className={`absolute left-1.5 right-1.5 z-20 overflow-hidden rounded-md border p-1.5 text-left shadow-sm transition-shadow enabled:hover:shadow-md enabled:focus-visible:outline-none enabled:focus-visible:ring-2 enabled:focus-visible:ring-primary/40 disabled:cursor-default ${statusClass}`}
       style={{ top, height }}
       title={`${appointment.ora} ${appointment.paziente} - ${appointment.prestazione}${appointment.note ? ` - ${appointment.note}` : ""}`}
     >
@@ -6129,7 +6495,7 @@ function PositionedAppointment({
           </span>
         </div>
       )}
-    </div>
+    </button>
   );
 }
 
